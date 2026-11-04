@@ -19,6 +19,14 @@ APP="$ROOT/build/$APP_NAME.app"
 ICON_PNG="$ROOT/Resources/AppIcon.png"
 GEOJSON="$ROOT/Sources/MapLock/Resources/countries.geojson"
 
+# Remove Finder info, resource forks and other extra data that codesign rejects.
+clean_app() {
+    xattr -cr "$1" 2>/dev/null || true
+    find "$1" -name '._*' -delete 2>/dev/null || true
+    if command -v dot_clean >/dev/null 2>&1; then dot_clean -m "$1" 2>/dev/null || true; fi
+    xattr -cr "$1" 2>/dev/null || true
+}
+
 echo "==> Building (release). The first build can take a minute."
 swift build -c release
 BIN_DIR="$(swift build -c release --show-bin-path)"
@@ -34,6 +42,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/MapLock"
 chmod +x "$APP/Contents/MacOS/MapLock"
 cp "$GEOJSON" "$APP/Contents/Resources/countries.geojson"
+clean_app "$APP"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -88,9 +97,10 @@ else
     echo "    (No icon found at $ICON_PNG, using the default icon.)"
 fi
 
-xattr -cr "$APP"
+clean_app "$APP"
 if [ "${NO_SIGN:-0}" != "1" ]; then
     echo "==> Signing (ad hoc, for this Mac only)"
+    clean_app "$APP"
     codesign --force --deep -s - "$APP"
 fi
 
