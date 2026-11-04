@@ -4,9 +4,9 @@
 
 <p align="center">A small Mac app that makes you name a few countries before you get back to work.</p>
 
-<p align="center"><a href="https://github.com/oiwdis/map-lock/releases/latest"><b>Download for Mac</b></a> &nbsp;·&nbsp; <a href="https://map-lock.elliot-7c9.workers.dev/demo">Try it in your browser</a></p>
+<p align="center"><a href="https://github.com/oiwdis/map-lock/releases/latest"><b>Download for Mac</b></a> &nbsp;·&nbsp; <a href="https://map-lock.elliot-7c9.workers.dev">Try it in your browser</a></p>
 
-![A country highlighted on the map in Map Lock](docs/screenshot-europe.png)
+![Europe in multiple choice: a country is highlighted and you pick its name](docs/screenshot-europe.png)
 
 ## What it is
 
@@ -16,7 +16,12 @@ or at a random time each day. It lives in your Dock and in the menu bar (the glo
 
 | | |
 |---|---|
-| ![North America](docs/screenshot-north-america.png) | ![Caribbean](docs/screenshot-caribbean.png) |
+| ![Asia, click the country: a right answer](docs/screenshot-asia-click.png) | ![Africa, click the country: a wrong answer in red, the right one in yellow](docs/screenshot-africa-click.png) |
+| Asia, click the country. Small countries have a dot. | Africa, click the country. Wrong in red, the right one in yellow. |
+
+![Dark mode](docs/screenshot-dark.png)
+
+Dark mode is there too, or let it match your Mac.
 
 ## Download
 
@@ -49,8 +54,8 @@ Click the Map Lock icon in the Dock to open the home window. There you can:
 - **Answer style** (for Name the country): Multiple choice, Type the name, or a mix of both.
 - **Regions**: pick which parts of the world to study (Africa, Asia, Europe, North America, South America).
   Africa and Asia are on at first. At least one stays on.
-  Asia and North America are shown in smaller views (for example Central America
-  or the Caribbean) so small countries are easy to see.
+  In Name the country, some countries are shown in a closer view (for example Central America)
+  so small countries are easy to see.
 - **When to quiz**: see below.
 - **Open at login**: start Map Lock by itself when you log in.
 - **Hide Map Lock**: closes the window. Map Lock keeps running so quizzes still show.
@@ -88,7 +93,7 @@ that takes you there.
   (for example "Ivory Coast", "Burma", "DRC", "W. Sahara"), and small typos are OK.
 - Click the country: the whole region is shown. Click the country that is named. Right turns it green
   and the next question comes by itself. Wrong flashes the country you clicked in red and shows the
-  right one in yellow; it counts as a miss and comes back later. A click in the sea does nothing.
+  right one in yellow (small ones also get a ring); it counts as a miss and comes back later. A click in the sea does nothing.
   Very small islands and microstates have a dot you can click (for example the Maldives, Singapore,
   Malta or Seychelles). Other small countries are clicked by their shape, and a click just outside
   the edge still counts.
@@ -133,7 +138,6 @@ The app icon is `Resources/AppIcon.png`. To make a signed and notarized release,
 ## Good to know
 
 - This is a study tool, not real security. It does not protect your Mac, and Emergency skip always works.
-- Palestine is drawn on the map but is not asked, and a click on it counts like the sea.
 - Each map shows only the countries of the region you are studying. Land from other regions is
   left out and looks like sea.
 - North America has 16 countries. The small island countries of the eastern Caribbean (Antigua and
