@@ -1,0 +1,515 @@
+import AppKit
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private var statusItem: NSStatusItem?
+    private let overlay = OverlayController()
+    private let settings = AppSettings()
+    private let schedule = ScheduleStore()
+    private let stats = StatsStore()
+    private let deck = DeckStore()
+    private var world: [Country] = []
+    private var loadError: String? = nil
+    private var home: HomeWindowController?
+    private var scheduleTimer: Timer?
+    /// True while the screen is locked, asleep, or another user is active.
+    private var isLocked = false
+    /// The home window is hidden during a quiz and comes back after.
+    private var homeWasVisible = false
+
+    private static let launchedBeforeKey = "maplock.launchedBefore"
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        loadWorld()
+        setUpMainMenu()
+        setUpStatusItem()
+        setUpHome()
+        setUpObservers()
+        startScheduleTimer()
+
+        overlay.onClosed = { [weak self] in
+            self?.quizClosed()
+        }
+
+        let firstLaunch = !UserDefaults.standard.bool(forKey: Self.launchedBeforeKey)
+        UserDefaults.standard.set(true, forKey: Self.launchedBeforeKey)
+        if firstLaunch || !settings.quizOnUnlock {
+            home?.show()
+        }
+
+        // Show one quiz right away when "Every unlock" is on (login counts as an unlock).
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard let self else { return }
+            if self.settings.quizOnUnlock {
+                self.startQuiz()
+            } else {
+                self.checkSchedule()
+            }
+        }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // Clicking the Dock icon opens the home window (not while a quiz is up).
+        if !overlay.isShowing {
+            home?.show()
+        }
+        return true
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        overlay.close()
+    }
+
+    // MARK: Map data
+
+    /// Finds countries.geojson. Inside Map Lock.app it is in Contents/Resources.
+    /// With `swift run` it is in the SwiftPM resource bundle next to the binary.
+    private func mapDataURL() -> URL? {
+        if let url = Bundle.main.url(forResource: "countries", withExtension: "geojson") {
+            return url
+        }
+        // Look for the SwiftPM bundle ourselves first. Bundle.module stops the app if it is missing.
+        let bundleName = "MapLock_MapLock.bundle"
+        var folders: [URL] = []
+        if let exe = Bundle.main.executableURL?.deletingLastPathComponent() { folders.append(exe) }
+        folders.append(Bundle.main.bundleURL)
+        if let res = Bundle.main.resourceURL { folders.append(res) }
+        let fm = FileManager.default
+        for folder in folders {
+            let bundleURL = folder.appendingPathComponent(bundleName)
+            if let b = Bundle(url: bundleURL), let url = b.url(forResource: "countries", withExtension: "geojson") {
+                return url
+            }
+            let direct = bundleURL.appendingPathComponent("countries.geojson")
+            if fm.fileExists(atPath: direct.path) { return direct }
+            let nested = bundleURL.appendingPathComponent("Contents/Resources/countries.geojson")
+            if fm.fileExists(atPath: nested.path) { return nested }
+        }
+        // Last resort for `swift run`.
+        return Bundle.module.url(forResource: "countries", withExtension: "geojson")
+    }
+
+    private func loadWorld() {
+        guard let url = mapDataURL() else {
+            loadError = "Map data file is missing."
+            return
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            world = try WorldLoader.parse(data)
+        } catch {
+            loadError = "Could not read map data: \(error.localizedDescription)"
+        }
+    }
+
+    /// Countries that can be asked with the current region choices.
+    private var pool: [String] {
+        let regions = settings.regions
+        return world.filter { $0.quizzable && regions.contains($0.region) }.map { $0.name }
+    }
+
+    // MARK: Quiz
+
+    func startQuiz() {
+        guard !overlay.isShowing, !world.isEmpty else { return }
+        let pool = self.pool
+        guard !pool.isEmpty else { return }
+        // Any quiz counts for a scheduled time that is due now.
+        schedule.markDueAsFired()
+        let session = QuizSession(world: world, pool: pool, mode: settings.mode,
+                                  stats: stats, deck: deck) { [weak self] in
+            self?.overlay.close()
+        }
+        homeWasVisible = home?.isVisible ?? false
+        if homeWasVisible { home?.hide() }
+        overlay.show(session: session)
+        if !overlay.isShowing && homeWasVisible {
+            homeWasVisible = false
+            home?.show()
+        }
+    }
+
+    private func quizClosed() {
+        // A time that came up while the quiz was open is covered by that quiz.
+        schedule.markDueAsFired()
+        home?.model.reload()
+        if homeWasVisible {
+            homeWasVisible = false
+            home?.show()
+        }
+    }
+
+    // MARK: Schedule
+
+    private func startScheduleTimer() {
+        let timer = Timer(timeInterval: 30, target: self, selector: #selector(timerFired(_:)),
+                          userInfo: nil, repeats: true)
+        timer.tolerance = 5
+        RunLoop.main.add(timer, forMode: .common)
+        scheduleTimer = timer
+    }
+
+    @objc private func timerFired(_ timer: Timer) {
+        checkSchedule()
+    }
+
+    /// Shows the quiz if a scheduled time has come today and has not fired yet.
+    private func checkSchedule() {
+        guard !overlay.isShowing, !isLocked, !world.isEmpty else { return }
+        if !schedule.dueSlots().isEmpty {
+            startQuiz()
+        }
+        if home?.isVisible == true {
+            home?.model.refreshStatus()
+        }
+    }
+
+    private func checkScheduleSoon() {
+        Task { @MainActor [weak self] in
+            // Give the desktop a moment to come back.
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            self?.checkSchedule()
+        }
+    }
+
+    // MARK: Lock, unlock, sleep, wake
+
+    private func setUpObservers() {
+        let dnc = DistributedNotificationCenter.default()
+        dnc.addObserver(self, selector: #selector(screenUnlocked(_:)),
+                        name: Notification.Name("com.apple.screenIsUnlocked"), object: nil)
+        dnc.addObserver(self, selector: #selector(screenLocked(_:)),
+                        name: Notification.Name("com.apple.screenIsLocked"), object: nil)
+
+        let wnc = NSWorkspace.shared.notificationCenter
+        wnc.addObserver(self, selector: #selector(didWake(_:)),
+                        name: NSWorkspace.didWakeNotification, object: nil)
+        wnc.addObserver(self, selector: #selector(screensSlept(_:)),
+                        name: NSWorkspace.screensDidSleepNotification, object: nil)
+        wnc.addObserver(self, selector: #selector(screensWoke(_:)),
+                        name: NSWorkspace.screensDidWakeNotification, object: nil)
+        wnc.addObserver(self, selector: #selector(sessionLeft(_:)),
+                        name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+        wnc.addObserver(self, selector: #selector(sessionBack(_:)),
+                        name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+    }
+
+    @objc private func screenLocked(_ note: Notification) {
+        isLocked = true
+    }
+
+    @objc private func screenUnlocked(_ note: Notification) {
+        isLocked = false
+        if settings.quizOnUnlock {
+            Task { @MainActor [weak self] in
+                // Give the desktop a moment to come back after unlocking.
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                self?.startQuiz()
+            }
+        } else {
+            checkScheduleSoon()
+        }
+    }
+
+    @objc private func didWake(_ note: Notification) {
+        // If the Mac asks for a password, the lock notice comes too and the check waits for unlock.
+        checkScheduleSoon()
+    }
+
+    @objc private func screensSlept(_ note: Notification) {
+        // Treat a sleeping screen like a lock until it wakes.
+        isLocked = true
+    }
+
+    @objc private func screensWoke(_ note: Notification) {
+        // The screen is on again. If it is still locked, the lock notice keeps isLocked true.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard let self else { return }
+            if !Self.screenIsLockedNow() { self.isLocked = false }
+            self.checkSchedule()
+        }
+    }
+
+    @objc private func sessionLeft(_ note: Notification) {
+        isLocked = true
+    }
+
+    @objc private func sessionBack(_ note: Notification) {
+        isLocked = false
+        checkScheduleSoon()
+    }
+
+    /// Asks the window server if the screen is locked right now.
+    private static func screenIsLockedNow() -> Bool {
+        guard let info = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        return (info["CGSSessionScreenIsLocked"] as? Bool) ?? false
+    }
+
+    // MARK: Home window
+
+    private func setUpHome() {
+        let model = HomeModel(settings: settings, schedule: schedule, stats: stats, deck: deck,
+                              pool: { [weak self] in self?.pool ?? [] })
+        model.onChange = { [weak self] in
+            self?.settingsChanged()
+        }
+        model.onQuizNow = { [weak self] in
+            self?.quizNowSoon()
+        }
+        home = HomeWindowController(model: model)
+    }
+
+    private func settingsChanged() {
+        deck.sync(pool: pool)
+    }
+
+    private func quizNowSoon() {
+        // Let the menu or button finish first.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            self?.startQuiz()
+        }
+    }
+
+    // MARK: Main menu (app menu, Edit for typing, Window)
+
+    private func setUpMainMenu() {
+        let main = NSMenu()
+
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu(title: "Map Lock")
+        appMenu.addItem(withTitle: "About Map Lock",
+                        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        let open = NSMenuItem(title: "Open Map Lock", action: #selector(openHome(_:)), keyEquivalent: ",")
+        open.target = self
+        appMenu.addItem(open)
+        let quiz = NSMenuItem(title: "Quiz me now", action: #selector(quizNow(_:)), keyEquivalent: "")
+        quiz.target = self
+        appMenu.addItem(quiz)
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Hide Map Lock", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Quit Map Lock", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+        main.addItem(appItem)
+
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(redo)
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        main.addItem(editItem)
+
+        let windowItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowItem.submenu = windowMenu
+        main.addItem(windowItem)
+
+        NSApp.mainMenu = main
+        NSApp.windowsMenu = windowMenu
+    }
+
+    // MARK: Menu bar globe
+
+    private func setUpStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = item.button {
+            if let image = NSImage(systemSymbolName: "globe", accessibilityDescription: "Map Lock") {
+                image.isTemplate = true
+                button.image = image
+            } else {
+                button.title = "Map"
+            }
+            button.toolTip = "Map Lock"
+        }
+        let menu = NSMenu()
+        menu.delegate = self
+        menu.autoenablesItems = false
+        item.menu = menu
+        statusItem = item
+        rebuildMenu(menu)
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        rebuildMenu(menu)
+    }
+
+    private func header(_ title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        return item
+    }
+
+    private func action(_ title: String, _ selector: Selector, state: Bool? = nil,
+                        value: String? = nil, indent: Bool = false) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
+        item.target = self
+        item.isEnabled = true
+        if let state { item.state = state ? .on : .off }
+        if let value { item.representedObject = value }
+        if indent { item.indentationLevel = 1 }
+        return item
+    }
+
+    private func rebuildMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+
+        if let error = loadError {
+            menu.addItem(header(error))
+            menu.addItem(.separator())
+        }
+
+        let quiz = action("Quiz me now", #selector(quizNow(_:)))
+        quiz.isEnabled = !world.isEmpty
+        menu.addItem(quiz)
+        menu.addItem(action("Open Map Lock", #selector(openHome(_:))))
+        menu.addItem(.separator())
+
+        menu.addItem(header("Regions"))
+        let on = settings.regions
+        for region in Region.allCases {
+            menu.addItem(action(region.title, #selector(toggleRegion(_:)), state: on.contains(region),
+                                value: region.rawValue, indent: true))
+        }
+        menu.addItem(.separator())
+
+        menu.addItem(header("Answer style"))
+        let current = settings.mode
+        for mode in QuizMode.allCases {
+            menu.addItem(action(mode.title, #selector(chooseMode(_:)), state: mode == current,
+                                value: mode.rawValue, indent: true))
+        }
+        menu.addItem(.separator())
+
+        menu.addItem(header("When to quiz"))
+        menu.addItem(action("Every unlock", #selector(toggleUnlock(_:)), state: settings.quizOnUnlock, indent: true))
+        let kind = schedule.kind
+        for k in ScheduleKind.allCases {
+            menu.addItem(action(k.title, #selector(chooseSchedule(_:)), state: k == kind,
+                                value: k.rawValue, indent: true))
+        }
+        if kind != .off {
+            let status = header(schedule.statusText())
+            status.indentationLevel = 1
+            menu.addItem(status)
+        }
+        menu.addItem(action("Change times...", #selector(openHome(_:)), indent: true))
+        menu.addItem(.separator())
+
+        let login = action("Open at login", #selector(toggleLogin(_:)),
+                           state: LoginItem.isEnabled || LoginItem.needsApproval)
+        login.isEnabled = LoginItem.isAppBundle
+        menu.addItem(login)
+        if LoginItem.needsApproval {
+            menu.addItem(action("Approve in Login Items...", #selector(openLoginItems(_:)), indent: true))
+        }
+        menu.addItem(.separator())
+
+        let streak = stats.currentStreak()
+        menu.addItem(header(streak == 1 ? "Streak: 1 day" : "Streak: \(streak) days"))
+        let names = pool
+        let progress = deck.progress(pool: names)
+        menu.addItem(header("Round progress: \(progress.shown) of \(progress.total)"))
+        menu.addItem(header("Known well: \(stats.learnedCount(among: names)) of \(names.count)"))
+        menu.addItem(.separator())
+
+        let quit = NSMenuItem(title: "Quit Map Lock", action: #selector(quit(_:)), keyEquivalent: "q")
+        quit.target = self
+        quit.isEnabled = true
+        menu.addItem(quit)
+    }
+
+    // MARK: Menu actions
+
+    @objc private func quizNow(_ sender: Any?) {
+        quizNowSoon()
+    }
+
+    @objc private func openHome(_ sender: Any?) {
+        guard !overlay.isShowing else { return }
+        home?.show()
+    }
+
+    @objc private func toggleRegion(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let region = Region(rawValue: raw) else { return }
+        settings.toggle(region)
+        deck.sync(pool: pool)
+        home?.model.reload()
+    }
+
+    @objc private func chooseMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let mode = QuizMode(rawValue: raw) else { return }
+        settings.mode = mode
+        home?.model.reload()
+    }
+
+    @objc private func toggleUnlock(_ sender: NSMenuItem) {
+        settings.quizOnUnlock.toggle()
+        home?.model.reload()
+    }
+
+    @objc private func chooseSchedule(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let kind = ScheduleKind(rawValue: raw) else { return }
+        schedule.kind = kind
+        home?.model.reload()
+    }
+
+    @objc private func toggleLogin(_ sender: NSMenuItem) {
+        let turnOn = !(LoginItem.isEnabled || LoginItem.needsApproval)
+        if let message = LoginItem.set(turnOn) {
+            if message == LoginItem.approvalMessage {
+                showApprovalAlert()
+            } else {
+                showAlert(title: "Open at login", text: message)
+            }
+        }
+        home?.model.reload()
+    }
+
+    @objc private func openLoginItems(_ sender: NSMenuItem) {
+        LoginItem.openLoginItemsSettings()
+    }
+
+    private func showApprovalAlert() {
+        let alert = NSAlert()
+        alert.messageText = "Approve Map Lock"
+        alert.informativeText = LoginItem.approvalMessage
+        alert.addButton(withTitle: "Open Login Items")
+        alert.addButton(withTitle: "Later")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            LoginItem.openLoginItemsSettings()
+        }
+    }
+
+    private func showAlert(title: String, text: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = text
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    @objc private func quit(_ sender: NSMenuItem) {
+        overlay.close()
+        NSApp.terminate(nil)
+    }
+}
