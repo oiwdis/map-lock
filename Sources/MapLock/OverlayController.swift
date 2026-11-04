@@ -41,7 +41,7 @@ final class OverlayController: NSObject {
         w.isReleasedWhenClosed = false
         w.level = .screenSaver
         w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        w.backgroundColor = NSColor(red: 0.043, green: 0.071, blue: 0.125, alpha: 1)
+        w.backgroundColor = Theme.windowBackground
         w.isOpaque = true
         w.hasShadow = false
         w.contentView = NSHostingView(rootView: QuizView(session: session))
@@ -54,7 +54,7 @@ final class OverlayController: NSObject {
             blank.isReleasedWhenClosed = false
             blank.level = .screenSaver
             blank.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-            blank.backgroundColor = NSColor(red: 0.043, green: 0.071, blue: 0.125, alpha: 1)
+            blank.backgroundColor = Theme.windowBackground
             blank.isOpaque = true
             blank.setFrame(other.frame, display: true)
             blank.orderFrontRegardless()
@@ -81,6 +81,7 @@ final class OverlayController: NSObject {
 
     private func bringToFront() {
         guard let w = window else { return }
+        if NSApp.isHidden { NSApp.unhide(nil) }
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
         w.orderFrontRegardless()

@@ -41,12 +41,12 @@ It should say "Credentials saved to Keychain". You only do this once.
 
 1. Make the zip (pick the new version number):
    ```
-   VERSION=1.0.0 ./release.sh
+   VERSION=1.0.1 ./release.sh
    ```
    It builds, signs, sends the app to Apple, waits (usually a few minutes), staples the result, and checks it.
    At the end you get `dist/MapLock.zip`.
 2. On GitHub, open [github.com/oiwdis/map-lock/releases/new](https://github.com/oiwdis/map-lock/releases/new).
-3. Make a new tag like `v1.0.0`, add a title and a few notes about what changed.
+3. Make a new tag like `v1.0.1`, add a title and a few notes about what changed.
 4. Drag `dist/MapLock.zip` into the files box. Keep the name exactly `MapLock.zip` so the download page link keeps working.
 5. Click **Publish release**.
 

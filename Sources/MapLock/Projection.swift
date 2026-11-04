@@ -6,10 +6,10 @@ import CoreGraphics
 // Map views and projections. This mirrors the web mockup:
 // - Asia is split into five smaller views, Russia gets its own view.
 // - North America is split into three views. Europe uses a fixed frame.
-// - Regions away from the equator use a conic equal-area (Albers) projection
-//   with standard parallels fitted to the region.
-// - Regions that cross the equator use a Lambert azimuthal equal-area
-//   projection centered on the region.
+// - Every view uses a flat Miller map like Seterra: parallels and meridians are
+//   straight lines, so shapes are not bent. Miller is Mercator with the far north
+//   toned down, so Russia and Canada do not get huge and the Gulf stays readable. It is centered on the view's middle
+//   longitude, so Russia's far east (Chukotka) stays joined across 180 degrees.
 // - Africa fits the mainland, unless the question is about an island country.
 
 enum MapViews {
@@ -57,10 +57,23 @@ enum MapViews {
                              "Costa Rica", "Panama"],
          CGRect(x: -92.4, y: 7.1, width: 15.2, height: 11.5)),
         ("Caribbean", ["Cuba", "Bahamas", "Jamaica", "Haiti", "Dominican Republic", "Puerto Rico",
-                       "Antigua and Barbuda", "Saint Kitts and Nevis", "Dominica", "Saint Lucia",
-                       "Saint Vincent and the Grenadines", "Barbados", "Grenada", "Trinidad and Tobago"],
+                       "Trinidad and Tobago"],
          CGRect(x: -85.2, y: 9.9, width: 25.9, height: 17.5)),
     ]
+
+    /// Parts of Russia outside its main box: Kaliningrad, and the tip of Chukotka past
+    /// 180 degrees (written as 180 to 191 so it stays joined to the rest, not wrapped).
+    static let russiaExtras: [CGRect] = [
+        CGRect(x: 19.6, y: 54.3, width: 3.4, height: 1.1),
+        CGRect(x: 180, y: 64.2, width: 11, height: 7.5),
+    ]
+
+    /// Middle longitude of the boxes, used as the map's center line.
+    static func centerLon(_ boxes: [CGRect]) -> Double {
+        guard var union = boxes.first else { return 0 }
+        for b in boxes.dropFirst() { union = union.union(b) }
+        return Double(union.midX)
+    }
 
     /// Short title for the view a target is shown in (for the header).
     static func title(for target: Country) -> String {
@@ -83,8 +96,8 @@ enum MapViews {
         var boxes: [CGRect] = []
 
         if target.name == "Russia" {
-            boxes = [target.focusBounds]
-            return MapPlan(projection: GeoProjection.conic(lon0: 100, lat0: 45, lat1: 75), fit: boxes)
+            boxes = [target.focusBounds] + russiaExtras
+            return MapPlan(projection: GeoProjection.miller(lon0: centerLon(boxes)), fit: boxes)
         }
 
         switch target.region {
@@ -98,8 +111,7 @@ enum MapViews {
             boxes = [africaBox]
             if farIslands.contains(target.name) { boxes.append(target.focusBounds) }
         case .europe:
-            // Fit the European countries themselves (clipped to the frame), not one big
-            // lon/lat box: on a conic map the corners of a big box swing far out.
+            // Fit the European countries themselves, clipped to the frame.
             boxes = world.filter { $0.region == .europe }
                 .map { $0.focusBounds.intersection(europeBox) }
                 .filter { !$0.isNull && !$0.isEmpty }
@@ -109,11 +121,11 @@ enum MapViews {
                 boxes.append(target.focusBounds)
                 break
             }
-            return MapPlan(projection: GeoProjection.conic(lon0: 15, lat0: 43, lat1: 62), fit: boxes)
+            return MapPlan(projection: GeoProjection.miller(lon0: centerLon(boxes)), fit: boxes)
         case .northAmerica:
             if let part = northAmericaParts.first(where: { $0.names.contains(target.name) }) {
                 if let box = part.box {
-                    // The countries clipped to the frame, so box corners do not swing out.
+                    // The countries clipped to the frame.
                     boxes = part.names.compactMap { byName[$0]?.focusBounds.intersection(box) }
                         .filter { !$0.isNull && !$0.isEmpty }
                     if boxes.isEmpty { boxes = [box] }
@@ -133,16 +145,61 @@ enum MapViews {
             boxes.append(target.focusBounds)
         }
 
-        var union = boxes[0]
-        for b in boxes.dropFirst() { union = union.union(b) }
-        let lon0 = Double(union.midX)
-        let la0 = Double(union.minY), la1 = Double(union.maxY)
+        return MapPlan(projection: GeoProjection.miller(lon0: centerLon(boxes)), fit: boxes)
+    }
+}
 
-        if la0 < 5 && la1 > -5 {
-            return MapPlan(projection: GeoProjection.azimuthal(lon0: lon0, lat0: Double(union.midY)), fit: boxes)
+extension MapViews {
+    /// Lon/lat frame for the North America click view: the Yukon and Alaska border at 141 W
+    /// (Alaska cut off, the panhandle along the BC coast stays) to
+    /// Newfoundland and the Lesser Antilles, Hudson Bay down to Panama. Asia and South America
+    /// fit their own countries (see regionPlan).
+    static let clickFrames: [Region: CGRect] = [
+        .northAmerica: CGRect(x: -141, y: 7, width: 89, height: 55),
+    ]
+
+    /// Width / height for the click map card, so the region fills it instead of leaving
+    /// wide empty sides on a wide screen. Kept between 1.2 and 2.4.
+    static func clickAspect(for target: Country, world: [Country]) -> Double {
+        let plan = regionPlan(for: target, world: world)
+        let map = FittedMap(projection: plan.projection, fit: plan.fit, size: CGSize(width: 1000, height: 1000), margin: 0)
+        return min(max(map.fitAspect, 1.2), 2.4)
+    }
+
+    /// Title for the whole-region view used by "Click the country".
+    static func regionTitle(for target: Country) -> String { target.region.title }
+
+    /// The whole region at once, for "Click the country": all of Asia (Russia too),
+    /// all of Africa with its islands, the usual Europe frame, all of North America
+    /// (Central America and the Caribbean too) and all of South America.
+    /// The view is the same for every country in a region, so it gives nothing away.
+    static func regionPlan(for target: Country, world: [Country]) -> MapPlan {
+        let inRegion = world.filter { $0.region == target.region }
+        var boxes: [CGRect] = []
+        switch target.region {
+        case .europe:
+            // Europe keeps its fixed frame.
+            return plan(for: inRegion.first { $0.quizzable } ?? target, world: world)
+        case .africa:
+            boxes = [africaBox] + inRegion.filter { farIslands.contains($0.name) }.map { $0.focusBounds }
+        case .asia:
+            // Every Asian country, Russia included, so nothing is cut off.
+            boxes = inRegion.filter { $0.quizzable }.map { $0.focusBounds } + russiaExtras
+        case .northAmerica:
+            // The countries clipped to a fixed frame (Alaska and the far Arctic cut off).
+            // The map itself is cut with a straight edge at the Yukon and Alaska border,
+            // so Alaska never shows in the margin.
+            let frame = clickFrames[.northAmerica]!
+            boxes = inRegion.filter { $0.quizzable }
+                .map { $0.focusBounds.intersection(frame) }
+                .filter { !$0.isNull && !$0.isEmpty }
+            return MapPlan(projection: GeoProjection.miller(lon0: centerLon(boxes), clipWestLon: Double(frame.minX)), fit: boxes)
+        case .southAmerica:
+            // Tight on the continent plus the Falklands. Only South America is drawn.
+            boxes = inRegion.filter { $0.quizzable || $0.name == "Falkland Islands" }.map { $0.focusBounds }
         }
-        let d = (la1 - la0) / 6
-        return MapPlan(projection: GeoProjection.conic(lon0: lon0, lat0: la0 + d, lat1: la1 - d), fit: boxes)
+        if boxes.isEmpty { return plan(for: target, world: world) }
+        return MapPlan(projection: GeoProjection.miller(lon0: centerLon(boxes)), fit: boxes)
     }
 }
 
@@ -153,34 +210,26 @@ struct MapPlan: Sendable {
 }
 
 /// Projects longitude / latitude (degrees) to flat x / y with y pointing down.
-struct GeoProjection {
-    enum Kind {
-        /// Albers conic equal-area.
-        case conic(n: Double, c: Double, r0: Double)
-        /// Lambert azimuthal equal-area.
-        case azimuthal(sinLat0: Double, cosLat0: Double)
-    }
-
-    let kind: Kind
+/// Miller cylindrical: x = longitude, y = 1.25 * ln(tan(45 deg + 0.4 * latitude)), in radians.
+struct GeoProjection: Sendable {
+    /// Center longitude. Longitudes are measured from here (wrapped to -180...180), so a
+    /// region that crosses 180 degrees, like Russia's Chukotka, is not split across the map.
     let lon0: Double
 
     private static let rad = Double.pi / 180
-    /// Points further than this from the center are pushed onto the edge circle.
-    private static let maxAngle = 100.0 * Double.pi / 180
+    /// Longitude (degrees) west of which nothing is drawn or clicked. Used to cut Alaska off
+    /// the North America click map with a straight edge. Nil means no cut.
+    var clipWestLon: Double? = nil
 
-    static func conic(lon0: Double, lat0: Double, lat1: Double) -> GeoProjection {
-        let s0 = sin(lat0 * rad)
-        let n = (s0 + sin(lat1 * rad)) / 2
-        if abs(n) < 1e-6 {
-            return azimuthal(lon0: lon0, lat0: (lat0 + lat1) / 2)
-        }
-        let c = 1 + s0 * (2 * n - s0)
-        let r0 = c.squareRoot() / n
-        return GeoProjection(kind: .conic(n: n, c: c, r0: r0), lon0: lon0)
+    private static let maxLat = 89.0
+
+    static func miller(lon0: Double, clipWestLon: Double? = nil) -> GeoProjection {
+        GeoProjection(lon0: lon0, clipWestLon: clipWestLon)
     }
 
-    static func azimuthal(lon0: Double, lat0: Double) -> GeoProjection {
-        GeoProjection(kind: .azimuthal(sinLat0: sin(lat0 * rad), cosLat0: cos(lat0 * rad)), lon0: lon0)
+    /// Projected x of the west cut, if there is one.
+    var clipWestX: Double? {
+        clipWestLon.map { GeoProjection.wrap($0 - lon0) * GeoProjection.rad }
     }
 
     private static func wrap(_ degrees: Double) -> Double {
@@ -192,53 +241,23 @@ struct GeoProjection {
 
     /// Projects one point. `previousDelta` keeps a ring continuous across the back meridian
     /// so shapes never jump across the map.
-    func project(lon: Double, lat: Double, previousDelta: inout Double?) -> (point: CGPoint, beyondHorizon: Bool) {
+    func project(lon: Double, lat: Double, previousDelta: inout Double?) -> CGPoint {
         var dl = GeoProjection.wrap(lon - lon0)
-        let rad = GeoProjection.rad
-        switch kind {
-        case let .conic(n, c, r0):
-            if let prev = previousDelta {
-                while dl - prev > 180 { dl -= 360 }
-                while dl - prev < -180 { dl += 360 }
-            }
-            previousDelta = dl
-            let lam = dl * rad
-            let phi = lat * rad
-            let r = max(0, c - 2 * n * sin(phi)).squareRoot() / n
-            let x = r * sin(n * lam)
-            let y = r * cos(n * lam) - r0
-            return (CGPoint(x: x, y: y), false)
-
-        case let .azimuthal(s0, c0):
-            let lam = dl * rad
-            let phi = lat * rad
-            let sp = sin(phi), cp = cos(phi), cl = cos(lam)
-            let cosc = s0 * sp + c0 * cp * cl
-            let px = cp * sin(lam)
-            let py = c0 * sp - s0 * cp * cl
-            if cosc >= cos(GeoProjection.maxAngle) {
-                let k = (2 / (1 + cosc)).squareRoot()
-                return (CGPoint(x: k * px, y: -k * py), cosc < 0)
-            }
-            // Past the edge: put it on the edge circle in the right direction.
-            let dir = atan2(py, px)
-            let edge = 2 * sin(GeoProjection.maxAngle / 2)
-            return (CGPoint(x: edge * cos(dir), y: -edge * sin(dir)), true)
+        if let prev = previousDelta {
+            while dl - prev > 180 { dl -= 360 }
+            while dl - prev < -180 { dl += 360 }
         }
+        previousDelta = dl
+        let phi = min(max(lat, -GeoProjection.maxLat), GeoProjection.maxLat) * GeoProjection.rad
+        let x = dl * GeoProjection.rad
+        let y = -1.25 * log(tan(Double.pi / 4 + 0.4 * phi))
+        return CGPoint(x: x, y: y)
     }
 
-    /// Projects a ring. Returns nil if the whole ring is on the far side of the globe.
-    func project(ring: [CGPoint]) -> [CGPoint]? {
+    /// Projects a ring.
+    func project(ring: [CGPoint]) -> [CGPoint] {
         var prev: Double? = nil
-        var out: [CGPoint] = []
-        out.reserveCapacity(ring.count)
-        var anyVisible = false
-        for p in ring {
-            let r = project(lon: Double(p.x), lat: Double(p.y), previousDelta: &prev)
-            if !r.beyondHorizon { anyVisible = true }
-            out.append(r.point)
-        }
-        return anyVisible ? out : nil
+        return ring.map { project(lon: Double($0.x), lat: Double($0.y), previousDelta: &prev) }
     }
 }
 
@@ -248,6 +267,8 @@ struct FittedMap {
     let scale: Double
     let offsetX: Double
     let offsetY: Double
+    /// Width / height of the fitted area before scaling (projected units).
+    let fitAspect: Double
 
     init(projection: GeoProjection, fit boxes: [CGRect], size: CGSize, margin: Double = 30) {
         self.projection = projection
@@ -263,7 +284,7 @@ struct FittedMap {
                                (Double(box.minX), lat), (Double(box.maxX), lat)]
                 for (sLon, sLat) in samples {
                     var prev: Double? = nil
-                    let p = projection.project(lon: sLon, lat: sLat, previousDelta: &prev).point
+                    let p = projection.project(lon: sLon, lat: sLat, previousDelta: &prev)
                     minX = min(minX, Double(p.x)); maxX = max(maxX, Double(p.x))
                     minY = min(minY, Double(p.y)); maxY = max(maxY, Double(p.y))
                 }
@@ -274,9 +295,26 @@ struct FittedMap {
         }
         let w = max(Double(size.width) - 2 * margin, 10)
         let h = max(Double(size.height) - 2 * margin, 10)
+        fitAspect = (maxX - minX) / (maxY - minY)
         scale = min(w / (maxX - minX), h / (maxY - minY))
         offsetX = Double(size.width) / 2 - (minX + maxX) / 2 * scale
         offsetY = Double(size.height) / 2 - (minY + maxY) / 2 * scale
+    }
+
+    /// Cuts a ring at a vertical line, keeping the part east of it (Sutherland-Hodgman).
+    static func clipWest(_ ring: [CGPoint], x cx: Double) -> [CGPoint] {
+        guard var prev = ring.last else { return [] }
+        var out: [CGPoint] = []
+        for p in ring {
+            let pin = Double(p.x) >= cx, qin = Double(prev.x) >= cx
+            if pin != qin {
+                let t = (cx - Double(prev.x)) / (Double(p.x) - Double(prev.x))
+                out.append(CGPoint(x: cx, y: Double(prev.y) + t * (Double(p.y) - Double(prev.y))))
+            }
+            if pin { out.append(p) }
+            prev = p
+        }
+        return out
     }
 
     func toView(_ p: CGPoint) -> CGPoint {
@@ -289,8 +327,11 @@ struct FittedMap {
         for polygon in country.polygons {
             var rings: [[CGPoint]] = []
             for (i, ring) in polygon.enumerated() {
-                guard let projected = projection.project(ring: ring) else {
-                    if i == 0 { break } else { continue }
+                var projected = projection.project(ring: ring)
+                if let cx = projection.clipWestX {
+                    projected = FittedMap.clipWest(projected, x: cx)
+                    // Outline cut away: drop the whole piece. A cut-away hole is just skipped.
+                    if projected.count < 3 { if i == 0 { break } else { continue } }
                 }
                 rings.append(projected.map(toView))
             }

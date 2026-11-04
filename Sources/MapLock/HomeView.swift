@@ -31,6 +31,12 @@ final class HomeModel: ObservableObject {
     @Published var mode: QuizMode = .mixed {
         didSet { if !loading { settings.mode = mode; onChange() } }
     }
+    @Published var quizType: QuizType = .name {
+        didSet { if !loading { settings.quizType = quizType; onChange() } }
+    }
+    @Published var appearance: AppearanceMode = .light {
+        didSet { if !loading { settings.appearance = appearance; appearance.apply(); onChange() } }
+    }
 
     @Published var regionFlags: [RegionFlag] = [] {
         didSet {
@@ -108,6 +114,8 @@ final class HomeModel: ObservableObject {
     func reload() {
         loading = true
         mode = settings.mode
+        quizType = settings.quizType
+        appearance = settings.appearance
         let on = settings.regions
         regionFlags = Region.allCases.map { RegionFlag(region: $0, on: on.contains($0)) }
         quizOnUnlock = settings.quizOnUnlock
@@ -192,8 +200,8 @@ final class HomeWindowController: NSObject, NSWindowDelegate {
             w.titlebarAppearsTransparent = true
             w.isMovableByWindowBackground = true
             w.isReleasedWhenClosed = false
-            w.appearance = NSAppearance(named: .darkAqua)
-            w.backgroundColor = NSColor(red: 0.04, green: 0.04, blue: 0.05, alpha: 1)
+            // Light or dark comes from NSApp.appearance (the Appearance setting).
+            w.backgroundColor = Theme.windowBackground
             w.minSize = NSSize(width: 420, height: 520)
             w.contentView = NSHostingView(rootView: HomeView(model: model))
             w.setContentSize(NSSize(width: 460, height: 760))
@@ -202,6 +210,7 @@ final class HomeWindowController: NSObject, NSWindowDelegate {
             w.delegate = self
             window = w
         }
+        if NSApp.isHidden { NSApp.unhide(nil) }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }
@@ -222,13 +231,15 @@ struct HomeView: View {
             ScrollView {
                 VStack(spacing: Theme.Space.s4) {
                     header
+                    quizTypeCard
+                    appearanceCard
                     styleCard
                     regionsCard
                     scheduleCard
                     loginCard
                     HStack {
                         Spacer()
-                        Button("Quit Map Lock") { NSApp.terminate(nil) }
+                        Button("Hide Map Lock") { NSApp.terminate(nil) }
                             .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
                     }
                 }
@@ -238,7 +249,8 @@ struct HomeView: View {
             }
         }
         .foregroundStyle(Theme.text)
-        .preferredColorScheme(.dark)
+        // No preferredColorScheme here: on macOS it pins the window's look, and setting it
+        // back to nil (Match system) does not always undo that. NSApp.appearance drives it.
         .frame(minWidth: 420, minHeight: 520)
     }
 
@@ -270,6 +282,43 @@ struct HomeView: View {
             .padding(.top, Theme.Space.s2)
         }
         .padding(.bottom, Theme.Space.s2)
+    }
+
+    private var quizTypeCard: some View {
+        Card(title: "Quiz type") {
+            VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                Picker("Quiz type", selection: $model.quizType) {
+                    ForEach(QuizType.allCases, id: \.self) { type in
+                        Text(type.title).tag(type)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text(quizTypeHint)
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.text2)
+            }
+        }
+    }
+
+    private var appearanceCard: some View {
+        Card(title: "Appearance") {
+            Picker("Appearance", selection: $model.appearance) {
+                ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+        }
+    }
+
+    private var quizTypeHint: String {
+        switch model.quizType {
+        case .name: return "A country is highlighted. Name it the way Answer style says."
+        case .click: return "You see a name and click that country on the map. Answer style is not used."
+        case .mix: return "Every other question is a click question."
+        }
     }
 
     private var styleCard: some View {

@@ -3,12 +3,14 @@ import Foundation
 enum QuestionKind {
     case choice
     case typing
+    /// The name is shown and the country is clicked on the map.
+    case click
 }
 
 struct Question {
     let target: Country
     let kind: QuestionKind
-    /// Four names for multiple choice (shuffled, includes the answer). Empty for typing.
+    /// Four names for multiple choice (shuffled, includes the answer). Empty for typing and click.
     let options: [String]
 }
 
@@ -16,7 +18,21 @@ enum QuizEngine {
     static let questionsPerSession = 5
 
     /// Builds one question for a target picked by the deck.
-    static func makeQuestion(target: Country, number: Int, world: [Country], mode: QuizMode, stats: StatsStore) -> Question {
+    static func makeQuestion(target: Country, number: Int, world: [Country], mode: QuizMode,
+                             type: QuizType = .name, stats: StatsStore) -> Question {
+        // Quiz type first: click questions, or every other question in Mix.
+        var nameNumber = number
+        switch type {
+        case .name: break
+        case .click:
+            return Question(target: target, kind: .click, options: [])
+        case .mix:
+            if number % 2 == 1 { return Question(target: target, kind: .click, options: [])
+            }
+            // Name questions are every other one here, so Answer style "Mix of both" still alternates.
+            nameNumber = number / 2
+        }
+        let number = nameNumber
         let kind: QuestionKind
         switch mode {
         case .multipleChoice: kind = .choice

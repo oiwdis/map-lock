@@ -16,11 +16,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var isLocked = false
     /// The home window is hidden during a quiz and comes back after.
     private var homeWasVisible = false
+    /// True once macOS says it is logging out, restarting or shutting down.
+    /// Then a quit is allowed so the Mac never hangs waiting for Map Lock.
+    private var systemIsEnding = false
+    private var systemEndingReset: Task<Void, Never>?
 
     private static let launchedBeforeKey = "maplock.launchedBefore"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        // Never let macOS close Map Lock by itself when it has no windows open.
+        ProcessInfo.processInfo.disableAutomaticTermination("Map Lock waits for the next quiz")
+        settings.appearance.apply()
         loadWorld()
         setUpMainMenu()
         setUpStatusItem()
@@ -60,6 +67,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    // MARK: Quit hides the app
+
+    /// Command Q, Quit in the app menu, Quit in the Dock menu and the Quit buttons all end up here.
+    /// Map Lock only hides and keeps running, so quizzes still show. Force Quit still stops it.
+    /// Log out, restart and shut down are always allowed.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if systemIsEnding || Self.quitComesFromSystem() {
+            return .terminateNow
+        }
+        hideInsteadOfQuitting()
+        return .terminateCancel
+    }
+
+    private func hideInsteadOfQuitting() {
+        // During a quiz the quit is just ignored.
+        guard !overlay.isShowing else { return }
+        homeWasVisible = false
+        home?.hide()
+        NSApp.hide(nil)
+    }
+
+    /// Looks at the Apple Event that asked us to quit. macOS adds a reason when it is
+    /// logging out, restarting or shutting down. A normal quit has no reason.
+    private static func quitComesFromSystem() -> Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventClass == AEEventClass(kCoreEventClass),
+              event.eventID == AEEventID(kAEQuitApplication) else { return false }
+        let keyword = AEKeyword(kAEQuitReason)
+        guard let reason = event.attributeDescriptor(forKeyword: keyword)
+                ?? event.paramDescriptor(forKeyword: keyword) else { return false }
+        let systemReasons: Set<OSType> = [
+            OSType(kAELogOut), OSType(kAEReallyLogOut),
+            OSType(kAERestart), OSType(kAEShutDown),
+            OSType(kAEShowRestartDialog), OSType(kAEShowShutdownDialog),
+        ]
+        return systemReasons.contains(reason.enumCodeValue) || systemReasons.contains(reason.typeCodeValue)
+    }
+
+    @objc private func willPowerOff(_ note: Notification) {
+        // Sent when log out, restart or shut down starts.
+        systemIsEnding = true
+        // If that gets cancelled (for example another app says no), go back to hiding after a while.
+        systemEndingReset?.cancel()
+        systemEndingReset = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 120_000_000_000)
+            if !Task.isCancelled { self?.systemIsEnding = false }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -123,11 +179,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Any quiz counts for a scheduled time that is due now.
         schedule.markDueAsFired()
         let session = QuizSession(world: world, pool: pool, mode: settings.mode,
-                                  stats: stats, deck: deck) { [weak self] in
+                                  quizType: settings.quizType, stats: stats, deck: deck) { [weak self] in
             self?.overlay.close()
         }
-        homeWasVisible = home?.isVisible ?? false
-        if homeWasVisible { home?.hide() }
+        homeWasVisible = (home?.isVisible ?? false) && !NSApp.isHidden
+        home?.hide()
+        // A hidden app shows no windows, so unhide first (the home window stays closed).
+        if NSApp.isHidden { NSApp.unhide(nil) }
         overlay.show(session: session)
         if !overlay.isShowing && homeWasVisible {
             homeWasVisible = false
@@ -188,6 +246,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         name: Notification.Name("com.apple.screenIsLocked"), object: nil)
 
         let wnc = NSWorkspace.shared.notificationCenter
+        wnc.addObserver(self, selector: #selector(willPowerOff(_:)),
+                        name: NSWorkspace.willPowerOffNotification, object: nil)
         wnc.addObserver(self, selector: #selector(didWake(_:)),
                         name: NSWorkspace.didWakeNotification, object: nil)
         wnc.addObserver(self, selector: #selector(screensSlept(_:)),
@@ -297,6 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Map Lock", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(.separator())
+        // Command Q stays where people expect it, but it only hides (see applicationShouldTerminate).
         appMenu.addItem(withTitle: "Quit Map Lock", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
@@ -390,6 +451,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(.separator())
 
+        menu.addItem(header("Quiz type"))
+        let currentType = settings.quizType
+        for type in QuizType.allCases {
+            menu.addItem(action(type.title, #selector(chooseQuizType(_:)), state: type == currentType,
+                                value: type.rawValue, indent: true))
+        }
+        menu.addItem(.separator())
+
+        menu.addItem(header("Appearance"))
+        let currentLook = settings.appearance
+        for look in AppearanceMode.allCases {
+            menu.addItem(action(look.title, #selector(chooseAppearance(_:)), state: look == currentLook,
+                                value: look.rawValue, indent: true))
+        }
+        menu.addItem(.separator())
+
         menu.addItem(header("Answer style"))
         let current = settings.mode
         for mode in QuizMode.allCases {
@@ -430,10 +507,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(header("Known well: \(stats.learnedCount(among: names)) of \(names.count)"))
         menu.addItem(.separator())
 
-        let quit = NSMenuItem(title: "Quit Map Lock", action: #selector(quit(_:)), keyEquivalent: "q")
-        quit.target = self
-        quit.isEnabled = true
-        menu.addItem(quit)
+        let hide = NSMenuItem(title: "Hide Map Lock", action: #selector(quit(_:)), keyEquivalent: "")
+        hide.target = self
+        hide.isEnabled = true
+        menu.addItem(hide)
+        menu.addItem(header("Keeps running for quizzes"))
     }
 
     // MARK: Menu actions
@@ -457,6 +535,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func chooseMode(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let mode = QuizMode(rawValue: raw) else { return }
         settings.mode = mode
+        home?.model.reload()
+    }
+
+    @objc private func chooseQuizType(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let type = QuizType(rawValue: raw) else { return }
+        settings.quizType = type
+        home?.model.reload()
+    }
+
+    @objc private func chooseAppearance(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let look = AppearanceMode(rawValue: raw) else { return }
+        settings.appearance = look
+        look.apply()
         home?.model.reload()
     }
 
@@ -509,7 +600,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func quit(_ sender: NSMenuItem) {
-        overlay.close()
+        // Goes through applicationShouldTerminate, which hides the app.
         NSApp.terminate(nil)
     }
 }

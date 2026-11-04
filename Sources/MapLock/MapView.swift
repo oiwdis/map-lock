@@ -5,9 +5,28 @@ enum TargetState: Equatable {
 
     var color: Color {
         switch self {
-        case .asking: return Theme.target
-        case .right: return Theme.good
-        case .wrong: return Theme.bad
+        // Map colors, picked to read on the land in Light and Dark.
+        case .asking: return Theme.mapTarget
+        case .right: return Theme.mapGood
+        case .wrong: return Theme.mapBad
+        }
+    }
+
+    /// Dark edge around the fill, so yellow and lime read on light sea and land.
+    var outline: Color {
+        switch self {
+        case .asking: return Theme.mapTargetOutline
+        case .right: return Theme.mapGoodOutline
+        case .wrong: return Theme.mapBadOutline
+        }
+    }
+
+    /// Ring around a tiny target. Orange in Light, since yellow vanishes on the light sea.
+    var ring: Color {
+        switch self {
+        case .asking: return Theme.ringTiny
+        case .right: return Theme.ringGood
+        case .wrong: return Theme.ringBad
         }
     }
 }
@@ -19,11 +38,12 @@ struct MapView: View {
     let target: Country
     let state: TargetState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         let plan = MapViews.plan(for: target, world: world)
         ZStack {
-            BaseMap(world: world, target: target, plan: plan)
+            BaseMap(world: world, target: target, plan: plan, scheme: scheme)
                 .equatable()
             TargetLayer(target: target, plan: plan, state: state, animate: !reduceMotion)
         }
@@ -35,9 +55,11 @@ private struct BaseMap: View, Equatable {
     let world: [Country]
     let target: Country
     let plan: MapPlan
+    /// Part of the equality so a Light / Dark switch redraws the map.
+    let scheme: ColorScheme
 
     nonisolated static func == (lhs: BaseMap, rhs: BaseMap) -> Bool {
-        lhs.target.name == rhs.target.name && lhs.world.count == rhs.world.count
+        lhs.target.name == rhs.target.name && lhs.world.count == rhs.world.count && lhs.scheme == rhs.scheme
     }
 
     var body: some View {
@@ -58,10 +80,10 @@ private struct BaseMap: View, Equatable {
 
             let map = FittedMap(projection: plan.projection, fit: plan.fit, size: size)
             let visible = rect.insetBy(dx: -20, dy: -20)
-            for country in world where country.name != target.name {
+            for country in world where country.name != target.name && country.region == target.region {
                 let path = MapDrawing.makePath(map.viewPolygons(for: country))
                 guard path.boundingRect.intersects(visible) else { continue }
-                let fill = country.region == target.region ? Theme.land : Theme.landFar
+                let fill = Theme.land  // only the region is drawn; everything else is sea
                 context.fill(path, with: .color(fill), style: FillStyle(eoFill: true))
                 context.stroke(path, with: .color(Theme.border),
                                style: StrokeStyle(lineWidth: 0.6, lineJoin: .round))
@@ -77,6 +99,9 @@ private struct TargetLayer: View {
     let plan: MapPlan
     let state: TargetState
     let animate: Bool
+
+    /// Read so a Light / Dark switch redraws this layer right away.
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         let paused = !(animate && state == .asking)
@@ -94,18 +119,19 @@ private struct TargetLayer: View {
                 let polygons = map.viewPolygons(for: target)
                 let path = MapDrawing.makePath(polygons)
                 context.fill(path, with: .color(color), style: FillStyle(eoFill: true))
-                context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 0.8, lineJoin: .round))
+                context.stroke(path, with: .color(state.outline), style: StrokeStyle(lineWidth: 1, lineJoin: .round))
 
                 if let ring = MapDrawing.markerRing(for: polygons) {
                     context.stroke(
                         Path(ellipseIn: ring),
-                        with: .color(color),
+                        with: .color(state.ring),
                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [5, 4], dashPhase: -dashPhase)
                     )
                 }
             }
             .shadow(color: color.opacity(glowOpacity), radius: glowRadius)
         }
+        .id(scheme)
         .allowsHitTesting(false)
     }
 }
@@ -126,23 +152,8 @@ enum MapDrawing {
         return path
     }
 
-    /// A circle around the target when it is too small to see well.
+    /// A circle around the target when it is too small to see well (see MapMarks).
     static func markerRing(for polygons: [[[CGPoint]]]) -> CGRect? {
-        let outlines = polygons.compactMap { $0.first }
-        guard !outlines.isEmpty else { return nil }
-        let areas = outlines.map { Geometry.area($0) }
-        let total = areas.reduce(0, +)
-        guard total < 120 else { return nil }
-
-        // Center on the main pieces (skip far away specks).
-        let largest = areas.max() ?? 0
-        var box: CGRect? = nil
-        for (ring, area) in zip(outlines, areas) where area >= largest * 0.15 || largest == 0 {
-            let b = Geometry.bounds(ring)
-            box = box.map { $0.union(b) } ?? b
-        }
-        guard let b = box else { return nil }
-        let radius = max(16, max(b.width, b.height) / 2 + 10)
-        return CGRect(x: b.midX - radius, y: b.midY - radius, width: radius * 2, height: radius * 2)
+        MapMarks.ring(for: polygons)
     }
 }

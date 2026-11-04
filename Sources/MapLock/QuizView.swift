@@ -46,7 +46,6 @@ struct QuizView: View {
             }
         }
         .foregroundStyle(Theme.text)
-        .preferredColorScheme(.dark)
         .opacity(appeared ? 1 : 0)
         .animation(reduceMotion ? nil : Theme.Motion.slow, value: dialogUp)
         .onAppear {
@@ -61,7 +60,7 @@ struct QuizView: View {
 
 private struct Scrim: View {
     var body: some View {
-        Color.black.opacity(0.4)
+        Theme.scrim
             .ignoresSafeArea()
             .transition(.opacity)
     }
@@ -80,7 +79,8 @@ private struct QuestionView: View {
             header
             mapCard
             answerArea
-                .frame(minHeight: 190, alignment: .top)
+                // Click questions only need the name and the result line, so the map gets more room.
+                .frame(minHeight: question.kind == .click ? 120 : 190, alignment: .top)
         }
         .padding(.horizontal, Theme.Space.s8)
         .padding(.top, Theme.Space.s6)
@@ -123,37 +123,86 @@ private struct QuestionView: View {
     }
 
     private var mapCard: some View {
-        MapView(world: session.world, target: question.target, state: session.targetState)
+        Group {
+            if question.kind == .click {
+                ClickMapView(
+                    world: session.world,
+                    target: question.target,
+                    state: session.targetState,
+                    clicked: session.clicked,
+                    enabled: session.phase == .asking
+                ) { name in
+                    session.click(name)
+                }
+                // Card shaped like the region, so the land fills it (like Seterra).
+                .aspectRatio(MapViews.clickAspect(for: question.target, world: session.world), contentMode: .fit)
+            } else {
+                MapView(world: session.world, target: question.target, state: session.targetState)
+            }
+        }
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                    .strokeBorder(Theme.hairline2, lineWidth: 1)
+                    .strokeBorder(Theme.mapFrame, lineWidth: 1)
             )
             .overlay(alignment: .topLeading) {
                 Pill {
                     Image(systemName: "map").foregroundStyle(Theme.text2)
-                    Text(MapViews.title(for: question.target))
+                    Text(question.kind == .click ? MapViews.regionTitle(for: question.target)
+                                                 : MapViews.title(for: question.target))
                 }
                 .padding(Theme.Space.s4)
+                // Clicks go through to the map.
+                .allowsHitTesting(false)
             }
-            .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 8)
+            .shadow(color: Theme.shadow, radius: 12, x: 0, y: 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var answerArea: some View {
         VStack(spacing: Theme.Space.s3) {
-            Text(question.kind == .choice ? "Which country is highlighted?" : "Type the name, then press Return")
+            Text(promptText)
                 .font(Theme.font(Theme.Size.body, .medium))
                 .foregroundStyle(Theme.text2)
 
-            if question.kind == .choice {
-                choiceGrid
-            } else {
-                typingArea
+            switch question.kind {
+            case .choice: choiceGrid
+            case .typing: typingArea
+            case .click: clickArea
             }
 
             feedbackRow
         }
+    }
+
+    private var promptText: String {
+        switch question.kind {
+        case .choice: return "Which country is highlighted?"
+        case .typing: return "Type the name, then press Return"
+        case .click: return "Click this country on the map"
+        }
+    }
+
+    // MARK: Click the country
+
+    private var clickArea: some View {
+        HStack(spacing: Theme.Space.s4) {
+            Text(question.target.name)
+                .font(Theme.font(Theme.Size.xl, .bold))
+                .kerning(-0.4)
+                .foregroundStyle(clickNameColor)
+                .modifier(ShakeEffect(shakes: CGFloat(session.shakeCount)))
+                .animation(reduceMotion ? nil : .linear(duration: 0.4), value: session.shakeCount)
+            if session.phase == .asking {
+                Button("I don't know") { session.giveUp() }
+                    .buttonStyle(QuietButtonStyle())
+            }
+        }
+    }
+
+    private var clickNameColor: Color {
+        guard session.phase == .answered else { return Theme.text }
+        return session.lastWasRight ? Theme.good : Theme.bad
     }
 
     // MARK: Multiple choice
@@ -201,7 +250,9 @@ private struct QuestionView: View {
                     .font(Theme.font(Theme.Size.lg, .semibold))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, Theme.Space.s5)
-                    .frame(width: 440, height: 56)
+                    // Shrinks on small screens instead of pushing the Check button off.
+                    .frame(minWidth: 200, maxWidth: 440)
+                    .frame(height: 56)
                     .background(
                         ZStack {
                             RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous).fill(.ultraThinMaterial)
@@ -280,7 +331,8 @@ private struct ProgressSteps: View {
             ForEach(0..<total, id: \.self) { i in
                 Capsule()
                     .fill(color(i))
-                    .frame(width: 28, height: 6)
+                    .frame(minWidth: 6, maxWidth: 28)
+                    .frame(height: 6)
             }
         }
         .animation(Theme.Motion.slow, value: results)
@@ -324,7 +376,9 @@ private struct ChoiceButton: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, Theme.Space.s4)
-            .frame(width: 340, height: 52)
+            // Up to 340 wide, narrower when the window is small.
+            .frame(minWidth: 0, maxWidth: 340)
+            .frame(height: 52)
             .background(
                 ZStack {
                     RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous).fill(.ultraThinMaterial)
@@ -416,8 +470,9 @@ private struct SkipConfirmView: View {
             }
         }
         .padding(Theme.Space.s6)
-        .frame(width: 340)
+        .frame(maxWidth: 340)
         .glass(radius: Theme.Radius.xl, strong: true)
+        .padding(Theme.Space.s6)
     }
 }
 
@@ -456,8 +511,9 @@ private struct FinishedView: View {
                 .keyboardShortcut(.defaultAction)
         }
         .padding(Theme.Space.s8)
-        .frame(width: 380)
+        .frame(maxWidth: 380)
         .glass(radius: Theme.Radius.xl, strong: true)
+        .padding(Theme.Space.s6)
     }
 
     private var message: String {

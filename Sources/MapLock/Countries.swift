@@ -33,6 +33,14 @@ struct Country: Identifiable {
     var center: CGPoint { CGPoint(x: focusBounds.midX, y: focusBounds.midY) }
 }
 
+/// Places left out of the app completely: not asked, not drawn, not clickable.
+/// Saved progress for them is dropped on the next start (Deck.sync keeps only the pool).
+let removedPlaces: Set<String> = [
+    // The seven small Lesser Antilles countries, taken out of North America.
+    "Antigua and Barbuda", "Barbados", "Dominica", "Grenada", "Saint Kitts and Nevis",
+    "Saint Lucia", "Saint Vincent and the Grenadines",
+]
+
 /// Places that are drawn on the map but never asked about,
 /// because they are territories or not widely recognized countries.
 let nonQuizPlaces: Set<String> = [
@@ -44,6 +52,8 @@ let nonQuizPlaces: Set<String> = [
     "Hong Kong",
     "Macao",
     "Siachen Glacier",
+    // Taken out of the quiz in every mode. Still drawn; a click there counts like the sea.
+    "Palestine",
 ]
 
 // MARK: - GeoJSON decoding
@@ -102,6 +112,7 @@ enum WorldLoader {
         for feature in collection.features {
             guard let fileRegion = Region(rawValue: feature.properties.continent),
                   let geometry = feature.geometry else { continue }
+            guard !removedPlaces.contains(feature.properties.name) else { continue }
             let region = regionOverrides[feature.properties.name] ?? fileRegion
 
             var polygons: [[[CGPoint]]] = []

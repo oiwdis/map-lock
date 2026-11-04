@@ -17,6 +17,7 @@ final class QuizSession: ObservableObject {
     private let stats: StatsStore
     private let deck: DeckStore
     private let mode: QuizMode
+    private let quizType: QuizType
     private let allNames: [String]
     private let onClose: () -> Void
     private var closed = false
@@ -26,6 +27,8 @@ final class QuizSession: ObservableObject {
     @Published private(set) var phase: Phase = .asking
     @Published var typed = ""
     @Published private(set) var chosen: String? = nil
+    /// The country clicked on a "Click the country" question.
+    @Published private(set) var clicked: String? = nil
     @Published private(set) var lastWasRight = false
     @Published private(set) var feedback = ""
     @Published private(set) var score = 0
@@ -39,11 +42,17 @@ final class QuizSession: ObservableObject {
     @Published private(set) var pulseCount = 0
     @Published private(set) var shakeCount = 0
 
-    init(world: [Country], pool: [String], mode: QuizMode, stats: StatsStore, deck: DeckStore,
+    /// How long a click result stays on screen before the next question.
+    static let rightClickPause: Double = 0.9
+    static let wrongClickPause: Double = 2.2
+
+    init(world: [Country], pool: [String], mode: QuizMode, quizType: QuizType = .name,
+         stats: StatsStore, deck: DeckStore,
          count: Int = QuizEngine.questionsPerSession, onClose: @escaping () -> Void) {
         self.world = world
         self.pool = pool
         self.mode = mode
+        self.quizType = quizType
         self.stats = stats
         self.deck = deck
         self.total = count
@@ -60,7 +69,8 @@ final class QuizSession: ObservableObject {
     /// Pulls the next country from the deck. Returns false if there is nothing to ask.
     private func addNextQuestion() -> Bool {
         guard let name = deck.next(pool: pool), let target = byName[name] else { return false }
-        let q = QuizEngine.makeQuestion(target: target, number: questions.count, world: world, mode: mode, stats: stats)
+        let q = QuizEngine.makeQuestion(target: target, number: questions.count, world: world, mode: mode,
+                                       type: quizType, stats: stats)
         questions.append(q)
         return true
     }
@@ -117,9 +127,32 @@ final class QuizSession: ObservableObject {
         finishAnswer(right: result != .wrong, closeEnough: result == .closeEnough)
     }
 
+    /// A click on the map for a "Click the country" question. `name` is the country hit,
+    /// already worked out by ClickMap. Clicks in the sea never get here.
+    func click(_ name: String) {
+        guard phase == .asking, let q = current, q.kind == .click else { return }
+        clicked = name
+        let right = name == q.target.name
+        finishAnswer(right: right, closeEnough: false)
+        if !right {
+            feedback = "That was \(name). \(q.target.name) is shown in yellow."
+        }
+        // Move on by itself after a moment, like Seterra. Next and Return still work.
+        let at = index
+        let pause = right ? Self.rightClickPause : Self.wrongClickPause
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(pause * 1_000_000_000))
+            guard let self, self.index == at, self.phase == .answered, !self.confirmingSkip, !self.closed else { return }
+            self.next()
+        }
+    }
+
     func giveUp() {
         guard phase == .asking else { return }
         finishAnswer(right: false, closeEnough: false)
+        if let q = current, q.kind == .click {
+            feedback = "\(q.target.name) is shown in yellow. It will come back soon."
+        }
     }
 
     private func finishAnswer(right: Bool, closeEnough: Bool) {
@@ -146,6 +179,7 @@ final class QuizSession: ObservableObject {
             index += 1
             typed = ""
             chosen = nil
+            clicked = nil
             feedback = ""
             phase = .asking
         } else {

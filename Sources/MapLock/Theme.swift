@@ -1,39 +1,100 @@
 import SwiftUI
+import AppKit
 
 /// Design tokens ported from the web mockup (DESIGN.md / index.html).
+/// Every color has a light and a dark value and follows the window's appearance
+/// (set from the Appearance setting through NSApp.appearance).
+/// Light is Seterra-like: green land on a light blue sea, light panels, dark text.
 enum Theme {
+    // All values live in Palette.swift (shared with the Linux contrast test) and match
+    // the web demo. Every color follows the window's appearance, so a Light / Dark /
+    // Match system switch takes effect at once in every window.
+
     // Base and map
-    static let background = Color(hex: 0x0A0A0C)
-    static let ocean = Color(hex: 0x0B1220)
-    static let oceanTop = Color(hex: 0x0F1A2E)
-    static let land = Color(hex: 0x283548)
-    static let landFar = Color(hex: 0x141B26)
-    static let border = Color(hex: 0x0B1220)
+    static let background = dyn(Palette.page)
+    static let ocean = dyn(Palette.sea)
+    /// Flat sea (the web uses one sea color; a gradient made the light sea uneven).
+    static let oceanTop = dyn(Palette.sea)
+    static let land = dyn(Palette.land)
+    static let border = dyn(Palette.border)
 
-    // Text, three levels of white
-    static let text = Color(hex: 0xF5F5F7)
-    static let text2 = Color(.sRGB, red: 235 / 255, green: 235 / 255, blue: 245 / 255, opacity: 0.62)
-    static let text3 = Color(.sRGB, red: 235 / 255, green: 235 / 255, blue: 245 / 255, opacity: 0.38)
+    // Map highlights
+    static let mapGood = dyn(Palette.correctFill)
+    static let mapGoodOutline = dyn(Palette.correctOutline)
+    static let mapBad = dyn(Palette.wrongFill)
+    static let mapBadOutline = dyn(Palette.wrongOutline)
+    /// The answer reveal / the asked country while asking.
+    static let mapTarget = dyn(Palette.highlight)
+    static let mapTargetOutline = dyn(Palette.highlightOutline)
+    /// Ring around a tiny target, per state.
+    static let ringTiny = dyn(Palette.ringTiny)
+    static let ringGood = dyn(Palette.correctRing)
+    static let ringBad = dyn(Palette.wrongRing)
+    /// Seterra-style dots for tiny countries.
+    static let dotFill = dyn(Palette.dotFill)
+    static let dotStroke = dyn(Palette.dotStroke)
+    static let leader = dyn(Palette.leader)
+    static let mapFrame = dyn(Palette.mapFrame)
+    /// Hover wash over a country.
+    static let hover = dyn(0xFFFFFF, 0xFFFFFF, lightOpacity: 0.28, darkOpacity: 0.16)
 
-    // Apple dark mode system colors
-    static let accent = Color(hex: 0x0A84FF)
-    static let accent2 = Color(hex: 0x409CFF)
-    static let target = Color(hex: 0xFFD60A)
-    static let good = Color(hex: 0x30D158)
-    static let bad = Color(hex: 0xFF453A)
-    static let warn = Color(hex: 0xFF9F0A)
-    static let goodBG = Color(hex: 0x30D158, opacity: 0.16)
-    static let badBG = Color(hex: 0xFF453A, opacity: 0.16)
-    static let warnBG = Color(hex: 0xFF9F0A, opacity: 0.16)
+    // Text, three levels, plus result colors for text
+    static let text = dyn(Palette.text)
+    static let text2 = dyn(Palette.text2)
+    static let text3 = dyn(Palette.text3)
+    static let good = dyn(Palette.goodText)
+    static let bad = dyn(Palette.badText)
+    static let warn = dyn(Palette.warnText)
+    /// Text on a green or red badge.
+    static let onTint = dyn(Palette.onTint)
+
+    // Accent and button fills (white text on them passes 4.5:1)
+    static let accent = dyn(Palette.accent)
+    static let accentFill = dyn(Palette.accentFill)
+    static let accentFillHover = dyn(Palette.accentFillHover)
+    static let dangerFill = dyn(Palette.dangerFill)
+    static let goodBG = dyn(0x34C759, 0x30D158, lightOpacity: 0.16, darkOpacity: 0.16)
+    static let badBG = dyn(0xFF3B30, 0xFF453A, lightOpacity: 0.14, darkOpacity: 0.16)
+    static let warnBG = dyn(0xFF9500, 0xFF9F0A, lightOpacity: 0.16, darkOpacity: 0.16)
 
     // Surfaces
-    static let glass = Color(.sRGB, red: 28 / 255, green: 28 / 255, blue: 32 / 255, opacity: 0.62)
-    static let glassStrong = Color(.sRGB, red: 30 / 255, green: 30 / 255, blue: 36 / 255, opacity: 0.92)
-    static let fill = Color.white.opacity(0.06)
-    static let fill2 = Color.white.opacity(0.10)
-    static let fill3 = Color.white.opacity(0.16)
-    static let hairline = Color.white.opacity(0.08)
-    static let hairline2 = Color.white.opacity(0.14)
+    static let glass = dyn(Palette.card)
+    /// Results and skip dialogs.
+    static let dialog = dyn(Palette.dialog)
+    static let fill = dyn(0x000000, 0xFFFFFF, lightOpacity: 0.04, darkOpacity: 0.06)
+    static let fill2 = dyn(0x000000, 0xFFFFFF, lightOpacity: 0.07, darkOpacity: 0.10)
+    static let fill3 = dyn(0x000000, 0xFFFFFF, lightOpacity: 0.11, darkOpacity: 0.16)
+    static let hairline = dyn(0x000000, 0xFFFFFF, lightOpacity: 0.08, darkOpacity: 0.08)
+    static let hairline2 = dyn(0x000000, 0xFFFFFF, lightOpacity: 0.12, darkOpacity: 0.14)
+    static let highlight = dyn(0xFFFFFF, 0xFFFFFF, lightOpacity: 0.6, darkOpacity: 0.10)
+    static let shadow = dyn(0x000000, 0x000000, lightOpacity: 0.14, darkOpacity: 0.45)
+    static let scrim = dyn(Palette.scrim)
+    /// Window background behind the SwiftUI content (home window, overlay).
+    static var windowBackground: NSColor { dynNS(Palette.page) }
+
+    static func isDark(_ appearance: NSAppearance) -> Bool {
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    static func dynNS(_ light: UInt32, _ dark: UInt32, lightOpacity: Double = 1, darkOpacity: Double = 1) -> NSColor {
+        NSColor(name: nil) { appearance in
+            isDark(appearance) ? NSColor(hex: dark, alpha: darkOpacity) : NSColor(hex: light, alpha: lightOpacity)
+        }
+    }
+
+    static func nsColor(_ c: RGBA) -> NSColor {
+        NSColor(srgbRed: CGFloat(c.r), green: CGFloat(c.g), blue: CGFloat(c.b), alpha: CGFloat(c.a))
+    }
+
+    static func dynNS(_ shade: Shade) -> NSColor {
+        NSColor(name: nil) { appearance in nsColor(shade.value(dark: isDark(appearance))) }
+    }
+
+    static func dyn(_ shade: Shade) -> Color { Color(nsColor: dynNS(shade)) }
+
+    static func dyn(_ light: UInt32, _ dark: UInt32, lightOpacity: Double = 1, darkOpacity: Double = 1) -> Color {
+        Color(nsColor: dynNS(light, dark, lightOpacity: lightOpacity, darkOpacity: darkOpacity))
+    }
 
     // Type scale 12/13/15/17/20/28/40
     enum Size {
@@ -82,6 +143,33 @@ enum Theme {
     }
 }
 
+extension NSColor {
+    convenience init(hex: UInt32, alpha: Double = 1) {
+        self.init(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+                  blue: CGFloat(hex & 0xFF) / 255, alpha: CGFloat(alpha))
+    }
+}
+
+extension AppearanceMode {
+    /// The SwiftUI scheme to force, or nil to follow macOS.
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .light: return .light
+        case .dark: return .dark
+        case .system: return nil
+        }
+    }
+
+    /// Sets the look for every Map Lock window.
+    @MainActor func apply() {
+        switch self {
+        case .light: NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
+        case .system: NSApp.appearance = nil
+        }
+    }
+}
+
 extension Color {
     init(hex: UInt32, opacity: Double = 1) {
         let r = Double((hex >> 16) & 0xFF) / 255
@@ -93,18 +181,25 @@ extension Color {
 
 // MARK: Backgrounds
 
-/// The dark, softly colored backdrop behind the quiz (like a blurred wallpaper).
+/// The softly colored backdrop behind the quiz (like a blurred wallpaper).
+/// Dark: deep blue and purple glows. Light: pale sky and mint glows.
 struct Backdrop: View {
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
         ZStack {
             Theme.background
-            RadialGradient(colors: [Color(hex: 0x1E3A8A, opacity: 0.75), .clear],
-                           center: UnitPoint(x: 0.12, y: 0.0), startRadius: 0, endRadius: 900)
-            RadialGradient(colors: [Color(hex: 0x4C1D95, opacity: 0.65), .clear],
-                           center: UnitPoint(x: 0.85, y: 0.05), startRadius: 0, endRadius: 900)
-            RadialGradient(colors: [Color(hex: 0x9D174D, opacity: 0.45), .clear],
-                           center: UnitPoint(x: 0.9, y: 1.0), startRadius: 0, endRadius: 800)
-            Color(.sRGB, red: 8 / 255, green: 8 / 255, blue: 12 / 255, opacity: 0.55)
+            let glows = scheme == .dark ? Palette.darkGlows : Palette.lightGlows
+            let spots: [(UnitPoint, CGFloat)] = [(UnitPoint(x: 0.12, y: 0.0), 900),
+                                                 (UnitPoint(x: 0.85, y: 0.05), 900),
+                                                 (UnitPoint(x: 0.9, y: 1.0), 800)]
+            ForEach(0..<3, id: \.self) { i in
+                RadialGradient(colors: [Color(nsColor: Theme.nsColor(glows[i])), .clear],
+                               center: spots[i].0, startRadius: 0, endRadius: spots[i].1)
+            }
+            if scheme == .dark {
+                Color(nsColor: Theme.nsColor(Palette.darkVeil))
+            }
         }
         .ignoresSafeArea()
     }
@@ -121,18 +216,20 @@ struct GlassPanel: ViewModifier {
         return content
             .background(
                 ZStack {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(strong ? Theme.glassStrong : Theme.glass)
+                    // Dialogs use a near-solid themed fill, not a material, so they always
+                    // match Light / Dark and their text never sits on a dark blur in Light.
+                    if !strong { shape.fill(.ultraThinMaterial) }
+                    shape.fill(strong ? Theme.dialog : Theme.glass)
                 }
             )
             .overlay(shape.strokeBorder(Theme.hairline2, lineWidth: 1))
             .overlay(
                 shape.strokeBorder(
-                    LinearGradient(colors: [Color.white.opacity(0.10), .clear], startPoint: .top, endPoint: .center),
+                    LinearGradient(colors: [Theme.highlight, .clear], startPoint: .top, endPoint: .center),
                     lineWidth: 0.5
                 )
             )
-            .shadow(color: Color.black.opacity(shadow ? 0.45 : 0), radius: 28, x: 0, y: 18)
+            .shadow(color: shadow ? Theme.shadow : .clear, radius: 28, x: 0, y: 18)
     }
 }
 
@@ -174,6 +271,7 @@ private struct AppButtonBody<Label: View>: View {
             .font(Theme.font(Theme.Size.body, .semibold))
             .foregroundStyle(kind == .ghost ? Theme.text : Color.white)
             .lineLimit(1)
+            .minimumScaleFactor(0.8)
             .padding(.horizontal, Theme.Space.s5)
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .frame(height: height)
@@ -191,9 +289,9 @@ private struct AppButtonBody<Label: View>: View {
 
     private var fillColor: Color {
         switch kind {
-        case .primary: return hovering ? Theme.accent2 : Theme.accent
+        case .primary: return hovering ? Theme.accentFillHover : Theme.accentFill
         case .ghost: return hovering ? Theme.fill3 : Theme.fill2
-        case .danger: return Theme.bad
+        case .danger: return Theme.dangerFill
         }
     }
 }
@@ -250,7 +348,7 @@ struct KeyBadge: View {
     var body: some View {
         Text(text)
             .font(Theme.font(Theme.Size.xs, .semibold))
-            .foregroundStyle(tint == nil ? Theme.text2 : Color.white)
+            .foregroundStyle(tint == nil ? Theme.text2 : Theme.onTint)
             .frame(minWidth: 22, minHeight: 22)
             .padding(.horizontal, 2)
             .background(
