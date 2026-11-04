@@ -87,6 +87,12 @@ private struct GeometryDTO: Decodable {
 }
 
 enum WorldLoader {
+    /// Places whose region is set here, whatever the map file says.
+    /// Russia counts as Asia only, so it never shows up in a Europe round.
+    static let regionOverrides: [String: Region] = [
+        "Russia": .asia,
+    ]
+
     /// Parses a GeoJSON FeatureCollection whose features have "name" and "continent" properties.
     static func parse(_ data: Data) throws -> [Country] {
         let collection = try JSONDecoder().decode(FeatureCollectionDTO.self, from: data)
@@ -94,8 +100,9 @@ enum WorldLoader {
         result.reserveCapacity(collection.features.count)
 
         for feature in collection.features {
-            guard let region = Region(rawValue: feature.properties.continent),
+            guard let fileRegion = Region(rawValue: feature.properties.continent),
                   let geometry = feature.geometry else { continue }
+            let region = regionOverrides[feature.properties.name] ?? fileRegion
 
             var polygons: [[[CGPoint]]] = []
             for polygon in geometry.polygons {

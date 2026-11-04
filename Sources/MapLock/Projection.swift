@@ -36,8 +36,8 @@ enum MapViews {
     static let africaBox = CGRect(x: -18, y: -35.5, width: 70, height: 73.5)
 
     /// Europe from Iceland and Portugal in the west to Ukraine and the Caucasus in the east,
-    /// and from Norway's North Cape down to Crete and Cyprus. Russia, Svalbard and
-    /// Greenland do not widen it (Russia has its own view).
+    /// and from Norway's North Cape down to Crete and Cyprus. Russia (Asia here, with its own view),
+    /// Svalbard and Greenland do not widen it.
     static let europeBox = CGRect(x: -25, y: 34.5, width: 70, height: 37)
 
     /// Edges of the Europe view that are not European countries here:
@@ -100,7 +100,7 @@ enum MapViews {
         case .europe:
             // Fit the European countries themselves (clipped to the frame), not one big
             // lon/lat box: on a conic map the corners of a big box swing far out.
-            boxes = world.filter { $0.region == .europe && $0.name != "Russia" }
+            boxes = world.filter { $0.region == .europe }
                 .map { $0.focusBounds.intersection(europeBox) }
                 .filter { !$0.isNull && !$0.isEmpty }
             boxes += europeExtras
