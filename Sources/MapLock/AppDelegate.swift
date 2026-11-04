@@ -20,14 +20,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Then a quit is allowed so the Mac never hangs waiting for Map Lock.
     private var systemIsEnding = false
     private var systemEndingReset: Task<Void, Never>?
+    /// Set only when Map Lock has moved itself to Applications and is relaunching the new copy.
+    /// It is the one case besides log out / restart / shut down where Quit really quits.
+    private var allowRealQuit = false
 
     private static let launchedBeforeKey = "maplock.launchedBefore"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        settings.appearance.apply()
+        // Before any window, overlay or quiz: offer to move to Applications.
+        // If the user says yes, the new copy is starting, so quit this one for real.
+        if AppMover.offerMoveIfNeeded() {
+            allowRealQuit = true
+            NSApp.terminate(nil)
+            return
+        }
         // Never let macOS close Map Lock by itself when it has no windows open.
         ProcessInfo.processInfo.disableAutomaticTermination("Map Lock waits for the next quiz")
-        settings.appearance.apply()
         loadWorld()
         setUpMainMenu()
         setUpStatusItem()
@@ -73,9 +83,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Command Q, Quit in the app menu, Quit in the Dock menu and the Quit buttons all end up here.
     /// Map Lock only hides and keeps running, so quizzes still show. Force Quit still stops it.
-    /// Log out, restart and shut down are always allowed.
+    /// Log out, restart and shut down are always allowed, and so is the relaunch after
+    /// "Move to Applications" (allowRealQuit).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if systemIsEnding || Self.quitComesFromSystem() {
+        if allowRealQuit || systemIsEnding || Self.quitComesFromSystem() {
             return .terminateNow
         }
         hideInsteadOfQuitting()

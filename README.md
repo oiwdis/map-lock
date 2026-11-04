@@ -29,6 +29,8 @@ Dark mode is there too, or let it match your Mac.
 2. Double click it to unzip, then drag **Map Lock** into your Applications folder.
 3. Open it. The app is signed and notarized by Apple, so it opens like any other app.
 
+When you first open it, Map Lock offers to move itself to your Applications folder.
+
 ### Requirements
 
 - macOS 14 (Sonoma) or newer
