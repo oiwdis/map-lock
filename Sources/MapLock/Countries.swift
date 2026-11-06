@@ -14,6 +14,48 @@ enum Region: String, CaseIterable, Codable, Hashable {
     var title: String { rawValue }
 }
 
+/// A practice test over one continent or the whole world (no Oceania).
+enum PracticeScope: Equatable, Hashable {
+    case region(Region)
+    case world
+
+    var title: String {
+        switch self {
+        case .region(let r): return r.title
+        case .world: return "Whole world"
+        }
+    }
+}
+
+/// Flat list for the practice picker (regions + whole world).
+enum PracticeChoice: String, CaseIterable, Identifiable {
+    case africa, asia, europe, northAmerica, southAmerica, world
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .africa: return "Africa"
+        case .asia: return "Asia"
+        case .europe: return "Europe"
+        case .northAmerica: return "North America"
+        case .southAmerica: return "South America"
+        case .world: return "Whole world"
+        }
+    }
+
+    var scope: PracticeScope {
+        switch self {
+        case .africa: return .region(.africa)
+        case .asia: return .region(.asia)
+        case .europe: return .region(.europe)
+        case .northAmerica: return .region(.northAmerica)
+        case .southAmerica: return .region(.southAmerica)
+        case .world: return .world
+        }
+    }
+}
+
 /// One country (or territory) from the bundled map file.
 /// Coordinates are plain longitude (x) and latitude (y) in degrees.
 struct Country: Identifiable {
@@ -44,14 +86,9 @@ let removedPlaces: Set<String> = [
 /// Places that are drawn on the map but never asked about,
 /// because they are territories or not widely recognized countries.
 let nonQuizPlaces: Set<String> = [
-    "Somaliland",
-    "Northern Cyprus",
     "Greenland",
     "Puerto Rico",
     "Falkland Islands",
-    "Hong Kong",
-    "Macao",
-    "Siachen Glacier",
     // Taken out of the quiz in every mode. Still drawn; a click there counts like the sea.
     "Palestine",
 ]

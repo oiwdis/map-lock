@@ -146,4 +146,35 @@ enum AnswerChecker {
         }
         return previous[y.count]
     }
+
+    /// Checks a typed capital against CountryFacts. Small typos allowed the same way as country names.
+    static func checkCapital(_ typed: String, country: String) -> Result {
+        let guess = normalize(typed)
+        if guess.isEmpty { return .wrong }
+        let forms = CountryFacts.capitalForms(of: country)
+        if forms.contains(guess) { return .correct }
+
+        // Exactly another country's capital? Wrong, not a typo.
+        for (other, _) in CountryFacts.capitals where other != country {
+            if CountryFacts.capitalForms(of: other).contains(guess) { return .wrong }
+        }
+
+        let allowed: Int
+        switch guess.count {
+        case 0..<5: allowed = 0
+        case 5..<9: allowed = 1
+        default: allowed = 2
+        }
+        if allowed == 0 { return .wrong }
+
+        let best = forms.map { editDistance(guess, $0) }.min() ?? Int.max
+        if best > allowed { return .wrong }
+
+        for (other, _) in CountryFacts.capitals where other != country {
+            for form in CountryFacts.capitalForms(of: other) where editDistance(guess, form) <= best {
+                return .wrong
+            }
+        }
+        return .closeEnough
+    }
 }

@@ -10,7 +10,7 @@ APP_NAME="Map Lock"
 APP="$ROOT/build/$APP_NAME.app"
 DIST="$ROOT/dist"
 PROFILE="${NOTARY_PROFILE:-maplock-notary}"
-export VERSION="${VERSION:-1.0.2}"
+export VERSION="${VERSION:-1.1.0}"
 
 # Remove Finder info, resource forks and other extra data that codesign rejects.
 clean_app() {

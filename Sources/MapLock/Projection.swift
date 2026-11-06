@@ -16,12 +16,10 @@ enum MapViews {
     static let asiaParts: [(title: String, names: [String])] = [
         ("West Asia", ["Turkey", "Georgia", "Armenia", "Azerbaijan", "Syria", "Lebanon", "Israel",
                        "Palestine", "Jordan", "Iraq", "Iran", "Kuwait", "Saudi Arabia", "Bahrain",
-                       "Qatar", "United Arab Emirates", "Oman", "Yemen", "Cyprus", "Northern Cyprus"]),
+                       "Qatar", "United Arab Emirates", "Oman", "Yemen", "Cyprus"]),
         ("Central Asia", ["Kazakhstan", "Uzbekistan", "Turkmenistan", "Kyrgyzstan", "Tajikistan", "Afghanistan"]),
-        ("South Asia", ["Pakistan", "India", "Nepal", "Bhutan", "Bangladesh", "Sri Lanka", "Maldives",
-                        "Siachen Glacier"]),
-        ("East Asia", ["China", "Mongolia", "North Korea", "South Korea", "Japan", "Taiwan",
-                       "Hong Kong", "Macao"]),
+        ("South Asia", ["Pakistan", "India", "Nepal", "Bhutan", "Bangladesh", "Sri Lanka", "Maldives"]),
+        ("East Asia", ["China", "Mongolia", "North Korea", "South Korea", "Japan", "Taiwan"]),
         ("Southeast Asia", ["Myanmar", "Thailand", "Laos", "Cambodia", "Vietnam", "Malaysia", "Singapore",
                             "Brunei", "Indonesia", "Philippines", "Timor-Leste"]),
     ]
@@ -169,6 +167,15 @@ extension MapViews {
     /// Title for the whole-region view used by "Click the country".
     static func regionTitle(for target: Country) -> String { target.region.title }
 
+    /// Label on the map card for a practice or click scope.
+    static func scopeTitle(_ scope: PracticeScope?, target: Country) -> String {
+        switch scope {
+        case .some(.world): return "World"
+        case .some(.region(let r)): return r.title
+        case .none: return regionTitle(for: target)
+        }
+    }
+
     /// The whole region at once, for "Click the country": all of Asia (Russia too),
     /// all of Africa with its islands, the usual Europe frame, all of North America
     /// (Central America and the Caribbean too) and all of South America.
@@ -201,6 +208,27 @@ extension MapViews {
         if boxes.isEmpty { return plan(for: target, world: world) }
         return MapPlan(projection: GeoProjection.miller(lon0: centerLon(boxes)), fit: boxes)
     }
+
+    /// Flat Miller view of every included country (no Oceania in the data). Used for
+    /// Whole world practice tests. Russia extras keep Chukotka and Kaliningrad on screen.
+    static func worldPlan(world: [Country]) -> MapPlan {
+        var boxes = world.filter { $0.quizzable }.map { $0.focusBounds }
+        boxes += russiaExtras
+        if boxes.isEmpty {
+            boxes = [CGRect(x: -170, y: -55, width: 340, height: 130)]
+        }
+        return MapPlan(projection: GeoProjection.miller(lon0: centerLon(boxes)), fit: boxes)
+    }
+
+    /// Plan for a practice scope: one continent or the whole world.
+    static func scopePlan(_ scope: PracticeScope, target: Country, world: [Country]) -> MapPlan {
+        switch scope {
+        case .world: return worldPlan(world: world)
+        case .region:
+            return regionPlan(for: target, world: world)
+        }
+    }
+
 }
 
 /// What to show for one question: the projection and the lon/lat boxes to fit.

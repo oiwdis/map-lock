@@ -4,6 +4,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let overlay = OverlayController()
+    private let practice = PracticeController()
     private let settings = AppSettings()
     private let schedule = ScheduleStore()
     private let stats = StatsStore()
@@ -184,13 +185,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Quiz
 
     func startQuiz() {
-        guard !overlay.isShowing, !world.isEmpty else { return }
+        guard !overlay.isShowing, !practice.isShowing, !world.isEmpty else { return }
         let pool = self.pool
         guard !pool.isEmpty else { return }
         // Any quiz counts for a scheduled time that is due now.
         schedule.markDueAsFired()
-        let session = QuizSession(world: world, pool: pool, mode: settings.mode,
-                                  quizType: settings.quizType, stats: stats, deck: deck) { [weak self] in
+        let count = settings.questionCount.resolve(poolSize: pool.count)
+        let session = QuizSession(
+            world: world, pool: pool, mode: settings.mode,
+            quizType: settings.quizType, subject: settings.subject,
+            stats: stats, deck: deck, count: count, kind: .lock,
+            requirePerfect: settings.requirePerfect,
+            timeLimit: AppSettings.perfectTimeLimit
+        ) { [weak self] in
             self?.overlay.close()
         }
         homeWasVisible = (home?.isVisible ?? false) && !NSApp.isHidden
@@ -202,6 +209,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             homeWasVisible = false
             home?.show()
         }
+    }
+
+    /// Practice test: one continent or the whole world, in a normal window (no lock).
+    func startPractice(_ scope: PracticeScope, length: PracticeLength = .all) {
+        guard !overlay.isShowing, !practice.isShowing, !world.isEmpty else { return }
+        let pool: [String]
+        switch scope {
+        case .region(let region):
+            pool = world.filter { $0.quizzable && $0.region == region }.map { $0.name }
+        case .world:
+            pool = world.filter { $0.quizzable }.map { $0.name }
+        }
+        guard !pool.isEmpty else { return }
+        let count = length.resolve(poolSize: pool.count)
+        // Own deck for this run so practice does not reshuffle the unlock progress.
+        let suite = "maplock.practice.ephemeral"
+        if let box = UserDefaults(suiteName: suite) {
+            box.removePersistentDomain(forName: suite)
+        }
+        let practiceDeck = DeckStore(defaults: UserDefaults(suiteName: suite) ?? .standard)
+        let session = QuizSession(
+            world: world, pool: pool, mode: settings.mode,
+            quizType: settings.quizType, subject: settings.subject,
+            stats: stats, deck: practiceDeck, count: count, kind: .practice,
+            requirePerfect: false, mapScope: scope
+        ) { [weak self] in
+            self?.practice.close()
+        }
+        practice.onClosed = { [weak self] in
+            self?.home?.model.reload()
+        }
+        if NSApp.isHidden { NSApp.unhide(nil) }
+        practice.show(session: session)
     }
 
     private func quizClosed() {
@@ -230,7 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Shows the quiz if a scheduled time has come today and has not fired yet.
     private func checkSchedule() {
-        guard !overlay.isShowing, !isLocked, !world.isEmpty else { return }
+        guard !overlay.isShowing, !practice.isShowing, !isLocked, !world.isEmpty else { return }
         if !schedule.dueSlots().isEmpty {
             startQuiz()
         }
@@ -291,6 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func didWake(_ note: Notification) {
         // If the Mac asks for a password, the lock notice comes too and the check waits for unlock.
         checkScheduleSoon()
+        maybeQuizOnWake()
     }
 
     @objc private func screensSlept(_ note: Notification) {
@@ -305,6 +346,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             if !Self.screenIsLockedNow() { self.isLocked = false }
             self.checkSchedule()
+            self.maybeQuizOnWake()
+        }
+    }
+
+    /// Optional "Also on wake from sleep": quiz when the Mac wakes and is not locked.
+    /// Skipped when Every unlock will already fire (password wake), so we do not double up.
+    private func maybeQuizOnWake() {
+        guard settings.quizOnWake else { return }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard let self else { return }
+            guard !self.overlay.isShowing, !self.practice.isShowing else { return }
+            guard !Self.screenIsLockedNow() else { return }
+            // If unlock quizzes are on and we just unlocked, screenUnlocked already started one.
+            if self.settings.quizOnUnlock, self.isLocked { return }
+            self.startQuiz()
         }
     }
 
@@ -333,6 +390,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         model.onQuizNow = { [weak self] in
             self?.quizNowSoon()
+        }
+        model.onPractice = { [weak self] scope, length in
+            self?.startPractice(scope, length: length)
         }
         home = HomeWindowController(model: model)
     }
@@ -449,8 +509,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         let quiz = action("Quiz me now", #selector(quizNow(_:)))
-        quiz.isEnabled = !world.isEmpty
+        quiz.isEnabled = !world.isEmpty && !practice.isShowing
         menu.addItem(quiz)
+
+        let practiceMenu = NSMenu(title: "Practice test")
+        for region in Region.allCases {
+            let item = NSMenuItem(title: region.title, action: #selector(practiceRegion(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = region.rawValue
+            item.isEnabled = !world.isEmpty && !overlay.isShowing && !practice.isShowing
+            practiceMenu.addItem(item)
+        }
+        let worldItem = NSMenuItem(title: "Whole world", action: #selector(practiceWorld(_:)), keyEquivalent: "")
+        worldItem.target = self
+        worldItem.isEnabled = !world.isEmpty && !overlay.isShowing && !practice.isShowing
+        practiceMenu.addItem(worldItem)
+        let practiceItem = NSMenuItem(title: "Practice test", action: nil, keyEquivalent: "")
+        practiceItem.submenu = practiceMenu
+        menu.addItem(practiceItem)
+
         menu.addItem(action("Open Map Lock", #selector(openHome(_:))))
         menu.addItem(.separator())
 
@@ -486,8 +563,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(.separator())
 
+        menu.addItem(header("Ask about"))
+        let currentSubject = settings.subject
+        for subject in QuizSubject.allCases {
+            menu.addItem(action(subject.title, #selector(chooseSubject(_:)), state: subject == currentSubject,
+                                value: subject.rawValue, indent: true))
+        }
+        menu.addItem(.separator())
+
         menu.addItem(header("When to quiz"))
         menu.addItem(action("Every unlock", #selector(toggleUnlock(_:)), state: settings.quizOnUnlock, indent: true))
+        menu.addItem(action("Also on wake from sleep", #selector(toggleWake(_:)), state: settings.quizOnWake, indent: true))
         let kind = schedule.kind
         for k in ScheduleKind.allCases {
             menu.addItem(action(k.title, #selector(chooseSchedule(_:)), state: k == kind,
@@ -565,6 +651,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleUnlock(_ sender: NSMenuItem) {
         settings.quizOnUnlock.toggle()
         home?.model.reload()
+    }
+
+    @objc private func toggleWake(_ sender: NSMenuItem) {
+        settings.quizOnWake.toggle()
+        home?.model.reload()
+    }
+
+    @objc private func chooseSubject(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let subject = QuizSubject(rawValue: raw) else { return }
+        settings.subject = subject
+        home?.model.reload()
+    }
+
+    @objc private func practiceRegion(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let region = Region(rawValue: raw) else { return }
+        startPractice(.region(region), length: .all)
+    }
+
+    @objc private func practiceWorld(_ sender: NSMenuItem) {
+        startPractice(.world, length: .all)
     }
 
     @objc private func chooseSchedule(_ sender: NSMenuItem) {

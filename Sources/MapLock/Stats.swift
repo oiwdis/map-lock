@@ -10,17 +10,41 @@ struct CountryStat: Codable {
     var lastSeen: Date? = nil
 }
 
-/// Saves per-country results and the daily streak in UserDefaults.
+enum QuizRecordKind: String, Codable {
+    case lock
+    case practice
+}
+
+/// One finished quiz, for the Stats page.
+struct QuizRecord: Codable, Identifiable {
+    var id: UUID = UUID()
+    var date: Date
+    var score: Int
+    var total: Int
+    var duration: TimeInterval
+    var missed: [String]
+    var kind: QuizRecordKind
+
+    var percent: Double { total == 0 ? 0 : Double(score) / Double(total) }
+}
+
+/// Saves per-country results, the daily streak, and recent quiz scores in UserDefaults.
 final class StatsStore {
     private let defaults: UserDefaults
     private(set) var stats: [String: CountryStat] = [:]
+    private(set) var quizzes: [QuizRecord] = []
 
     private enum Keys {
         static let stats = "maplock.stats"
         static let streak = "maplock.streak"
         static let bestStreak = "maplock.bestStreak"
         static let lastDay = "maplock.lastQuizDay"
+        static let quizzes = "maplock.quizRecords"
+        static let bestPercent = "maplock.bestPercent"
+        static let bestTime = "maplock.bestTimeSeconds"
     }
+
+    private static let maxQuizRecords = 50
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -28,11 +52,21 @@ final class StatsStore {
            let decoded = try? JSONDecoder().decode([String: CountryStat].self, from: data) {
             stats = decoded
         }
+        if let data = defaults.data(forKey: Keys.quizzes),
+           let decoded = try? JSONDecoder().decode([QuizRecord].self, from: data) {
+            quizzes = decoded
+        }
     }
 
     private func saveStats() {
         if let data = try? JSONEncoder().encode(stats) {
             defaults.set(data, forKey: Keys.stats)
+        }
+    }
+
+    private func saveQuizzes() {
+        if let data = try? JSONEncoder().encode(quizzes) {
+            defaults.set(data, forKey: Keys.quizzes)
         }
     }
 
@@ -57,6 +91,63 @@ final class StatsStore {
     /// Countries answered right at least 3 times in a row.
     func learnedCount(among names: [String]) -> Int {
         names.filter { (stats[$0]?.box ?? 0) >= 3 }.count
+    }
+
+    /// Most-missed countries (highest wrong count, then lowest accuracy).
+    func mostMissed(limit: Int = 10) -> [(name: String, wrong: Int, seen: Int)] {
+        stats
+            .filter { $0.value.wrong > 0 }
+            .map { (name: $0.key, wrong: $0.value.wrong, seen: $0.value.seen) }
+            .sorted {
+                if $0.wrong != $1.wrong { return $0.wrong > $1.wrong }
+                let a0 = $0.seen == 0 ? 0.0 : Double($0.seen - $0.wrong) / Double($0.seen)
+                let a1 = $1.seen == 0 ? 0.0 : Double($1.seen - $1.wrong) / Double($1.seen)
+                return a0 < a1
+            }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    // MARK: Quiz records
+
+    /// Best score as a 0...1 fraction. 0 if none yet.
+    var bestPercent: Double {
+        let stored = defaults.double(forKey: Keys.bestPercent)
+        if stored > 0 { return stored }
+        return quizzes.map(\.percent).max() ?? 0
+    }
+
+    /// Fastest finished quiz in seconds (only perfect scores count). Nil if none.
+    var bestTimeSeconds: Double? {
+        if defaults.object(forKey: Keys.bestTime) != nil {
+            let v = defaults.double(forKey: Keys.bestTime)
+            return v > 0 ? v : nil
+        }
+        return quizzes.filter { $0.score == $0.total && $0.total > 0 }.map(\.duration).min()
+    }
+
+    func recordQuiz(score: Int, total: Int, duration: TimeInterval, missed: [String],
+                    kind: QuizRecordKind, now: Date = Date()) {
+        guard total > 0 else { return }
+        let record = QuizRecord(date: now, score: score, total: total, duration: duration,
+                                missed: missed, kind: kind)
+        quizzes.insert(record, at: 0)
+        if quizzes.count > Self.maxQuizRecords {
+            quizzes = Array(quizzes.prefix(Self.maxQuizRecords))
+        }
+        saveQuizzes()
+
+        let percent = record.percent
+        if percent > bestPercent {
+            defaults.set(percent, forKey: Keys.bestPercent)
+        }
+        if score == total, duration > 0 {
+            if let best = bestTimeSeconds {
+                if duration < best { defaults.set(duration, forKey: Keys.bestTime) }
+            } else {
+                defaults.set(duration, forKey: Keys.bestTime)
+            }
+        }
     }
 
     // MARK: Daily streak

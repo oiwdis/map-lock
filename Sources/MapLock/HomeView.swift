@@ -14,6 +14,31 @@ struct TimeSlot: Identifiable, Equatable {
     var date: Date
 }
 
+/// Sidebar pages in the home window (macOS HIG: sidebar navigation).
+enum HomeTab: String, CaseIterable, Identifiable, Hashable {
+    case practice
+    case stats
+    case settings
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .practice: return "Practice"
+        case .stats: return "Stats"
+        case .settings: return "Settings"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .practice: return "map"
+        case .stats: return "chart.bar"
+        case .settings: return "gearshape"
+        }
+    }
+}
+
 /// Everything the home window shows. Changes are saved right away.
 @MainActor
 final class HomeModel: ObservableObject {
@@ -27,6 +52,9 @@ final class HomeModel: ObservableObject {
     /// Called after a setting changes, so the app can resync (deck, timer, menu).
     var onChange: () -> Void = {}
     var onQuizNow: () -> Void = {}
+    /// Practice test for one continent or the whole world (no lock).
+    var onPractice: (PracticeScope, PracticeLength) -> Void = { _, _ in }
+    var onShowStats: () -> Void = {}
 
     @Published var mode: QuizMode = .mixed {
         didSet { if !loading { settings.mode = mode; onChange() } }
@@ -43,7 +71,6 @@ final class HomeModel: ObservableObject {
             guard !loading else { return }
             let on = Set(regionFlags.filter { $0.on }.map { $0.region })
             if on.isEmpty {
-                // Keep at least one region on.
                 regionFlags = oldValue
                 return
             }
@@ -56,6 +83,32 @@ final class HomeModel: ObservableObject {
     @Published var quizOnUnlock = true {
         didSet { if !loading { settings.quizOnUnlock = quizOnUnlock; onChange() } }
     }
+
+    @Published var quizOnWake = false {
+        didSet { if !loading { settings.quizOnWake = quizOnWake; onChange() } }
+    }
+
+    @Published var questionCount: QuestionCount = .five {
+        didSet { if !loading { settings.questionCount = questionCount; onChange() } }
+    }
+
+    @Published var requirePerfect = false {
+        didSet { if !loading { settings.requirePerfect = requirePerfect; onChange() } }
+    }
+
+    @Published var subject: QuizSubject = .countries {
+        didSet { if !loading { settings.subject = subject; onChange() } }
+    }
+
+    @Published private(set) var bestPercentText = ""
+    @Published private(set) var bestTimeText = ""
+    @Published private(set) var mostMissedText = ""
+    @Published private(set) var mostMissedLines: [(name: String, wrong: Int)] = []
+
+    /// Practice pane: selected continent/world (does not start until Start practice).
+    @Published var practiceChoice: PracticeChoice = .africa
+    @Published var practiceLength: PracticeLength = .twenty
+    @Published var homeTab: HomeTab = .practice
 
     @Published var scheduleKind: ScheduleKind = .off {
         didSet { if !loading { schedule.kind = scheduleKind; scheduleChanged() } }
@@ -119,6 +172,10 @@ final class HomeModel: ObservableObject {
         let on = settings.regions
         regionFlags = Region.allCases.map { RegionFlag(region: $0, on: on.contains($0)) }
         quizOnUnlock = settings.quizOnUnlock
+        quizOnWake = settings.quizOnWake
+        questionCount = settings.questionCount
+        requirePerfect = settings.requirePerfect
+        subject = settings.subject
         scheduleKind = schedule.kind
         fixedSlots = schedule.times.map { TimeSlot(date: schedule.date(forMinute: $0)) }
         randomStart = schedule.date(forMinute: schedule.randomStart)
@@ -139,7 +196,18 @@ final class HomeModel: ObservableObject {
     func refreshNumbers() {
         streak = stats.currentStreak()
         let p = deck.progress(pool: poolProvider())
-        roundText = "Round progress: \(p.shown) of \(p.total)"
+        roundText = "\(p.shown) of \(p.total)"
+        let pct = stats.bestPercent
+        bestPercentText = pct > 0 ? String(format: "%.0f%%", pct * 100) : "-"
+        if let t = stats.bestTimeSeconds {
+            let sec = Int(t.rounded())
+            bestTimeText = "\(sec / 60):" + String(format: "%02d", sec % 60)
+        } else {
+            bestTimeText = "-"
+        }
+        let missed = stats.mostMissed(limit: 8)
+        mostMissedLines = missed.map { (name: $0.name, wrong: $0.wrong) }
+        mostMissedText = missed.isEmpty ? "-" : missed.prefix(3).map(\.name).joined(separator: ", ")
     }
 
     func refreshStatus() {
@@ -154,7 +222,6 @@ final class HomeModel: ObservableObject {
     }
 
     func addTime() {
-        // Next free hour after the last time, or 4:00 PM.
         let used = Set(fixedSlots.map { schedule.minuteOfDay($0.date) })
         var minute = (used.max() ?? (15 * 60)) + 60
         if minute > 1439 { minute = 9 * 60 }
@@ -165,6 +232,17 @@ final class HomeModel: ObservableObject {
     func removeTime(_ id: UUID) {
         guard fixedSlots.count > 1 else { return }
         fixedSlots.removeAll { $0.id == id }
+    }
+
+    func startPracticeNow() {
+        onPractice(practiceChoice.scope, practiceLength)
+    }
+
+    var practicePoolHint: String {
+        switch practiceChoice.scope {
+        case .world: return "Every included country (no Oceania)."
+        case .region(let r): return "Only \(r.title): that continent map and countries only."
+        }
     }
 
     var canUseLoginItem: Bool { LoginItem.isAppBundle }
@@ -189,23 +267,19 @@ final class HomeWindowController: NSObject, NSWindowDelegate {
     func show() {
         model.reload()
         if window == nil {
+            let frame = Self.fittedFrame()
             let w = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 460, height: 760),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                contentRect: frame,
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered,
                 defer: false
             )
             w.title = "Map Lock"
-            w.titleVisibility = .hidden
-            w.titlebarAppearsTransparent = true
-            w.isMovableByWindowBackground = true
             w.isReleasedWhenClosed = false
-            // Light or dark comes from NSApp.appearance (the Appearance setting).
             w.backgroundColor = Theme.windowBackground
-            w.minSize = NSSize(width: 420, height: 520)
+            w.minSize = NSSize(width: 680, height: 460)
             w.contentView = NSHostingView(rootView: HomeView(model: model))
-            w.setContentSize(NSSize(width: 460, height: 760))
-            w.center()
+            w.setFrame(frame, display: false)
             _ = w.setFrameAutosaveName("MapLockHome")
             w.delegate = self
             window = w
@@ -215,52 +289,116 @@ final class HomeWindowController: NSObject, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
     }
 
+    /// About 760x560, or smaller if the screen is tight, centered in the visible frame.
+    private static func fittedFrame() -> NSRect {
+        let screen = NSScreen.main?.visibleFrame
+            ?? NSScreen.screens.first?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
+        let width = min(760, max(680, screen.width * 0.72))
+        let height = min(560, max(460, screen.height * 0.72))
+        let w = min(width, screen.width - 40)
+        let h = min(height, screen.height - 40)
+        return NSRect(x: screen.midX - w / 2, y: screen.midY - h / 2, width: w, height: h)
+    }
+
     func hide() {
         window?.orderOut(nil)
     }
 }
 
-// MARK: View
+// MARK: Root view (sidebar + detail)
 
 struct HomeView: View {
     @ObservedObject var model: HomeModel
 
     var body: some View {
-        ZStack {
-            Backdrop()
-            ScrollView {
-                VStack(spacing: Theme.Space.s4) {
-                    header
-                    quizTypeCard
-                    appearanceCard
-                    styleCard
-                    regionsCard
-                    scheduleCard
-                    loginCard
-                    HStack {
-                        Spacer()
-                        Button("Hide Map Lock") { NSApp.terminate(nil) }
-                            .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
+        NavigationSplitView {
+            List(selection: $model.homeTab) {
+                Section {
+                    ForEach(HomeTab.allCases) { tab in
+                        Label(tab.title, systemImage: tab.symbol)
+                            .tag(tab)
                     }
                 }
-                .padding(.horizontal, Theme.Space.s6)
-                .padding(.top, Theme.Space.s10)
-                .padding(.bottom, Theme.Space.s6)
+            }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 150, ideal: 168, max: 200)
+        } detail: {
+            detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Theme.background)
+        }
+        .navigationSplitViewStyle(.balanced)
+        .foregroundStyle(Theme.text)
+        // No preferredColorScheme: NSApp.appearance drives Light / Dark / Match system.
+        .frame(minWidth: 680, minHeight: 460)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    model.onQuizNow()
+                } label: {
+                    Label("Quiz me now", systemImage: "play.fill")
+                }
+                .help("Start an unlock-style quiz with your Settings")
             }
         }
-        .foregroundStyle(Theme.text)
-        // No preferredColorScheme here: on macOS it pins the window's look, and setting it
-        // back to nil (Match system) does not always undo that. NSApp.appearance drives it.
-        .frame(minWidth: 420, minHeight: 520)
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        switch model.homeTab {
+        case .practice:
+            PracticePane(model: model)
+        case .stats:
+            StatsPane(model: model)
+        case .settings:
+            SettingsPane(model: model)
+        }
+    }
+}
+
+// MARK: Practice
+
+private struct PracticePane: View {
+    @ObservedObject var model: HomeModel
+
+    private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: Theme.Space.s2)]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Space.s5) {
+                header
+                whereSection
+                lengthSection
+                Button {
+                    model.startPracticeNow()
+                } label: {
+                    HStack(spacing: Theme.Space.s2) {
+                        Image(systemName: "play.fill")
+                        Text("Start practice")
+                    }
+                    .frame(maxWidth: 280)
+                }
+                .buttonStyle(AppButtonStyle(kind: .primary, height: 40, fullWidth: true))
+                .padding(.top, Theme.Space.s1)
+
+                Text("Practice never locks the screen. Quiz me now (toolbar) uses your Settings and does.")
+                    .font(Theme.font(Theme.Size.xs))
+                    .foregroundStyle(Theme.text3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(Theme.Space.s6)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private var header: some View {
-        VStack(spacing: Theme.Space.s3) {
-            AppBadge(size: 72)
-            Text("Map Lock")
+        VStack(alignment: .leading, spacing: Theme.Space.s2) {
+            Text("Practice")
                 .font(Theme.font(Theme.Size.xl, .bold))
-                .kerning(-0.5)
-            Text("Name a few countries to unlock your Mac.")
+                .kerning(-0.4)
+            Text("A continent or the whole world, any time.")
                 .font(Theme.font(Theme.Size.body))
                 .foregroundStyle(Theme.text2)
             HStack(spacing: Theme.Space.s2) {
@@ -268,223 +406,322 @@ struct HomeView: View {
                     Image(systemName: "flame.fill").foregroundStyle(Theme.warn)
                     Text(model.streak == 1 ? "1 day streak" : "\(model.streak) day streak")
                 }
-                Pill { Text(model.roundText).monospacedDigit() }
-            }
-            Button {
-                model.onQuizNow()
-            } label: {
-                HStack(spacing: Theme.Space.s2) {
-                    Image(systemName: "play.fill")
-                    Text("Quiz me now")
+                Pill {
+                    Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(Theme.text2)
+                    Text("Round \(model.roundText)").monospacedDigit()
                 }
             }
-            .buttonStyle(AppButtonStyle(kind: .primary, height: 44, fullWidth: true))
-            .padding(.top, Theme.Space.s2)
+            .padding(.top, Theme.Space.s1)
         }
-        .padding(.bottom, Theme.Space.s2)
     }
 
-    private var quizTypeCard: some View {
-        Card(title: "Quiz type") {
+    private var whereSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s2) {
+            Text("Where")
+                .font(Theme.font(Theme.Size.sm, .semibold))
+                .foregroundStyle(Theme.text3)
+            LazyVGrid(columns: columns, spacing: Theme.Space.s2) {
+                ForEach(PracticeChoice.allCases) { choice in
+                    PracticePlaceCard(
+                        title: choice.title,
+                        symbol: symbol(for: choice),
+                        selected: model.practiceChoice == choice
+                    ) {
+                        model.practiceChoice = choice
+                    }
+                }
+            }
+            Text(model.practicePoolHint)
+                .font(Theme.font(Theme.Size.xs))
+                .foregroundStyle(Theme.text3)
+        }
+    }
+
+    private var lengthSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s2) {
+            Text("Questions")
+                .font(Theme.font(Theme.Size.sm, .semibold))
+                .foregroundStyle(Theme.text3)
+            Picker("Questions", selection: $model.practiceLength) {
+                ForEach(PracticeLength.allCases) { length in
+                    Text(length.title).tag(length)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 320)
+        }
+    }
+
+    private func symbol(for choice: PracticeChoice) -> String {
+        switch choice {
+        case .africa: return "globe.europe.africa"
+        case .asia: return "globe.asia.australia"
+        case .europe: return "globe.europe.africa"
+        case .northAmerica, .southAmerica: return "globe.americas"
+        case .world: return "globe"
+        }
+    }
+}
+
+private struct PracticePlaceCard: View {
+    let title: String
+    let symbol: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
             VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                Image(systemName: symbol)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(selected ? Theme.accent : Theme.text2)
+                Text(title)
+                    .font(Theme.font(Theme.Size.body, selected ? .semibold : .medium))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    .multilineTextAlignment(.leading)
+            }
+            .padding(Theme.Space.s3)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(selected ? Theme.accent.opacity(0.12) : Theme.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .strokeBorder(selected ? Theme.accent : Theme.hairline2, lineWidth: selected ? 1.5 : 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+// MARK: Stats
+
+private struct StatsPane: View {
+    @ObservedObject var model: HomeModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Space.s5) {
+                Text("Stats")
+                    .font(Theme.font(Theme.Size.xl, .bold))
+                    .kerning(-0.4)
+                Text("Saved on this Mac only.")
+                    .font(Theme.font(Theme.Size.body))
+                    .foregroundStyle(Theme.text2)
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())],
+                          spacing: Theme.Space.s3) {
+                    StatTile(title: "Best score", value: model.bestPercentText, symbol: "star.fill")
+                    StatTile(title: "Best time", value: model.bestTimeText, symbol: "timer")
+                    StatTile(title: "Streak",
+                             value: model.streak == 1 ? "1 day" : "\(model.streak) days",
+                             symbol: "flame.fill")
+                }
+
+                VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                    Text("Most missed")
+                        .font(Theme.font(Theme.Size.sm, .semibold))
+                        .foregroundStyle(Theme.text3)
+                    if model.mostMissedLines.isEmpty {
+                        Text("No misses yet.")
+                            .font(Theme.font(Theme.Size.body))
+                            .foregroundStyle(Theme.text2)
+                    } else {
+                        ForEach(model.mostMissedLines, id: \.name) { row in
+                            HStack {
+                                Text(row.name)
+                                    .font(Theme.font(Theme.Size.body))
+                                Spacer()
+                                Text("\(row.wrong)")
+                                    .font(Theme.font(Theme.Size.body, .medium))
+                                    .foregroundStyle(Theme.text2)
+                                    .monospacedDigit()
+                            }
+                            .padding(.vertical, Theme.Space.s1)
+                        }
+                    }
+                }
+                .padding(Theme.Space.s4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                        .fill(Theme.card)
+                )
+
+                Pill {
+                    Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(Theme.text2)
+                    Text("Round \(model.roundText)").monospacedDigit()
+                }
+            }
+            .padding(Theme.Space.s6)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct StatTile: View {
+    let title: String
+    let value: String
+    let symbol: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s2) {
+            Label(title, systemImage: symbol)
+                .font(Theme.font(Theme.Size.xs, .semibold))
+                .foregroundStyle(Theme.text3)
+                .labelStyle(.titleAndIcon)
+            Text(value)
+                .font(Theme.font(Theme.Size.lg, .bold))
+                .monospacedDigit()
+        }
+        .padding(Theme.Space.s4)
+        .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                .fill(Theme.card)
+        )
+    }
+}
+
+// MARK: Settings (grouped Form, Apple HIG)
+
+private struct SettingsPane: View {
+    @ObservedObject var model: HomeModel
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Every unlock", isOn: $model.quizOnUnlock)
+                Toggle("Also on wake from sleep", isOn: $model.quizOnWake)
+                Picker("Scheduled quiz", selection: $model.scheduleKind) {
+                    ForEach(ScheduleKind.allCases, id: \.self) { kind in
+                        Text(kind.title).tag(kind)
+                    }
+                }
+                if model.scheduleKind == .fixed {
+                    ForEach($model.fixedSlots) { $slot in
+                        HStack {
+                            DatePicker("Every day at", selection: $slot.date, displayedComponents: .hourAndMinute)
+                            Button {
+                                model.removeTime(slot.id)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(model.fixedSlots.count <= 1)
+                            .help("Remove this time")
+                        }
+                    }
+                    Button("Add a time") { model.addTime() }
+                }
+                if model.scheduleKind == .random {
+                    DatePicker("From", selection: $model.randomStart, displayedComponents: .hourAndMinute)
+                    DatePicker("To", selection: $model.randomEnd, displayedComponents: .hourAndMinute)
+                    if let warning = model.windowWarning {
+                        Text(warning).foregroundStyle(Theme.warn)
+                    }
+                    Toggle("Keep it a surprise", isOn: $model.surprise)
+                }
+                if model.scheduleKind != .off {
+                    Text(model.statusText)
+                        .foregroundStyle(Theme.text2)
+                    Text("If your Mac is asleep or locked at that time, the quiz shows when you come back that day.")
+                        .font(Theme.font(Theme.Size.xs))
+                        .foregroundStyle(Theme.text3)
+                }
+            } header: {
+                Text("When to quiz")
+            }
+
+            Section {
+                Picker("Unlock questions", selection: $model.questionCount) {
+                    ForEach(QuestionCount.allCases, id: \.self) { c in
+                        Text(c.title).tag(c)
+                    }
+                }
+                Toggle("Require 100% to unlock", isOn: $model.requirePerfect)
+                if model.requirePerfect {
+                    Text("Missed countries are re-asked until all are right. After 10 minutes you can unlock anyway.")
+                        .font(Theme.font(Theme.Size.xs))
+                        .foregroundStyle(Theme.text3)
+                }
+                Picker("Ask about", selection: $model.subject) {
+                    ForEach(QuizSubject.allCases, id: \.self) { s in
+                        Text(s.title).tag(s)
+                    }
+                }
                 Picker("Quiz type", selection: $model.quizType) {
                     ForEach(QuizType.allCases, id: \.self) { type in
                         Text(type.title).tag(type)
                     }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                Text(quizTypeHint)
-                    .font(Theme.font(Theme.Size.sm))
-                    .foregroundStyle(Theme.text2)
-            }
-        }
-    }
-
-    private var appearanceCard: some View {
-        Card(title: "Appearance") {
-            Picker("Appearance", selection: $model.appearance) {
-                ForEach(AppearanceMode.allCases, id: \.self) { mode in
-                    Text(mode.title).tag(mode)
+                Picker("Answer style", selection: $model.mode) {
+                    ForEach(QuizMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
+                    }
                 }
+                .disabled(model.quizType == .click)
+            } header: {
+                Text("Quiz")
+            } footer: {
+                Text(quizFooter)
+                    .font(Theme.font(Theme.Size.xs))
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-        }
-    }
 
-    private var quizTypeHint: String {
-        switch model.quizType {
-        case .name: return "A country is highlighted. Name it the way Answer style says."
-        case .click: return "You see a name and click that country on the map. Answer style is not used."
-        case .mix: return "Every other question is a click question."
-        }
-    }
-
-    private var styleCard: some View {
-        Card(title: "Answer style") {
-            Picker("Answer style", selection: $model.mode) {
-                ForEach(QuizMode.allCases, id: \.self) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-        }
-    }
-
-    private var regionsCard: some View {
-        Card(title: "Regions") {
-            VStack(spacing: Theme.Space.s1) {
+            Section {
                 ForEach($model.regionFlags) { $flag in
-                    SwitchRow(title: flag.region.title, isOn: $flag.on)
+                    Toggle(flag.region.title, isOn: $flag.on)
                 }
+            } header: {
+                Text("Regions for unlock quizzes")
+            } footer: {
+                Text("At least one region stays on. Practice picks its own place.")
             }
-        }
-    }
 
-    private var scheduleCard: some View {
-        Card(title: "When to quiz") {
-            VStack(alignment: .leading, spacing: Theme.Space.s3) {
-                SwitchRow(title: "Every unlock", isOn: $model.quizOnUnlock)
-
-                Divider().overlay(Theme.hairline)
-
-                HStack {
-                    Text("Scheduled quiz")
-                        .font(Theme.font(Theme.Size.body))
-                    Spacer()
-                    Picker("Scheduled quiz", selection: $model.scheduleKind) {
-                        ForEach(ScheduleKind.allCases, id: \.self) { kind in
-                            Text(kind.title).tag(kind)
-                        }
+            Section {
+                Picker("Appearance", selection: $model.appearance) {
+                    ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                        Text(mode.title).tag(mode)
                     }
-                    .labelsHidden()
-                    .fixedSize()
                 }
-
-                if model.scheduleKind == .fixed {
-                    ForEach($model.fixedSlots) { $slot in
-                        HStack {
-                            Text("Every day at")
-                                .font(Theme.font(Theme.Size.body))
-                                .foregroundStyle(Theme.text2)
-                            Spacer()
-                            DatePicker("Time", selection: $slot.date, displayedComponents: .hourAndMinute)
-                                .labelsHidden()
-                                .datePickerStyle(.field)
-                            Button {
-                                model.removeTime(slot.id)
-                            } label: {
-                                Image(systemName: "minus.circle.fill")
-                                    .foregroundStyle(model.fixedSlots.count > 1 ? Theme.text2 : Theme.text3)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(model.fixedSlots.count <= 1)
-                            .help("Remove this time")
-                        }
-                    }
-                    Button {
-                        model.addTime()
-                    } label: {
-                        HStack(spacing: Theme.Space.s1) {
-                            Image(systemName: "plus")
-                            Text("Add a time")
-                        }
-                    }
-                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
-                }
-
-                if model.scheduleKind == .random {
-                    HStack {
-                        Text("Between")
-                            .font(Theme.font(Theme.Size.body))
-                            .foregroundStyle(Theme.text2)
-                        Spacer()
-                        DatePicker("From", selection: $model.randomStart, displayedComponents: .hourAndMinute)
-                            .labelsHidden()
-                            .datePickerStyle(.field)
-                        Text("and")
-                            .font(Theme.font(Theme.Size.body))
-                            .foregroundStyle(Theme.text2)
-                        DatePicker("To", selection: $model.randomEnd, displayedComponents: .hourAndMinute)
-                            .labelsHidden()
-                            .datePickerStyle(.field)
-                    }
-                    if let warning = model.windowWarning {
-                        Text(warning)
-                            .font(Theme.font(Theme.Size.xs))
-                            .foregroundStyle(Theme.warn)
-                    }
-                    SwitchRow(title: "Keep it a surprise", isOn: $model.surprise)
-                }
-
-                if model.scheduleKind != .off {
-                    HStack(spacing: Theme.Space.s2) {
-                        Image(systemName: "clock")
-                            .foregroundStyle(Theme.accent)
-                        Text(model.statusText)
-                            .font(Theme.font(Theme.Size.sm, .medium))
-                            .foregroundStyle(Theme.text2)
-                    }
-                    Text("If your Mac is asleep or locked at that time, the quiz shows when you come back that day.")
-                        .font(Theme.font(Theme.Size.xs))
-                        .foregroundStyle(Theme.text3)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            } header: {
+                Text("Appearance")
             }
-        }
-    }
 
-    private var loginCard: some View {
-        Card(title: "Startup") {
-            VStack(alignment: .leading, spacing: Theme.Space.s2) {
-                SwitchRow(title: "Open at login", isOn: $model.openAtLogin)
+            Section {
+                Toggle("Open at login", isOn: $model.openAtLogin)
                     .disabled(!model.canUseLoginItem)
                 if let message = model.loginMessage {
-                    Text(message)
-                        .font(Theme.font(Theme.Size.xs))
-                        .foregroundStyle(Theme.warn)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(message).foregroundStyle(Theme.warn)
                 }
                 if model.needsApproval {
-                    Button("Open Login Items") { model.openLoginItems() }
-                        .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
+                    Button("Open Login Items...") { model.openLoginItems() }
                 }
+                Button("Hide Map Lock") { NSApp.terminate(nil) }
+            } header: {
+                Text("General")
+            } footer: {
+                Text("Hide keeps Map Lock running so quizzes still show. Force Quit is the only way to quit.")
             }
         }
-    }
-}
-
-/// Glass card with a small section label.
-private struct Card<Content: View>: View {
-    let title: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s3) {
-            SectionLabel(title)
-            content
-        }
-        .padding(Theme.Space.s4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glass(radius: Theme.Radius.lg, shadow: false)
-    }
-}
-
-/// A label with a switch on the right.
-private struct SwitchRow: View {
-    let title: String
-    @Binding var isOn: Bool
-
-    var body: some View {
-        Toggle(isOn: $isOn) {
-            Text(title)
-                .font(Theme.font(Theme.Size.body))
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        .formStyle(.grouped)
         .toggleStyle(.switch)
-        .tint(Theme.good)
-        .frame(minHeight: 28)
+    }
+
+    private var quizFooter: String {
+        switch (model.subject, model.quizType) {
+        case (.countries, .name): return "A country is highlighted. Name it with Answer style."
+        case (.countries, .click): return "You see a name and click that country. Answer style is not used."
+        case (.countries, .mix): return "Every other question is a click question."
+        case (.capitals, _): return "Name the capital of the highlighted country. Click is not used."
+        case (.flags, _): return "Name the country for the flag emoji. Offline. Click is not used."
+        }
     }
 }

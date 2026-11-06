@@ -24,7 +24,7 @@ struct QuizView: View {
                     Spacer()
                     HStack {
                         Spacer()
-                        Button("Emergency skip") { session.confirmingSkip = true }
+                        Button(session.locksScreen ? "Emergency skip" : "End practice") { session.confirmingSkip = true }
                             .buttonStyle(QuietButtonStyle())
                     }
                 }
@@ -75,16 +75,30 @@ private struct QuestionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(spacing: Theme.Space.s4) {
-            header
-            mapCard
-            answerArea
-                // Click questions only need the name and the result line, so the map gets more room.
-                .frame(minHeight: question.kind == .click ? 120 : 190, alignment: .top)
+        GeometryReader { geo in
+            VStack(spacing: Theme.Space.s4) {
+                header
+                    .frame(maxWidth: min(geo.size.width - Theme.Space.s8 * 2, 1100))
+                if question.subject == .flags, let flag = question.flagEmoji {
+                    Text(flag)
+                        .font(.system(size: 96))
+                        .padding(.vertical, Theme.Space.s2)
+                        .accessibilityLabel("Flag")
+                }
+                if question.subject != .flags || question.kind == .click {
+                    mapCard
+                        .frame(maxWidth: min(geo.size.width - Theme.Space.s8 * 2, 1100))
+                }
+                answerArea
+                    // Click questions only need the name and the result line, so the map gets more room.
+                    .frame(minHeight: question.kind == .click ? 100 : 170, alignment: .top)
+                    .frame(maxWidth: min(geo.size.width - Theme.Space.s8 * 2, 1100))
+            }
+            .padding(.horizontal, Theme.Space.s8)
+            .padding(.top, Theme.Space.s6)
+            .padding(.bottom, Theme.Space.s10)
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
         }
-        .padding(.horizontal, Theme.Space.s8)
-        .padding(.top, Theme.Space.s6)
-        .padding(.bottom, Theme.Space.s10)
         .onAppear { focusFieldSoon() }
         .onChange(of: session.index) { _, _ in focusFieldSoon() }
     }
@@ -130,12 +144,13 @@ private struct QuestionView: View {
                     target: question.target,
                     state: session.targetState,
                     clicked: session.clicked,
-                    enabled: session.phase == .asking
+                    enabled: session.phase == .asking,
+                    mapScope: session.mapScope
                 ) { name in
                     session.click(name)
                 }
-                // Card shaped like the region, so the land fills it (like Seterra).
-                .aspectRatio(MapViews.clickAspect(for: question.target, world: session.world), contentMode: .fit)
+                // Card shaped like the region (or world), so the land fills it (like Seterra).
+                .aspectRatio(clickAspect(for: question), contentMode: .fit)
             } else {
                 MapView(world: session.world, target: question.target, state: session.targetState)
             }
@@ -148,8 +163,7 @@ private struct QuestionView: View {
             .overlay(alignment: .topLeading) {
                 Pill {
                     Image(systemName: "map").foregroundStyle(Theme.text2)
-                    Text(question.kind == .click ? MapViews.regionTitle(for: question.target)
-                                                 : MapViews.title(for: question.target))
+                    Text(mapLabel)
                 }
                 .padding(Theme.Space.s4)
                 // Clicks go through to the map.
@@ -175,12 +189,20 @@ private struct QuestionView: View {
         }
     }
 
-    private var promptText: String {
-        switch question.kind {
-        case .choice: return "Which country is highlighted?"
-        case .typing: return "Type the name, then press Return"
-        case .click: return "Click this country on the map"
+    private var promptText: String { question.prompt }
+
+    private func clickAspect(for question: Question) -> Double {
+        if case .some(.world) = session.mapScope {
+            return 2.0
         }
+        return MapViews.clickAspect(for: question.target, world: session.world)
+    }
+
+    private var mapLabel: String {
+        if question.kind == .click {
+            return MapViews.scopeTitle(session.mapScope, target: question.target)
+        }
+        return MapViews.title(for: question.target)
     }
 
     // MARK: Click the country
@@ -235,7 +257,7 @@ private struct QuestionView: View {
 
     private func choiceState(_ option: String) -> ChoiceButton.Look {
         guard session.phase == .answered else { return .normal }
-        if option == question.target.name { return .right }
+        if option == question.answer { return .right }
         if option == session.chosen { return .wrong }
         return .dim
     }
@@ -245,7 +267,7 @@ private struct QuestionView: View {
     private var typingArea: some View {
         VStack(spacing: Theme.Space.s2) {
             HStack(spacing: Theme.Space.s2) {
-                TextField("", text: $session.typed, prompt: Text("Type the country name").foregroundColor(Theme.text3))
+                TextField("", text: $session.typed, prompt: Text(question.subject == .capitals ? "Type the capital" : "Type the country name").foregroundColor(Theme.text3))
                     .textFieldStyle(.plain)
                     .font(Theme.font(Theme.Size.lg, .semibold))
                     .multilineTextAlignment(.center)
@@ -320,22 +342,45 @@ private struct QuestionView: View {
     }
 }
 
-/// Segmented progress: one bar per question, green or red once answered.
+/// Segmented progress: one bar per question when the quiz is short.
+/// Long quizzes (practice All) use a single bar so the window width stays sane.
 private struct ProgressSteps: View {
     let total: Int
     let results: [Bool]
     let current: Int
 
+    private static let dotLimit = 24
+
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<total, id: \.self) { i in
-                Capsule()
-                    .fill(color(i))
-                    .frame(minWidth: 6, maxWidth: 28)
-                    .frame(height: 6)
+        Group {
+            if total <= Self.dotLimit {
+                HStack(spacing: 6) {
+                    ForEach(0..<total, id: \.self) { i in
+                        Capsule()
+                            .fill(color(i))
+                            .frame(minWidth: 6, maxWidth: 28)
+                            .frame(height: 6)
+                    }
+                }
+            } else {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Theme.fill2)
+                        Capsule()
+                            .fill(Theme.accent)
+                            .frame(width: geo.size.width * fraction)
+                    }
+                }
+                .frame(height: 6)
+                .frame(maxWidth: 280)
             }
         }
         .animation(Theme.Motion.slow, value: results)
+    }
+
+    private var fraction: CGFloat {
+        guard total > 0 else { return 0 }
+        return CGFloat(min(results.count, total)) / CGFloat(total)
     }
 
     private func color(_ i: Int) -> Color {
@@ -452,10 +497,12 @@ private struct SkipConfirmView: View {
                         .font(.system(size: 22, weight: .heavy))
                         .foregroundStyle(Theme.warn)
                 )
-            Text("Skip today's quiz?")
+            Text(session.locksScreen ? "Skip today's quiz?" : "End this practice?")
                 .font(Theme.font(Theme.Size.md, .semibold))
                 .padding(.top, Theme.Space.s3)
-            Text("Are you sure? Your streak will not count today.")
+            Text(session.locksScreen
+                 ? "Are you sure? Your streak will not count today."
+                 : "You can start another practice any time.")
                 .font(Theme.font(Theme.Size.sm))
                 .foregroundStyle(Theme.text2)
                 .multilineTextAlignment(.center)
@@ -465,7 +512,7 @@ private struct SkipConfirmView: View {
                 Button("Keep going") { session.confirmingSkip = false }
                     .buttonStyle(AppButtonStyle(kind: .ghost, fullWidth: true))
                     .keyboardShortcut(.cancelAction)
-                Button("Skip") { session.skip() }
+                Button(session.locksScreen ? "Skip" : "End") { session.skip() }
                     .buttonStyle(AppButtonStyle(kind: .danger, fullWidth: true))
             }
         }
@@ -485,7 +532,7 @@ private struct FinishedView: View {
                 .frame(width: 200, height: 200)
                 .padding(.bottom, Theme.Space.s5)
 
-            Text(session.askedCount == 0 ? "Nothing to ask" : "Unlocked!")
+            Text(session.finishedTitle)
                 .font(Theme.font(Theme.Size.xl, .bold))
                 .kerning(-0.5)
             Text(message)
@@ -506,7 +553,7 @@ private struct FinishedView: View {
             }
             .padding(.bottom, Theme.Space.s6)
 
-            Button("Back to desktop") { session.done() }
+            Button(session.doneButtonTitle) { session.done() }
                 .buttonStyle(AppButtonStyle(kind: .primary, height: 44, fullWidth: true))
                 .keyboardShortcut(.defaultAction)
         }
@@ -519,6 +566,9 @@ private struct FinishedView: View {
     private var message: String {
         let total = session.askedCount
         if total == 0 { return "Turn on a region in the menu bar." }
+        if session.unlockedByTimeLimit {
+            return "Time limit reached. You got \(session.score) of \(total) right and can unlock now."
+        }
         if session.score == total { return "You got all \(total) right. Nice work!" }
         return "You got \(session.score) of \(total) right. Missed ones will come back soon."
     }

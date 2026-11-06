@@ -59,6 +59,8 @@ enum Theme {
 
     // Surfaces
     static let glass = dyn(Palette.card)
+    /// Solid-ish card fill for tiles and selectable place cards.
+    static let card = dyn(Palette.card)
     /// Results and skip dialogs.
     static let dialog = dyn(Palette.dialog)
     static let fill = dyn(0x000000, 0xFFFFFF, lightOpacity: 0.04, darkOpacity: 0.06)

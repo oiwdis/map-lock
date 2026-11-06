@@ -58,23 +58,32 @@ enum ClickMap {
 
     /// Drawn places that are not asked, but are part of a country that is.
     /// A click on them counts as that country. Other non-quiz places are ignored like the sea.
-    static let clickAliases: [String: String] = [
-        "Somaliland": "Somalia",
-        "Northern Cyprus": "Cyprus",
-        "Hong Kong": "China",
-        "Macao": "China",
-    ]
+    /// Former aliases (Somaliland, Northern Cyprus, Hong Kong, Macao, Siachen Glacier)
+    /// are merged into the parent country in countries.geojson, so they no longer exist
+    /// as separate features. Keep this empty unless a new split piece appears.
+    static let clickAliases: [String: String] = [:]
 
     /// The countries that can be clicked for a question: the target's own region,
     /// the places that are asked (plus the alias pieces), and only the ones on screen. Other drawn
     /// places in the region come back with an empty name so a click on them counts as the sea.
-    static func targets(for target: Country, world: [Country], map: FittedMap, size: CGSize) -> [ClickTarget] {
+    static func targets(for target: Country, world: [Country], map: FittedMap, size: CGSize,
+                        scope: PracticeScope? = nil) -> [ClickTarget] {
         let screen = CGRect(origin: .zero, size: size)
-        // Click questions show the whole region (MapViews.regionPlan), so every country of the
-        // region can get a dot. Dots stay well inside the map.
+        // Click questions show the whole region (or the whole world for world practice).
+        // Every country in that scope can get a dot. Dots stay well inside the map.
         let dotArea = screen.insetBy(dx: dotDiameter, dy: dotDiameter)
+        let inScope: (Country) -> Bool = { c in
+            switch scope {
+            case .none:
+                return c.region == target.region
+            case .some(.region(let region)):
+                return c.region == region
+            case .some(.world):
+                return true
+            }
+        }
         var result: [ClickTarget] = []
-        for country in world where country.region == target.region {
+        for country in world where inScope(country) {
             let name: String
             if country.quizzable {
                 name = country.name

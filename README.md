@@ -10,9 +10,11 @@
 
 ## What it is
 
-Map Lock covers your screen with a map. One country lights up and you name it. Five questions,
-then you are back to your Mac. It can quiz you every time you unlock your Mac, at set times each day,
-or at a random time each day. It lives in your Dock and in the menu bar (the globe icon).
+Map Lock covers your screen with a map. One country lights up and you name it. A few questions
+(you choose how many), then you are back to your Mac. It can quiz you every time you unlock your Mac,
+when it wakes from sleep, at set times each day, or at a random time each day. You can also run a
+full continent or whole-world practice test any time without locking the screen. It lives in your
+Dock and in the menu bar (the globe icon).
 
 | | |
 |---|---|
@@ -47,18 +49,25 @@ When you first open it, Map Lock offers to move itself to your Applications fold
 
 Click the Map Lock icon in the Dock to open the home window. There you can:
 
-- **Quiz me now**: start a quiz any time.
+- **Quiz me now**: start a short unlock-style quiz any time.
+- The home window uses a macOS **sidebar**: **Practice**, **Stats**, and **Settings**.
+- **Practice**: pick a continent or the whole world, choose a length (10 / 20 / 50 / All), then
+  **Start practice**. Opens in a normal window sized to your screen. No lock.
+- **Stats**: best score, best time, streak, and most-missed countries (this Mac only).
+- **Settings**: unlock / wake / schedule, question count, require 100%, ask-about (countries /
+  capitals / flags), typing or click mode, appearance, regions, open at login.
+- **Quiz me now** is in the toolbar (and still in the menu bar).
 - See your day streak and how far you are through the current round.
-- **Quiz type**: **Name the country** (a country is highlighted and you name it), **Click the country**
-  (you see a name and click that country on the map), or **Mix** (every other question is a click question).
-- **Appearance**: **Light** (green land on a light blue sea, like Seterra; this is the default), **Dark**,
-  or **Match system**.
+- **Quiz type**: **Name the country**, **Click the country**, or **Mix**.
+- **Ask about**: **Countries** (default), **Capitals**, or **Flags** (emoji flags, offline). Capitals and
+  Flags stay off until you pick them.
+- **Appearance**: **Light** (default), **Dark**, or **Match system**.
 - **Answer style** (for Name the country): Multiple choice, Type the name, or a mix of both.
-- **Regions**: pick which parts of the world to study (Africa, Asia, Europe, North America, South America).
-  Africa and Asia are on at first. At least one stays on.
-  In Name the country, some countries are shown in a closer view (for example Central America)
-  so small countries are easy to see.
-- **When to quiz**: see below.
+  Type the name accepts common alternate spellings, case and accents ignored.
+- **Unlock quiz**: how many questions (5, 10, 20, or All), and an optional **Require 100% to unlock**
+  mode that re-asks misses until they are right (with a 10-minute safety time limit).
+- **Regions**: Africa, Asia, Europe, North America, South America. Africa and Asia are on at first.
+- **When to quiz**: Every unlock, optional also on wake from sleep, and the schedule below.
 - **Open at login**: start Map Lock by itself when you log in.
 - **Hide Map Lock**: closes the window. Map Lock keeps running so quizzes still show.
 
@@ -68,6 +77,8 @@ The globe icon in the menu bar has the same choices.
 
 - **Every unlock**: a quiz shows each time you unlock your Mac. This is on at first. It works on its own,
   so you can use it together with a schedule.
+- **Also on wake from sleep**: optional. Quizzes when the Mac wakes even if no password unlock follows.
+  Off at first.
 - **At a set time**: pick one or more times each day (4:00 PM at first). Use **Add a time** for more.
 - **Random time each day**: pick a window (3:00 PM to 9:00 PM at first). Map Lock picks one time in that
   window each day and keeps it, even if you restart. The home window shows "Today's quiz: around 6:42 PM".

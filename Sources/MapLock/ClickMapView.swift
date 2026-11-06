@@ -11,6 +11,8 @@ struct ClickMapView: View {
     /// The country that was clicked, once answered (nil for "I don't know").
     let clicked: String?
     let enabled: Bool
+    /// Whole-world practice uses the flat world map; nil keeps the region view.
+    var mapScope: PracticeScope? = nil
     let onClick: (String) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -20,8 +22,8 @@ struct ClickMapView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let layout = cache.layout(for: target, world: world, size: geo.size)
-            // All parts of the hovered country (for example Cyprus and Northern Cyprus).
+            let layout = cache.layout(for: target, world: world, size: geo.size, scope: mapScope)
+            // All parts of the hovered country (for example multi-part countries).
             let hoverParts: [ClickTarget] = hovered.map { name in layout.targets.filter { $0.name == name } } ?? []
             ZStack {
                 ClickBaseMap(world: world, layout: layout, scheme: scheme)
@@ -64,20 +66,41 @@ struct ClickLayout {
     let map: FittedMap
     let region: Region
     let targets: [ClickTarget]
+    /// Whole-world practice draws every region, not only the target's.
+    var drawsAllRegions: Bool = false
 }
 
 /// Keeps the layout between redraws (hover changes redraw often). Not observed on purpose.
 final class ClickLayoutCache {
     private var last: ClickLayout? = nil
 
-    func layout(for target: Country, world: [Country], size: CGSize) -> ClickLayout {
-        // The view is the same for the whole region, so the key is the region and the size.
-        let key = "\(target.region.rawValue)|\(Int(size.width))x\(Int(size.height))|\(world.count)"
+    func layout(for target: Country, world: [Country], size: CGSize,
+                scope: PracticeScope? = nil) -> ClickLayout {
+        // The view is the same for the whole region (or world), so the key covers that and the size.
+        let scopeKey: String = {
+            switch scope {
+            case .none: return target.region.rawValue
+            case .some(.world): return "world"
+            case .some(.region(let r)): return r.rawValue
+            }
+        }()
+        let key = "\(scopeKey)|\(Int(size.width))x\(Int(size.height))|\(world.count)"
         if let last, last.key == key { return last }
-        let plan = MapViews.regionPlan(for: target, world: world)
+        let plan: MapPlan
+        if let scope {
+            plan = MapViews.scopePlan(scope, target: target, world: world)
+        } else {
+            plan = MapViews.regionPlan(for: target, world: world)
+        }
         let map = FittedMap(projection: plan.projection, fit: plan.fit, size: size)
-        let targets = ClickMap.targets(for: target, world: world, map: map, size: size)
-        let made = ClickLayout(key: key, plan: plan, map: map, region: target.region, targets: targets)
+        let targets = ClickMap.targets(for: target, world: world, map: map, size: size, scope: scope)
+        let worldScope: Bool = { if case .some(.world) = scope { return true }; return false }()
+        let layoutRegion: Region = {
+            if case .some(.region(let r)) = scope { return r }
+            return target.region
+        }()
+        let made = ClickLayout(key: key, plan: plan, map: map, region: layoutRegion,
+                               targets: targets, drawsAllRegions: worldScope)
         last = made
         return made
     }
@@ -109,10 +132,10 @@ private struct ClickBaseMap: View, Equatable {
                 )
             )
             let visible = rect.insetBy(dx: -20, dy: -20)
-            for country in world where country.region == layout.region {
+            for country in world where layout.drawsAllRegions || country.region == layout.region {
                 let path = MapDrawing.makePath(layout.map.viewPolygons(for: country))
                 guard path.boundingRect.intersects(visible) else { continue }
-                let fill = Theme.land  // only the region is drawn; everything else is sea
+                let fill = Theme.land  // only the scope is drawn; everything else is sea
                 context.fill(path, with: .color(fill), style: FillStyle(eoFill: true))
                 context.stroke(path, with: .color(Theme.border),
                                style: StrokeStyle(lineWidth: 0.6, lineJoin: .round))
