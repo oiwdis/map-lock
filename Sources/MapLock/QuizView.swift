@@ -209,16 +209,27 @@ private struct QuestionView: View {
 
     private var clickArea: some View {
         HStack(spacing: Theme.Space.s4) {
-            Text(question.target.name)
-                .font(Theme.font(Theme.Size.xl, .bold))
-                .kerning(-0.4)
-                .foregroundStyle(clickNameColor)
-                .modifier(ShakeEffect(shakes: CGFloat(session.shakeCount)))
-                .animation(reduceMotion ? nil : .linear(duration: 0.4), value: session.shakeCount)
+            if let label = clickPromptLabel {
+                Text(label)
+                    .font(Theme.font(Theme.Size.xl, .bold))
+                    .kerning(-0.4)
+                    .foregroundStyle(clickNameColor)
+                    .modifier(ShakeEffect(shakes: CGFloat(session.shakeCount)))
+                    .animation(reduceMotion ? nil : .linear(duration: 0.4), value: session.shakeCount)
+            }
             if session.phase == .asking {
                 Button("I don't know") { session.giveUp() }
                     .buttonStyle(QuietButtonStyle())
             }
+        }
+    }
+
+    /// Name or capital next to the map. Flags rely on the emoji above, so no label.
+    private var clickPromptLabel: String? {
+        switch question.subject {
+        case .countries: return question.target.name
+        case .capitals: return question.answer
+        case .flags: return nil
         }
     }
 

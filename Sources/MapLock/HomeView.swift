@@ -107,7 +107,19 @@ final class HomeModel: ObservableObject {
 
     /// Practice pane: selected continent/world (does not start until Start practice).
     @Published var practiceChoice: PracticeChoice = .africa
-    @Published var practiceLength: PracticeLength = .twenty
+    @Published var practiceLength: PracticeLength = .twenty {
+        didSet { if !loading { settings.practiceLength = practiceLength } }
+    }
+    @Published var practiceSubject: QuizSubject = .countries {
+        didSet { if !loading { settings.practiceSubject = practiceSubject; onChange() } }
+    }
+    @Published var practiceAnswerStyle: PracticeAnswerStyle = .multipleChoice {
+        didSet {
+            guard !loading else { return }
+            settings.setPracticeStyle(practiceAnswerStyle, for: practiceSubject)
+            onChange()
+        }
+    }
     @Published var homeTab: HomeTab = .practice
 
     @Published var scheduleKind: ScheduleKind = .off {
@@ -176,6 +188,9 @@ final class HomeModel: ObservableObject {
         questionCount = settings.questionCount
         requirePerfect = settings.requirePerfect
         subject = settings.subject
+        practiceSubject = settings.practiceSubject
+        practiceAnswerStyle = settings.practiceStyle(for: settings.practiceSubject)
+        practiceLength = settings.practiceLength
         scheduleKind = schedule.kind
         fixedSlots = schedule.times.map { TimeSlot(date: schedule.date(forMinute: $0)) }
         randomStart = schedule.date(forMinute: schedule.randomStart)
@@ -237,6 +252,27 @@ final class HomeModel: ObservableObject {
     func startPracticeNow() {
         onPractice(practiceChoice.scope, practiceLength)
     }
+
+    /// Switching practice subject loads that subject's saved answer style.
+    func selectPracticeSubject(_ subject: QuizSubject) {
+        guard practiceSubject != subject else { return }
+        loading = true
+        practiceSubject = subject
+        practiceAnswerStyle = settings.practiceStyle(for: subject)
+        loading = false
+        settings.practiceSubject = subject
+        onChange()
+    }
+
+    func selectPracticeAnswerStyle(_ style: PracticeAnswerStyle) {
+        practiceAnswerStyle = style
+    }
+
+    var practiceHelpText: String {
+        practiceAnswerStyle.help(for: practiceSubject)
+    }
+
+    var settingsUnlockSummary: String { settings.unlockQuizSummary }
 
     var practicePoolHint: String {
         switch practiceChoice.scope {
@@ -339,7 +375,7 @@ struct HomeView: View {
                 } label: {
                     Label("Quiz me now", systemImage: "play.fill")
                 }
-                .help("Start an unlock-style quiz with your Settings")
+                .help("Start an unlock quiz with Unlock quiz settings")
             }
         }
     }
@@ -368,6 +404,7 @@ private struct PracticePane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.s5) {
                 header
+                modeSection
                 whereSection
                 lengthSection
                 Button {
@@ -382,7 +419,7 @@ private struct PracticePane: View {
                 .buttonStyle(AppButtonStyle(kind: .primary, height: 40, fullWidth: true))
                 .padding(.top, Theme.Space.s1)
 
-                Text("Practice never locks the screen. Quiz me now (toolbar) uses your Settings and does.")
+                Text("Practice never locks the screen. Quiz me now (toolbar) uses Unlock quiz in Settings.")
                     .font(Theme.font(Theme.Size.xs))
                     .foregroundStyle(Theme.text3)
                     .fixedSize(horizontal: false, vertical: true)
@@ -398,7 +435,7 @@ private struct PracticePane: View {
             Text("Practice")
                 .font(Theme.font(Theme.Size.xl, .bold))
                 .kerning(-0.4)
-            Text("A continent or the whole world, any time.")
+            Text("Pick what to practice, how to answer, then a place.")
                 .font(Theme.font(Theme.Size.body))
                 .foregroundStyle(Theme.text2)
             HStack(spacing: Theme.Space.s2) {
@@ -412,6 +449,53 @@ private struct PracticePane: View {
                 }
             }
             .padding(.top, Theme.Space.s1)
+        }
+    }
+
+    private var modeSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s2) {
+            Text("What to practice")
+                .font(Theme.font(Theme.Size.sm, .semibold))
+                .foregroundStyle(Theme.text3)
+            HStack(spacing: Theme.Space.s2) {
+                ForEach(QuizSubject.allCases) { subject in
+                    PracticeModeChip(
+                        title: subject.practiceTitle,
+                        symbol: subject.practiceSymbol,
+                        selected: model.practiceSubject == subject
+                    ) {
+                        model.selectPracticeSubject(subject)
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                Text("How to answer")
+                    .font(Theme.font(Theme.Size.sm, .semibold))
+                    .foregroundStyle(Theme.text3)
+                ForEach(PracticeAnswerStyle.allCases) { style in
+                    PracticeAnswerRow(
+                        title: style.title(for: model.practiceSubject),
+                        selected: model.practiceAnswerStyle == style
+                    ) {
+                        model.selectPracticeAnswerStyle(style)
+                    }
+                }
+                Text(model.practiceHelpText)
+                    .font(Theme.font(Theme.Size.xs))
+                    .foregroundStyle(Theme.text3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, Theme.Space.s1)
+            }
+            .padding(Theme.Space.s3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(Theme.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .strokeBorder(Theme.hairline2, lineWidth: 1)
+            )
         }
     }
 
@@ -461,6 +545,63 @@ private struct PracticePane: View {
         case .northAmerica, .southAmerica: return "globe.americas"
         case .world: return "globe"
         }
+    }
+}
+
+private struct PracticeModeChip: View {
+    let title: String
+    let symbol: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Theme.Space.s2) {
+                Image(systemName: symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(title)
+                    .font(Theme.font(Theme.Size.body, selected ? .semibold : .medium))
+            }
+            .foregroundStyle(selected ? Theme.accent : Theme.text)
+            .padding(.horizontal, Theme.Space.s3)
+            .padding(.vertical, Theme.Space.s2)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(selected ? Theme.accent.opacity(0.12) : Theme.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .strokeBorder(selected ? Theme.accent : Theme.hairline2, lineWidth: selected ? 1.5 : 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+private struct PracticeAnswerRow: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Theme.Space.s3) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(selected ? Theme.accent : Theme.text3)
+                Text(title)
+                    .font(Theme.font(Theme.Size.body, selected ? .semibold : .regular))
+                    .foregroundStyle(Theme.text)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, Theme.Space.s1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -669,9 +810,9 @@ private struct SettingsPane: View {
                 }
                 .disabled(model.quizType == .click)
             } header: {
-                Text("Quiz")
+                Text("Unlock quiz")
             } footer: {
-                Text(quizFooter)
+                Text(model.settingsUnlockSummary)
                     .font(Theme.font(Theme.Size.xs))
             }
 
@@ -715,13 +856,4 @@ private struct SettingsPane: View {
         .toggleStyle(.switch)
     }
 
-    private var quizFooter: String {
-        switch (model.subject, model.quizType) {
-        case (.countries, .name): return "A country is highlighted. Name it with Answer style."
-        case (.countries, .click): return "You see a name and click that country. Answer style is not used."
-        case (.countries, .mix): return "Every other question is a click question."
-        case (.capitals, _): return "Name the capital of the highlighted country. Click is not used."
-        case (.flags, _): return "Name the country for the flag emoji. Offline. Click is not used."
-        }
-    }
 }

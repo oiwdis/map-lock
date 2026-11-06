@@ -2,8 +2,7 @@ import SwiftUI
 
 /// The map for a "Click the country" question: the whole region with nothing highlighted.
 /// Small countries get a Seterra-style dot. A click picks a country (see ClickMap.swift).
-/// After the answer the target turns green, or the clicked country flashes red and the
-/// target shows in yellow.
+/// Pinch / scroll zoom and drag pan; hits stay correct at any zoom.
 struct ClickMapView: View {
     let world: [Country]
     let target: Country
@@ -18,44 +17,67 @@ struct ClickMapView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovered: String? = nil
     @State private var cache = ClickLayoutCache()
+    @State private var zoom = MapZoomState()
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         GeometryReader { geo in
             let layout = cache.layout(for: target, world: world, size: geo.size, scope: mapScope)
-            // All parts of the hovered country (for example multi-part countries).
             let hoverParts: [ClickTarget] = hovered.map { name in layout.targets.filter { $0.name == name } } ?? []
             ZStack {
-                ClickBaseMap(world: world, layout: layout, scheme: scheme)
+                ClickBaseMap(world: world, layout: layout, scheme: scheme, zoom: zoom)
                     .equatable()
                 if enabled, !hoverParts.isEmpty {
-                    HoverLayer(parts: hoverParts)
+                    HoverLayer(parts: hoverParts, zoom: zoom, size: geo.size)
                 }
                 if state != .asking {
                     ClickResultLayer(layout: layout, target: target.name, state: state,
-                                     clicked: clicked, animate: !reduceMotion)
+                                     clicked: clicked, animate: !reduceMotion, zoom: zoom, size: geo.size)
                         .id(clicked ?? "-")
                 }
+
+                MapInteractionOverlay(
+                    size: geo.size,
+                    zoom: zoom,
+                    clicksEnabled: enabled,
+                    onZoomChange: { zoom = $0 },
+                    onClick: { viewPoint in
+                        let mapPt = zoom.mapPoint(from: viewPoint, in: geo.size)
+                        guard let name = ClickMap.hit(mapPt, in: layout.targets) else { return }
+                        hovered = nil
+                        onClick(name)
+                    },
+                    onHover: { viewPoint in
+                        guard let viewPoint else {
+                            if hovered != nil { hovered = nil }
+                            return
+                        }
+                        let mapPt = zoom.mapPoint(from: viewPoint, in: geo.size)
+                        let name = ClickMap.hit(mapPt, in: layout.targets)
+                        if name != hovered { hovered = name }
+                    }
+                )
+
+                VStack {
+                    HStack {
+                        Spacer()
+                        MapZoomControls(zoom: $zoom, size: geo.size)
+                    }
+                    Spacer()
+                }
+                .padding(10)
+                .allowsHitTesting(true)
             }
+            .clipShape(Rectangle())
             .contentShape(Rectangle())
-            .gesture(
-                SpatialTapGesture().onEnded { value in
-                    guard enabled, let name = ClickMap.hit(value.location, in: layout.targets) else { return }
-                    hovered = nil
-                    onClick(name)
-                }
-            )
-            .onContinuousHover { phase in
-                switch phase {
-                case .active(let point):
-                    let name = enabled ? ClickMap.hit(point, in: layout.targets) : nil
-                    if name != hovered { hovered = name }
-                case .ended:
-                    if hovered != nil { hovered = nil }
-                }
-            }
         }
-        .onChange(of: target.name) { _, _ in hovered = nil }
+        .onChange(of: target.name) { _, _ in
+            hovered = nil
+            zoom.reset()
+        }
+        .onChange(of: mapScope) { _, _ in
+            zoom.reset()
+        }
     }
 }
 
@@ -76,7 +98,6 @@ final class ClickLayoutCache {
 
     func layout(for target: Country, world: [Country], size: CGSize,
                 scope: PracticeScope? = nil) -> ClickLayout {
-        // The view is the same for the whole region (or world), so the key covers that and the size.
         let scopeKey: String = {
             switch scope {
             case .none: return target.region.rawValue
@@ -106,20 +127,21 @@ final class ClickLayoutCache {
     }
 }
 
-/// All countries, no highlight, plus the neutral dots. Only redraws when the view changes.
+/// All countries, no highlight, plus the neutral dots. Only redraws when the view or zoom changes.
 private struct ClickBaseMap: View, Equatable {
     let world: [Country]
     let layout: ClickLayout
-    /// Part of the equality so a Light / Dark switch redraws the map.
     let scheme: ColorScheme
+    let zoom: MapZoomState
 
     nonisolated static func == (lhs: ClickBaseMap, rhs: ClickBaseMap) -> Bool {
-        lhs.layout.key == rhs.layout.key && lhs.scheme == rhs.scheme
+        lhs.layout.key == rhs.layout.key && lhs.scheme == rhs.scheme && lhs.zoom == rhs.zoom
     }
 
     var body: some View {
         let world = self.world
         let layout = self.layout
+        let zoom = self.zoom
         Canvas { context, size in
             let rect = CGRect(origin: .zero, size: size)
             context.fill(
@@ -131,23 +153,28 @@ private struct ClickBaseMap: View, Equatable {
                     endRadius: max(size.width, size.height) * 0.7
                 )
             )
-            let visible = rect.insetBy(dx: -20, dy: -20)
+            var mapContext = context
+            mapContext.beginMapZoom(zoom, size: size)
+            let inv = max(zoom.scale, 0.001)
+            let visible = rect.insetBy(dx: -40 / inv, dy: -40 / inv)
             for country in world where layout.drawsAllRegions || country.region == layout.region {
                 let path = MapDrawing.makePath(layout.map.viewPolygons(for: country))
                 guard path.boundingRect.intersects(visible) else { continue }
-                let fill = Theme.land  // only the scope is drawn; everything else is sea
-                context.fill(path, with: .color(fill), style: FillStyle(eoFill: true))
-                context.stroke(path, with: .color(Theme.border),
-                               style: StrokeStyle(lineWidth: 0.6, lineJoin: .round))
+                mapContext.fill(path, with: .color(Theme.land), style: FillStyle(eoFill: true))
+                mapContext.stroke(path, with: .color(Theme.border),
+                                  style: StrokeStyle(lineWidth: 0.6 / inv, lineJoin: .round))
             }
+            // Dots: constant on-screen size => radius / zoom in map space.
             for t in layout.targets {
                 guard let dot = t.dot else { continue }
                 if t.needsLeader, let anchor = t.anchor {
-                    ClickDots.leader(from: anchor, to: dot, in: &context, color: Theme.leader)
+                    ClickDots.leader(from: anchor, to: dot, in: &mapContext, color: Theme.leader,
+                                     scale: inv)
                 }
-                let circle = Path(ellipseIn: ClickDots.rect(at: dot))
-                context.fill(circle, with: .color(Theme.dotFill))
-                context.stroke(circle, with: .color(Theme.dotStroke), lineWidth: 1.5)
+                let r = ClickMap.dotRadius / inv
+                let circle = Path(ellipseIn: CGRect(x: dot.x - r, y: dot.y - r, width: r * 2, height: r * 2))
+                mapContext.fill(circle, with: .color(Theme.dotFill))
+                mapContext.stroke(circle, with: .color(Theme.dotStroke), lineWidth: 1.5 / inv)
             }
         }
         .allowsHitTesting(false)
@@ -155,48 +182,53 @@ private struct ClickBaseMap: View, Equatable {
 }
 
 enum ClickDots {
-    static func rect(at center: CGPoint) -> CGRect {
-        let r = ClickMap.dotRadius
+    static func rect(at center: CGPoint, scale: CGFloat = 1) -> CGRect {
+        let r = ClickMap.dotRadius / max(scale, 0.001)
         return CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)
     }
 
-    /// Thin line from a nudged dot back to its country's true center, with a tiny end point.
-    static func leader(from anchor: CGPoint, to dot: CGPoint, in context: inout GraphicsContext, color: Color) {
+    static func leader(from anchor: CGPoint, to dot: CGPoint, in context: inout GraphicsContext,
+                       color: Color, scale: CGFloat = 1) {
+        let inv = max(scale, 0.001)
         let dx = dot.x - anchor.x, dy = dot.y - anchor.y
         let d = hypot(dx, dy)
         guard d > 0 else { return }
-        // Stop at the dot's edge so the line does not run under it.
-        let end = CGPoint(x: dot.x - dx / d * ClickMap.dotRadius, y: dot.y - dy / d * ClickMap.dotRadius)
+        let end = CGPoint(x: dot.x - dx / d * ClickMap.dotRadius / inv,
+                          y: dot.y - dy / d * ClickMap.dotRadius / inv)
         var line = Path()
         line.move(to: anchor)
         line.addLine(to: end)
-        context.stroke(line, with: .color(color), lineWidth: 1.2)
-        context.fill(Path(ellipseIn: CGRect(x: anchor.x - 1.5, y: anchor.y - 1.5, width: 3, height: 3)), with: .color(color))
+        context.stroke(line, with: .color(color), lineWidth: 1.2 / inv)
+        let ar = 1.5 / inv
+        context.fill(Path(ellipseIn: CGRect(x: anchor.x - ar, y: anchor.y - ar, width: ar * 2, height: ar * 2)),
+                     with: .color(color))
     }
 
-    static func path(for target: ClickTarget) -> Path {
+    static func path(for target: ClickTarget, scale: CGFloat = 1) -> Path {
         var path = MapDrawing.makePath(target.polygons)
-        if let dot = target.dot { path.addEllipse(in: rect(at: dot)) }
+        if let dot = target.dot { path.addEllipse(in: rect(at: dot, scale: scale)) }
         return path
     }
 }
 
-/// A light wash on the country under the pointer, like Seterra.
 private struct HoverLayer: View {
     let parts: [ClickTarget]
-
-    /// Read so a Light / Dark switch redraws this layer right away.
+    let zoom: MapZoomState
+    let size: CGSize
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        Canvas { context, _ in
+        Canvas { context, size in
+            var ctx = context
+            ctx.beginMapZoom(zoom, size: size)
+            let inv = max(zoom.scale, 0.001)
             for target in parts {
                 let shape = MapDrawing.makePath(target.polygons)
-                context.fill(shape, with: .color(Theme.hover), style: FillStyle(eoFill: true))
+                ctx.fill(shape, with: .color(Theme.hover), style: FillStyle(eoFill: true))
                 if let dot = target.dot {
-                    let circle = Path(ellipseIn: ClickDots.rect(at: dot))
-                    context.fill(circle, with: .color(Theme.fill3))
-                    context.stroke(circle, with: .color(Theme.text), lineWidth: 1.5)
+                    let circle = Path(ellipseIn: ClickDots.rect(at: dot, scale: inv))
+                    ctx.fill(circle, with: .color(Theme.fill3))
+                    ctx.stroke(circle, with: .color(Theme.text), lineWidth: 1.5 / inv)
                 }
             }
         }
@@ -205,26 +237,21 @@ private struct HoverLayer: View {
     }
 }
 
-/// After the click: green target when right. When wrong, the clicked country flashes red
-/// and the target shows in yellow with a ring if it is tiny.
 private struct ClickResultLayer: View {
     let layout: ClickLayout
     let target: String
     let state: TargetState
     let clicked: String?
     let animate: Bool
+    let zoom: MapZoomState
+    let size: CGSize
     @State private var start = Date()
 
-    /// The red flash: three blinks over 0.9 seconds, then it stays red.
     static let flashLength = 0.9
-
-    /// Read so a Light / Dark switch redraws this layer right away.
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        // Reading the scheme makes SwiftUI redraw on a theme switch without restarting the flash.
         let _ = scheme
-        // Every part of the country, not just the first (Cyprus has two, China has specks).
         let targetShapes = layout.targets.filter { $0.name == target }
         let wrongShapes = state == .wrong ? layout.targets.filter { $0.name == clicked && $0.name != target } : []
         let flashing = animate && !wrongShapes.isEmpty
@@ -234,32 +261,35 @@ private struct ClickResultLayer: View {
                 guard flashing, t < Self.flashLength else { return 0.9 }
                 return 0.25 + 0.75 * (1 + cos(t / Self.flashLength * 3 * 2 * .pi)) / 2
             }()
-            // Right: green target. Wrong: the answer shows in yellow (like while asking).
             let look: TargetState = state == .right ? .right : .asking
             let targetColor = look.color
             let ringColor = state == .right ? Theme.ringGood : Theme.ringTiny
+            let inv = max(zoom.scale, 0.001)
 
-            Canvas { context, _ in
+            Canvas { context, size in
+                var ctx = context
+                ctx.beginMapZoom(zoom, size: size)
                 for wrong in wrongShapes {
                     if wrong.needsLeader, let a = wrong.anchor, let d = wrong.dot {
-                        ClickDots.leader(from: a, to: d, in: &context, color: Theme.ringBad)
+                        ClickDots.leader(from: a, to: d, in: &ctx, color: Theme.ringBad, scale: inv)
                     }
-                    let path = ClickDots.path(for: wrong)
-                    context.fill(path, with: .color(Theme.mapBad.opacity(redOpacity)), style: FillStyle(eoFill: true))
-                    context.stroke(path, with: .color(Theme.mapBadOutline), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
+                    let path = ClickDots.path(for: wrong, scale: inv)
+                    ctx.fill(path, with: .color(Theme.mapBad.opacity(redOpacity)), style: FillStyle(eoFill: true))
+                    ctx.stroke(path, with: .color(Theme.mapBadOutline),
+                               style: StrokeStyle(lineWidth: 1.2 / inv, lineJoin: .round))
                 }
                 for shape in targetShapes {
                     if shape.needsLeader, let a = shape.anchor, let d = shape.dot {
-                        ClickDots.leader(from: a, to: d, in: &context, color: ringColor)
+                        ClickDots.leader(from: a, to: d, in: &ctx, color: ringColor, scale: inv)
                     }
-                    let path = ClickDots.path(for: shape)
-                    context.fill(path, with: .color(targetColor), style: FillStyle(eoFill: true))
-                    context.stroke(path, with: .color(look.outline), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
+                    let path = ClickDots.path(for: shape, scale: inv)
+                    ctx.fill(path, with: .color(targetColor), style: FillStyle(eoFill: true))
+                    ctx.stroke(path, with: .color(look.outline),
+                               style: StrokeStyle(lineWidth: 1.2 / inv, lineJoin: .round))
                 }
-                // Small targets (like Sri Lanka) get a ring after any answer, so they are easy to find.
                 if let ring = MapDrawing.markerRing(for: targetShapes.flatMap { $0.polygons }) {
-                    context.stroke(Path(ellipseIn: ring), with: .color(ringColor),
-                                   style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [5, 4]))
+                    ctx.stroke(Path(ellipseIn: ring), with: .color(ringColor),
+                               style: StrokeStyle(lineWidth: 2.5 / inv, lineCap: .round, dash: [5 / inv, 4 / inv]))
                 }
             }
             .shadow(color: targetColor.opacity(0.7), radius: 12)

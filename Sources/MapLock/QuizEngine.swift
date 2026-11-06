@@ -25,7 +25,7 @@ struct Question {
         case (.countries, .click): return "Click this country on the map"
         case (.capitals, .choice): return "What is the capital of \(target.name)?"
         case (.capitals, .typing): return "Type the capital of \(target.name)"
-        case (.capitals, .click): return "Click \(target.name) on the map"
+        case (.capitals, .click): return "Click the country with this capital"
         case (.flags, .choice): return "Which country is this flag?"
         case (.flags, .typing): return "Type the country for this flag"
         case (.flags, .click): return "Click the country for this flag"
@@ -41,20 +41,16 @@ enum QuizEngine {
     static func makeQuestion(target: Country, number: Int, world: [Country], mode: QuizMode,
                              type: QuizType = .name, subject: QuizSubject = .countries,
                              stats: StatsStore) -> Question {
-        // Capitals and Flags never use click: there is nothing sensible to click for a capital,
-        // and Flags already show the emoji. Fall back to the Name answer style.
-        let effectiveType: QuizType = (subject == .countries) ? type : .name
-
+        // Click means "click the country on the map" for every subject:
+        // countries show the name, flags show the flag, capitals show the capital.
         var nameNumber = number
-        switch effectiveType {
+        switch type {
         case .name: break
         case .click:
-            return Question(target: target, kind: .click, subject: subject, options: [],
-                            answer: target.name, flagEmoji: CountryFacts.flagEmoji(for: target.name))
+            return clickQuestion(target: target, subject: subject)
         case .mix:
             if number % 2 == 1 {
-                return Question(target: target, kind: .click, subject: subject, options: [],
-                                answer: target.name, flagEmoji: CountryFacts.flagEmoji(for: target.name))
+                return clickQuestion(target: target, subject: subject)
             }
             nameNumber = number / 2
         }
@@ -83,6 +79,22 @@ enum QuizEngine {
             return Question(target: target, kind: kind, subject: .flags, options: options,
                             answer: target.name, flagEmoji: CountryFacts.flagEmoji(for: target.name))
         }
+    }
+
+
+    /// Click-the-country question. Answer is always the country name (map hit).
+    private static func clickQuestion(target: Country, subject: QuizSubject) -> Question {
+        let flag = subject == .flags ? CountryFacts.flagEmoji(for: target.name) : nil
+        // Capitals: answer stays the capital for display/feedback; click still matches country name.
+        let answer: String
+        switch subject {
+        case .capitals:
+            answer = CountryFacts.capital(of: target.name) ?? target.name
+        case .countries, .flags:
+            answer = target.name
+        }
+        return Question(target: target, kind: .click, subject: subject, options: [],
+                        answer: answer, flagEmoji: flag)
     }
 
     /// The answer plus 3 others from the same continent. Two are nearby countries

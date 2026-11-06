@@ -229,9 +229,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             box.removePersistentDomain(forName: suite)
         }
         let practiceDeck = DeckStore(defaults: UserDefaults(suiteName: suite) ?? .standard)
+        let practiceQuiz = settings.practiceEngine
         let session = QuizSession(
-            world: world, pool: pool, mode: settings.mode,
-            quizType: settings.quizType, subject: settings.subject,
+            world: world, pool: pool, mode: practiceQuiz.mode,
+            quizType: practiceQuiz.type, subject: practiceQuiz.subject,
             stats: stats, deck: practiceDeck, count: count, kind: .practice,
             requirePerfect: false, mapScope: scope
         ) { [weak self] in
@@ -539,7 +540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(.separator())
 
-        menu.addItem(header("Quiz type"))
+        menu.addItem(header("Unlock quiz type"))
         let currentType = settings.quizType
         for type in QuizType.allCases {
             menu.addItem(action(type.title, #selector(chooseQuizType(_:)), state: type == currentType,
@@ -555,7 +556,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(.separator())
 
-        menu.addItem(header("Answer style"))
+        menu.addItem(header("Unlock answer style"))
         let current = settings.mode
         for mode in QuizMode.allCases {
             menu.addItem(action(mode.title, #selector(chooseMode(_:)), state: mode == current,
@@ -563,7 +564,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(.separator())
 
-        menu.addItem(header("Ask about"))
+        menu.addItem(header("Unlock ask about"))
         let currentSubject = settings.subject
         for subject in QuizSubject.allCases {
             menu.addItem(action(subject.title, #selector(chooseSubject(_:)), state: subject == currentSubject,

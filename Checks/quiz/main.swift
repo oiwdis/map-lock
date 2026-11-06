@@ -55,5 +55,33 @@ expect("US flag", CountryFacts.flagEmoji(for: "United States") == "🇺🇸")
 expect("facts cover 176", CountryFacts.capitals.count == 176 && CountryFacts.iso2.count == 176)
 
 
+
+// Practice answer styles (separate from unlock)
+expect("practice country choice pair", PracticeAnswerStyle.multipleChoice.enginePair.type == .name
+    && PracticeAnswerStyle.multipleChoice.enginePair.mode == .multipleChoice)
+expect("practice click pair", PracticeAnswerStyle.clickMap.enginePair.type == .click)
+expect("practice flag click help", PracticeAnswerStyle.clickMap.help(for: .flags).contains("flag"))
+expect("practice capital type help", PracticeAnswerStyle.typeIt.help(for: .capitals).contains("capital"))
+expect("practice titles", QuizSubject.countries.practiceTitle == "Country"
+    && QuizSubject.flags.practiceTitle == "Flag"
+    && QuizSubject.capitals.practiceTitle == "Capital")
+
+let unlock = AppSettings(defaults: UserDefaults(suiteName: "maplock.check.quiz.tmp")!)
+unlock.subject = .capitals
+unlock.quizType = .name
+unlock.mode = .multipleChoice
+expect("unlock footer capitals choice", unlock.unlockQuizSummary.contains("capital"))
+unlock.quizType = .click
+expect("unlock footer capitals click", unlock.unlockQuizSummary.contains("Click"))
+unlock.subject = .flags
+unlock.quizType = .name
+unlock.mode = .typing
+expect("unlock footer flags type", unlock.unlockQuizSummary.contains("flag"))
+unlock.practiceSubject = .flags
+unlock.setPracticeStyle(.clickMap, for: .flags)
+let eng = unlock.practiceEngine
+expect("practice engine subject", eng.subject == .flags && eng.type == .click)
+
+
 print(fails.isEmpty ? "quiz: all pass" : "quiz FAILS: \(fails)")
 exit(fails.isEmpty ? 0 : 1)
