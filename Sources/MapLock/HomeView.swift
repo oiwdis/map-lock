@@ -18,6 +18,7 @@ struct TimeSlot: Identifiable, Equatable {
 enum HomeTab: String, CaseIterable, Identifiable, Hashable {
     case practice
     case stats
+    case account
     case settings
 
     var id: String { rawValue }
@@ -26,6 +27,7 @@ enum HomeTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .practice: return "Practice"
         case .stats: return "Stats"
+        case .account: return "Account"
         case .settings: return "Settings"
         }
     }
@@ -34,6 +36,7 @@ enum HomeTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .practice: return "map"
         case .stats: return "chart.bar"
+        case .account: return "person.crop.circle"
         case .settings: return "gearshape"
         }
     }
@@ -311,10 +314,12 @@ final class HomeModel: ObservableObject {
 @MainActor
 final class HomeWindowController: NSObject, NSWindowDelegate {
     let model: HomeModel
+    let account: AccountModel
     private var window: NSWindow?
 
-    init(model: HomeModel) {
+    init(model: HomeModel, account: AccountModel) {
         self.model = model
+        self.account = account
     }
 
     var isVisible: Bool { window?.isVisible ?? false }
@@ -333,7 +338,8 @@ final class HomeWindowController: NSObject, NSWindowDelegate {
             w.isReleasedWhenClosed = false
             w.backgroundColor = Theme.windowBackground
             w.minSize = NSSize(width: 680, height: 460)
-            w.contentView = NSHostingView(rootView: HomeView(model: model))
+            w.contentView = NSHostingView(rootView: HomeView(model: model, account: account))
+            account.presentationWindow = w
             w.setFrame(frame, display: false)
             _ = w.setFrameAutosaveName("MapLockHome")
             w.delegate = self
@@ -365,6 +371,7 @@ final class HomeWindowController: NSObject, NSWindowDelegate {
 
 struct HomeView: View {
     @ObservedObject var model: HomeModel
+    @ObservedObject var account: AccountModel
 
     var body: some View {
         NavigationSplitView {
@@ -408,6 +415,8 @@ struct HomeView: View {
             PracticePane(model: model)
         case .stats:
             StatsPane(model: model)
+        case .account:
+            AccountPane(model: account)
         case .settings:
             SettingsPane(model: model)
         }

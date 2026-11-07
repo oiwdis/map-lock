@@ -4,6 +4,22 @@ import Foundation
 /// and what a click does. The country list itself still comes from the shared map,
 /// so Russia stays in Asia, Oceania is absent, and places left out of the quiz
 /// (Palestine, the seven small Caribbean countries, merged territories) stay out.
+extension PracticeScope {
+    /// Wire value for the account API and race links.
+    var serverRegion: String {
+        switch self {
+        case .world: return "world"
+        case .region(let region): return region.rawValue
+        }
+    }
+
+    static func fromServer(_ region: String) -> PracticeScope? {
+        if region == "world" { return .world }
+        guard let region = Region(rawValue: region) else { return nil }
+        return .region(region)
+    }
+}
+
 enum SpeedrunPool {
     /// Quizzable countries in one continent, or every quizzable country for the whole world.
     static func names(world: [Country], scope: PracticeScope) -> [String] {
@@ -16,6 +32,25 @@ enum SpeedrunPool {
                 return country.region == region ? country.name : nil
             }
         }
+    }
+}
+
+/// Same numbers on every Mac for one race seed. Not used for solo speedruns.
+struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seedHex: String) {
+        var value: UInt64 = 0x6a09e667f3bcc909
+        for byte in seedHex.utf8 {
+            value = value &* 1099511628211 &+ UInt64(byte)
+        }
+        if value == 0 { value = 0x9E3779B97F4A7C15 }
+        state = value
+    }
+
+    mutating func next() -> UInt64 {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        return state
     }
 }
 

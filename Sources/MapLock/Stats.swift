@@ -593,4 +593,95 @@ final class StatsStore {
         }
         return rows
     }
+
+    // MARK: Account sync
+
+    func exportPayload() -> SyncPayload {
+        SyncPayload(quizzes: quizzes, speedruns: speedruns, speedrunBests: speedrunBests, countries: stats)
+    }
+
+    /// Replaces local history and bests with a merged payload. Streak and the unlock deck stay as they are.
+    func replace(with payload: SyncPayload) {
+        var quizzesById: [UUID: QuizRecord] = [:]
+        for record in payload.quizzes { quizzesById[record.id] = record }
+        quizzes = quizzesById.values.sorted { $0.date > $1.date }
+        if quizzes.count > Self.maxQuizRecords { quizzes = Array(quizzes.prefix(Self.maxQuizRecords)) }
+
+        var runsById: [UUID: SpeedrunRecord] = [:]
+        for record in payload.speedruns { runsById[record.id] = record }
+        speedruns = runsById.values.sorted { $0.date > $1.date }
+        if speedruns.count > Self.maxSpeedrunRecords {
+            speedruns = Array(speedruns.prefix(Self.maxSpeedrunRecords))
+        }
+        speedrunBests = payload.speedrunBests.filter { $0.value > 0 }
+        stats = payload.countries
+        saveQuizzes()
+        saveSpeedruns()
+        saveStats()
+    }
+
+    static func previewSnapshot(_ payload: SyncPayload) -> StatsSnapshot {
+        let name = "maplock.preview.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name) ?? UserDefaults()
+        defaults.removePersistentDomain(forName: name)
+        let store = StatsStore(defaults: defaults)
+        store.replace(with: payload)
+        return store.snapshot(roundText: "")
+    }
+}
+
+/// Stats a Mac uploads and the worker merges. Dates stay in Apple's JSON date format.
+struct SyncPayload: Codable, Equatable {
+    var quizzes: [QuizRecord] = []
+    var speedruns: [SpeedrunRecord] = []
+    var speedrunBests: [String: Double] = [:]
+    var countries: [String: CountryStat] = [:]
+
+    /// Union of history, fastest time per region, higher country counts.
+    func merged(with other: SyncPayload) -> SyncPayload {
+        var quizzesById: [UUID: QuizRecord] = [:]
+        for record in quizzes + other.quizzes { quizzesById[record.id] = record }
+        var runsById: [UUID: SpeedrunRecord] = [:]
+        for record in speedruns + other.speedruns { runsById[record.id] = record }
+
+        var bests = speedrunBests
+        for (key, value) in other.speedrunBests where value > 0 {
+            if let current = bests[key] {
+                bests[key] = min(current, value)
+            } else {
+                bests[key] = value
+            }
+        }
+
+        var countries = self.countries
+        for (name, remote) in other.countries {
+            if let local = countries[name] {
+                countries[name] = local.merged(with: remote)
+            } else {
+                countries[name] = remote
+            }
+        }
+        return SyncPayload(
+            quizzes: quizzesById.values.sorted { $0.date > $1.date },
+            speedruns: runsById.values.sorted { $0.date > $1.date },
+            speedrunBests: bests,
+            countries: countries
+        )
+    }
+}
+
+extension CountryStat {
+    func merged(with other: CountryStat) -> CountryStat {
+        var result = self
+        result.seen = max(seen, other.seen)
+        result.correct = max(correct, other.correct)
+        result.wrong = max(wrong, other.wrong)
+        result.box = max(box, other.box)
+        switch (lastSeen, other.lastSeen) {
+        case let (left?, right?): result.lastSeen = max(left, right)
+        case (nil, let right?): result.lastSeen = right
+        default: break
+        }
+        return result
+    }
 }

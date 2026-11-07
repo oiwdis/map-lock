@@ -77,6 +77,17 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>NSApplication</string>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright 2026 Elliot. MIT License.</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.elliot.maplock</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>maplock</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST
