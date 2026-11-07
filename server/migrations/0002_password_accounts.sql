@@ -6,6 +6,8 @@
 -- Adds password_hash (Apple users leave it null) and rebuilds users so
 -- apple_sub can be null for username/password accounts. SQLite cannot
 -- drop NOT NULL with ALTER COLUMN. Foreign keys are off only for that rebuild.
+-- apple_logins and auth_codes are created with IF NOT EXISTS. On the live
+-- database those tables already exist, so that part is a no-op.
 
 ALTER TABLE users ADD COLUMN password_hash TEXT;
 
@@ -35,3 +37,17 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 );
 
 CREATE INDEX IF NOT EXISTS login_attempts_lookup ON login_attempts(bucket, created_at);
+
+-- Web Sign in with Apple. Already created on the live database, so this is a no-op there.
+CREATE TABLE IF NOT EXISTS apple_logins (
+  state TEXT PRIMARY KEY,
+  nonce TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auth_codes (
+  code_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  state TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);

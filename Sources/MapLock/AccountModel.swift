@@ -4,11 +4,12 @@ import SwiftUI
 
 /// Optional account. Practice, stats, and speedrun keep working when this is signed out.
 @MainActor
-final class AccountModel: NSObject, ObservableObject, ASWebAuthenticationSessionPresentationContextProviding {
+final class AccountModel: ObservableObject {
     private let stats: StatsStore
     private var token: String?
     private var pendingState = ""
     private var webAuth: ASWebAuthenticationSession?
+    private let webPresenter = AppleSignInPresenter()
     weak var presentationWindow: NSWindow?
 
     var onOpenRace: (RaceTicket) -> Void = { _ in }
@@ -38,7 +39,6 @@ final class AccountModel: NSObject, ObservableObject, ASWebAuthenticationSession
 
     init(stats: StatsStore) {
         self.stats = stats
-        super.init()
         token = KeychainStore.loadSession()
     }
 
@@ -69,7 +69,8 @@ final class AccountModel: NSObject, ObservableObject, ASWebAuthenticationSession
                 self?.finishWebSignIn(callback: callback, error: error)
             }
         }
-        session.presentationContextProvider = self
+        webPresenter.window = presentationWindow
+        session.presentationContextProvider = webPresenter
         session.prefersEphemeralWebBrowserSession = false
         webAuth = session
         busy = true
@@ -244,10 +245,6 @@ final class AccountModel: NSObject, ObservableObject, ASWebAuthenticationSession
         handle(code: code)
     }
 
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        presentationWindow ?? NSApp.keyWindow ?? ASPresentationAnchor()
-    }
-
     private func finishWebSignIn(callback: URL?, error: Error?) {
         webAuth = nil
         if let error {
@@ -355,6 +352,21 @@ final class AccountModel: NSObject, ObservableObject, ASWebAuthenticationSession
             message = error.message
         } catch {
             message = fallback
+        }
+    }
+}
+
+/// Presents the Sign in with Apple sheet. This stays a plain NSObject so the
+/// @objc presentation callback is not isolated to the main actor.
+final class AppleSignInPresenter: NSObject, ASWebAuthenticationPresentationContextProviding {
+    weak var window: NSWindow?
+
+    @objc(presentationAnchorForWebAuthenticationSession:)
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        // Apple calls this on the main thread. assumeIsolated keeps the AppKit
+        // lookup on the main actor without making this @objc method isolated.
+        MainActor.assumeIsolated {
+            window ?? NSApp.keyWindow ?? ASPresentationAnchor()
         }
     }
 }
