@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1
+
+- Copy confirms with a green Copied check, and the race code pulses. Reduce Motion keeps the confirmation and skips the bounce.
+- Home panes stay out of the toolbar. Scrolled text goes behind a solid bar with a hairline.
+
 ## 1.2.0
 
 - Speedrun mode: time yourself across a continent or the whole world, with personal bests.

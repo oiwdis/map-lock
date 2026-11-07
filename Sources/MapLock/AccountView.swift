@@ -4,7 +4,9 @@ import SwiftUI
 struct AccountPane: View {
     @ObservedObject var account: AccountModel
     @ObservedObject var home: HomeModel
+    var toolbarOverlap: CGFloat = 0
     @State private var passwordBusy = false
+    @State private var raceCopyToken = 0
     @FocusState private var focus: SignInField?
 
     var body: some View {
@@ -25,9 +27,10 @@ struct AccountPane: View {
                 .padding(.vertical, Theme.Space.s5)
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: account.isSignedIn && !account.needsUsername ? CGFloat(0) : max(0, geo.size.height - Theme.Space.s6),
+                .frame(minHeight: account.isSignedIn && !account.needsUsername ? CGFloat(0) : max(0, geo.size.height - toolbarOverlap - Theme.Space.s6),
                        alignment: .center)
             }
+            .contentMargins(.top, toolbarOverlap, for: .scrollContent)
         }
         .onAppear {
             if !account.isSignedIn { focus = .username }
@@ -489,20 +492,15 @@ struct AccountPane: View {
                 .font(.system(size: 36, weight: .bold, design: .monospaced))
                 .foregroundStyle(Theme.text)
                 .textSelection(.enabled)
+                .modifier(CopyCodeHighlight(token: raceCopyToken))
             Text(race.webUrl)
                 .font(Theme.font(Theme.Size.xs))
                 .foregroundStyle(Theme.text2)
                 .textSelection(.enabled)
             HStack(spacing: Theme.Space.s2) {
-                Button("Copy") { account.copyLastRaceLink() }
-                    .buttonStyle(AppButtonStyle(kind: .primary, height: 32))
+                CopyLinkButton(text: race.webUrl, height: 32, copyToken: $raceCopyToken)
                 RaceShareButton(text: race.webUrl)
                     .frame(width: 96, height: 32)
-            }
-            if let message = account.message, message.contains("copied") || message.contains("Copied") {
-                Text(message)
-                    .font(Theme.font(Theme.Size.sm))
-                    .foregroundStyle(Theme.good)
             }
         }
         .padding(Theme.Space.s3)

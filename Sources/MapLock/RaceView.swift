@@ -76,6 +76,145 @@ struct RaceShareButton: NSViewRepresentable {
     }
 }
 
+/// Copies a link, then shows a green Copied check. The same control is used
+/// on the race window and the account race card.
+struct CopyLinkButton: View {
+    let text: String
+    var height: CGFloat = 36
+    @Binding var copyToken: Int
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var copied = false
+    @State private var hovering = false
+    @State private var bounceToken = 0
+    @State private var resetTask: Task<Void, Never>?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if copied {
+                CopiedCheckmark(token: bounceToken, reduceMotion: reduceMotion)
+                Text("Copied!")
+            } else {
+                Text("Copy")
+            }
+        }
+        .font(Theme.font(Theme.Size.body, .semibold))
+        .foregroundStyle(copied ? Theme.onTint : Color.white)
+        .lineLimit(1)
+        .padding(.horizontal, Theme.Space.s5)
+        .frame(height: height)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .fill(copied ? Theme.good : (hovering ? Theme.accentFillHover : Theme.accentFill))
+        )
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: copied)
+        .animation(reduceMotion ? nil : Theme.Motion.medium, value: hovering)
+        .overlay(HitTarget(enabled: true, action: copy, hover: { hovering = $0 }))
+        .accessibilityLabel(copied ? "Copied" : "Copy link")
+        .accessibilityAddTraits(.isButton)
+        .onDisappear { resetTask?.cancel() }
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        copyToken += 1
+        if reduceMotion {
+            copied = true
+        } else {
+            withAnimation(.easeInOut(duration: 0.22)) { copied = true }
+            let token = copyToken
+            Task { @MainActor in
+                await Task.yield()
+                guard copied else { return }
+                bounceToken = token
+            }
+        }
+        resetTask?.cancel()
+        resetTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            if reduceMotion {
+                copied = false
+            } else {
+                withAnimation(.easeInOut(duration: 0.25)) { copied = false }
+            }
+        }
+    }
+}
+
+/// Brief green wash on the race code. Scale is skipped when Reduce Motion is on.
+struct CopyCodeHighlight: ViewModifier {
+    var token: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var highlighted = false
+    @State private var fadeTask: Task<Void, Never>?
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Theme.good.opacity(highlighted ? 0.18 : 0))
+            )
+            .scaleEffect(reduceMotion || !highlighted ? 1 : 1.045)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: highlighted)
+            .onChange(of: token) { _, newValue in
+                guard newValue > 0 else { return }
+                highlighted = true
+                fadeTask?.cancel()
+                fadeTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 450_000_000)
+                    guard !Task.isCancelled else { return }
+                    highlighted = false
+                }
+            }
+    }
+}
+
+private struct CopiedCheckmark: View {
+    var token: Int
+    var reduceMotion: Bool
+    @State private var scale: CGFloat = 1
+
+    var body: some View {
+        Image(systemName: "checkmark")
+            .font(.system(size: 13, weight: .bold))
+            .modifier(CopiedCheckEffect(token: token, reduceMotion: reduceMotion, scale: $scale))
+    }
+}
+
+private struct CopiedCheckEffect: ViewModifier {
+    var token: Int
+    var reduceMotion: Bool
+    @Binding var scale: CGFloat
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            content
+        } else {
+            moving(content)
+        }
+    }
+
+    @ViewBuilder
+    private func moving(_ content: Content) -> some View {
+        if #available(macOS 14, *) {
+            content.symbolEffect(.bounce, value: token)
+        } else {
+            content
+                .scaleEffect(scale)
+                .onChange(of: token) { _, _ in
+                    scale = 1
+                    withAnimation(.easeOut(duration: 0.12)) { scale = 1.1 }
+                    withAnimation(.easeIn(duration: 0.12).delay(0.12)) { scale = 1 }
+                }
+        }
+    }
+}
+
 enum PracticeFrame {
     static func fitted() -> NSRect {
         let screen = NSScreen.main?.visibleFrame
@@ -89,6 +228,7 @@ enum PracticeFrame {
 
 struct RaceView: View {
     @ObservedObject var session: RaceSession
+    @State private var copyToken = 0
 
     var body: some View {
         ZStack {
@@ -108,17 +248,14 @@ struct RaceView: View {
                         Text(session.ticket.code)
                             .font(.system(size: 48, weight: .bold, design: .monospaced))
                             .textSelection(.enabled)
+                            .modifier(CopyCodeHighlight(token: copyToken))
                         Text(session.ticket.webUrl)
                             .font(Theme.font(Theme.Size.sm))
                             .foregroundStyle(Theme.text2)
                             .textSelection(.enabled)
                             .multilineTextAlignment(.center)
                         HStack(spacing: Theme.Space.s2) {
-                            Button("Copy") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(session.ticket.webUrl, forType: .string)
-                            }
-                            .buttonStyle(AppButtonStyle(kind: .primary, height: 36))
+                            CopyLinkButton(text: session.ticket.webUrl, height: 36, copyToken: $copyToken)
                             RaceShareButton(text: session.ticket.webUrl)
                                 .frame(width: 96, height: 36)
                         }
