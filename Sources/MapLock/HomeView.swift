@@ -416,7 +416,7 @@ struct HomeView: View {
         case .stats:
             StatsPane(model: model)
         case .account:
-            AccountPane(model: account)
+            AccountPane(account: account)
         case .settings:
             SettingsPane(model: model)
         }

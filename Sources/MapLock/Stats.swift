@@ -1,7 +1,7 @@
 import Foundation
 
 /// How well a single country is known (practice and unlock combined).
-struct CountryStat: Codable {
+struct CountryStat: Codable, Equatable {
     var seen: Int = 0
     var correct: Int = 0
     var wrong: Int = 0
