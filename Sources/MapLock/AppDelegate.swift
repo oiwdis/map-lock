@@ -1,4 +1,5 @@
 import AppKit
+import Sparkle
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -26,6 +27,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Set only when Map Lock has moved itself to Applications and is relaunching the new copy.
     /// It is the one case besides log out / restart / shut down where Quit really quits.
     private var allowRealQuit = false
+    /// Kept for the life of the app. Sparkle asks about automatic checks on the
+    /// second launch because SUEnableAutomaticChecks is not set in Info.plist.
+    private var updaterController: SPUStandardUpdaterController?
 
     private static let launchedBeforeKey = "maplock.launchedBefore"
 
@@ -43,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ProcessInfo.processInfo.disableAutomaticTermination("Map Lock waits for the next quiz")
         AnswerSound.warmUp()
         loadWorld()
+        updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
         setUpMainMenu()
         setUpStatusItem()
         setUpHome()
@@ -461,6 +466,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let appMenu = NSMenu(title: "Map Lock")
         appMenu.addItem(withTitle: "About Map Lock",
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        if let updaterController {
+            let updates = NSMenuItem(title: "Check for Updates…",
+                                     action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+                                     keyEquivalent: "")
+            updates.target = updaterController
+            appMenu.addItem(updates)
+        }
         appMenu.addItem(.separator())
         let open = NSMenuItem(title: "Open Map Lock", action: #selector(openHome(_:)), keyEquivalent: ",")
         open.target = self

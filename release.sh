@@ -1,6 +1,6 @@
 #!/bin/bash
 # Makes a signed, notarized dist/MapLock.zip that friends can open with no warnings.
-# Run it on your Mac:  ./release.sh            (or  VERSION=1.2.1 ./release.sh)
+# Run it on your Mac:  ./release.sh            (or  VERSION=1.3.0 ./release.sh)
 # One-time setup first: see RELEASING.md.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -10,7 +10,9 @@ APP_NAME="Map Lock"
 APP="$ROOT/build/$APP_NAME.app"
 DIST="$ROOT/dist"
 PROFILE="${NOTARY_PROFILE:-maplock-notary}"
-export VERSION="${VERSION:-1.2.1}"
+export VERSION="${VERSION:-1.3.0}"
+# sign_update lives here. On Elliot's Mac that is /Users/elliotma/SparkleTools/bin.
+SPARKLE_BIN="${SPARKLE_BIN:-$HOME/SparkleTools/bin}"
 
 # Remove Finder info, resource forks and other extra data that codesign rejects.
 clean_app() {
@@ -21,6 +23,37 @@ clean_app() {
 }
 
 fail() { echo ""; echo "ERROR: $*" >&2; exit 1; }
+
+# Sign nested Sparkle code before the framework, then the app.
+# $1 identity, $2 "1" to add a secure timestamp.
+# Downloader.xpc and Installer.xpc are only launched for sandboxed apps.
+# Map Lock is not sandboxed. They are signed because they ship inside the framework.
+sign_inside_out() {
+    local identity="$1"
+    local timestamp="$2"
+    local fw="$APP/Contents/Frameworks/Sparkle.framework"
+    local bundle="$fw/Versions/B"
+    local args=(--force --options runtime --sign "$identity")
+    if [ "$timestamp" = "1" ]; then
+        args+=(--timestamp)
+    fi
+    [ -e "$bundle/Autoupdate" ] || fail "Sparkle Autoupdate is missing at $bundle/Autoupdate"
+    [ -d "$bundle/Updater.app" ] || fail "Sparkle Updater.app is missing at $bundle/Updater.app"
+    codesign "${args[@]}" "$bundle/Autoupdate"
+    codesign "${args[@]}" "$bundle/Updater.app"
+    if [ -d "$bundle/XPCServices/Downloader.xpc" ]; then
+        codesign "${args[@]}" "$bundle/XPCServices/Downloader.xpc"
+    else
+        echo "    (No Downloader.xpc. Fine for this unsandboxed app.)"
+    fi
+    if [ -d "$bundle/XPCServices/Installer.xpc" ]; then
+        codesign "${args[@]}" "$bundle/XPCServices/Installer.xpc"
+    else
+        echo "    (No Installer.xpc. Fine for this unsandboxed app.)"
+    fi
+    codesign "${args[@]}" "$fw"
+    codesign "${args[@]}" "$APP"
+}
 
 # Warn if this folder is in Desktop or Documents. iCloud Drive can sync those
 # and add Finder info to files, which breaks signing.
@@ -75,11 +108,13 @@ ditto --norsrc --noextattr --noacl "$APP" "$STAGE/$APP_NAME.app"
 APP="$STAGE/$APP_NAME.app"
 clean_app "$APP"
 
-# 4. Sign with hardened runtime and a secure timestamp (both needed for notarization).
+# 4. Sign inside-out with the hardened runtime and a secure timestamp.
 # No extra entitlements: Sign in with Apple uses the website flow, and the Keychain
 # session token is a generic password, which does not need a provisioning profile.
+# Sparkle's XPC services are unused (the app is not sandboxed) but notarization
+# rejects any unsigned nested bundle, so they are signed with the rest.
 clean_app "$APP"
-codesign --force --deep --options runtime --timestamp --sign "$IDENTITY" "$APP"
+sign_inside_out "$IDENTITY" 1
 codesign --verify --strict --verbose=2 "$APP"
 
 # 5. Zip and send to Apple
@@ -110,6 +145,18 @@ spctl -a -vv "$APP"
 # Keep a copy of the signed app next to the zip.
 rm -rf "$DIST/$APP_NAME.app"
 ditto "$APP" "$DIST/$APP_NAME.app"
+
+# 8. EdDSA signature for appcast.xml. The private key is in the login keychain.
+SIGN_UPDATE="$SPARKLE_BIN/sign_update"
+[ -x "$SIGN_UPDATE" ] || fail "sign_update not found at $SIGN_UPDATE
+Sparkle's tools are expected at ~/SparkleTools/bin
+(on this Mac: /Users/elliotma/SparkleTools/bin/sign_update).
+Override the folder with SPARKLE_BIN if they live somewhere else."
+echo "==> Signing dist/MapLock.zip for Sparkle"
+SIG="$("$SIGN_UPDATE" "$DIST/MapLock.zip")"
+printf '%s\n' "$SIG" | tee "$DIST/sparkle-signature.txt"
+echo "Wrote $DIST/sparkle-signature.txt"
+echo "Put that edSignature and length on the new item in appcast.xml."
 
 echo ""
 echo "Done! Upload this file to a GitHub release:"

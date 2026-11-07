@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.0
+
+- Map Lock can update itself. On the second launch it asks whether to check automatically. Check for Updates… is in the app menu, under About.
+
 ## 1.2.1
 
 - Copy confirms with a green Copied check, and the race code pulses. Reduce Motion keeps the confirmation and skips the bounce.
