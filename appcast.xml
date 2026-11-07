@@ -5,5 +5,13 @@
     <link>https://raw.githubusercontent.com/oiwdis/map-lock/main/appcast.xml</link>
     <description>Map Lock updates.</description>
     <language>en</language>
+    <item>
+      <title>Version 1.3.0</title>
+      <pubDate>Sat, 07 Nov 2026 20:37:00 +0000</pubDate>
+      <sparkle:version>1.3.0</sparkle:version>
+      <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <enclosure url="https://github.com/oiwdis/map-lock/releases/download/v1.3.0/MapLock.zip" sparkle:edSignature="eyABINrvzmZcL0qAgVulO6aQgRFB8n+zD1CzOih7X/v3taEFKceop6yJQh2M21lpzn3vkvTU8wuniDzIFXdkAQ==" length="3397830" type="application/octet-stream" />
+    </item>
   </channel>
 </rss>
