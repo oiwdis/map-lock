@@ -8,6 +8,7 @@ swiftc -O -o "$out" \
   Sources/MapLock/Answers.swift \
   Sources/MapLock/CountryFacts.swift \
   Sources/MapLock/Settings.swift \
+  Sources/MapLock/Speedrun.swift \
   Sources/MapLock/Stats.swift \
   Sources/MapLock/QuizEngine.swift \
   Checks/quiz/main.swift

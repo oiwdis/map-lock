@@ -11,6 +11,14 @@ final class PracticeController: NSObject, NSWindowDelegate {
     var isShowing: Bool { window?.isVisible ?? false }
 
     func show(session: QuizSession) {
+        present(title: "Practice", content: QuizView(session: session))
+    }
+
+    func show(speedrun: SpeedrunSession) {
+        present(title: "Speedrun", content: SpeedrunView(session: speedrun))
+    }
+
+    private func present<Content: View>(title: String, content: Content) {
         closing = false
         let frame = Self.fittedFrame()
         if window == nil {
@@ -20,7 +28,6 @@ final class PracticeController: NSObject, NSWindowDelegate {
                 backing: .buffered,
                 defer: false
             )
-            w.title = "Practice"
             w.isReleasedWhenClosed = false
             w.backgroundColor = Theme.windowBackground
             w.minSize = NSSize(width: 640, height: 480)
@@ -28,7 +35,8 @@ final class PracticeController: NSObject, NSWindowDelegate {
             window = w
         }
         guard let w = window else { return }
-        w.contentView = NSHostingView(rootView: QuizView(session: session))
+        w.title = title
+        w.contentView = NSHostingView(rootView: content)
         w.setFrame(frame, display: true)
         if NSApp.isHidden { NSApp.unhide(nil) }
         NSApp.activate(ignoringOtherApps: true)

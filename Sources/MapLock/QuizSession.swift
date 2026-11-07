@@ -313,8 +313,17 @@ final class QuizSession: ObservableObject {
         }
         let duration = Date().timeIntervalSince(startedAt)
         streak = stats.finishSession()
+        let scopeKey: StatsScopeKey
+        if let mapScope {
+            scopeKey = StatsScopeKey.from(practiceScope: mapScope)
+        } else {
+            let regions = Set(pool.compactMap { byName[$0]?.region })
+            scopeKey = StatsScopeKey.from(poolRegions: regions)
+        }
         stats.recordQuiz(score: score, total: askedCount, duration: duration,
-                         missed: Array(Set(pendingRetry)), kind: kind == .practice ? .practice : .lock)
+                         missed: Array(Set(pendingRetry)),
+                         kind: kind == .practice ? .practice : .lock,
+                         subject: subject, scope: scopeKey)
         phase = .finished
         updateRound()
     }

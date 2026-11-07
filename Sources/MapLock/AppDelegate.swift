@@ -50,21 +50,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.quizClosed()
         }
 
-        let firstLaunch = !UserDefaults.standard.bool(forKey: Self.launchedBeforeKey)
+        // First launch, Force Quit relaunch, and every cold start: open home.
+        // Do not treat app launch as an unlock. Unlock quizzes still run from
+        // screen unlock / wake settings, Quiz me now, and the menu.
         UserDefaults.standard.set(true, forKey: Self.launchedBeforeKey)
-        if firstLaunch || !settings.quizOnUnlock {
-            home?.show()
-        }
+        home?.show()
 
-        // Show one quiz right away when "Every unlock" is on (login counts as an unlock).
+        // A due scheduled quiz can still show after launch. Never auto-start
+        // an unlock quiz just because Map Lock started.
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 700_000_000)
-            guard let self else { return }
-            if self.settings.quizOnUnlock {
-                self.startQuiz()
-            } else {
-                self.checkSchedule()
-            }
+            self?.checkSchedule()
         }
     }
 
@@ -245,6 +241,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         practice.show(session: session)
     }
 
+    /// Speedrun: every country in the place, once, click to find it. No screen lock.
+    func startSpeedrun(_ scope: PracticeScope) {
+        guard !overlay.isShowing, !practice.isShowing, !world.isEmpty else { return }
+        let names = SpeedrunPool.names(world: world, scope: scope)
+        guard !names.isEmpty else { return }
+        let session = SpeedrunSession(world: world, scope: scope, stats: stats) { [weak self] in
+            self?.practice.close()
+        }
+        practice.onClosed = { [weak self] in
+            self?.home?.model.reload()
+        }
+        if NSApp.isHidden { NSApp.unhide(nil) }
+        practice.show(speedrun: session)
+    }
+
     private func quizClosed() {
         // A time that came up while the quiz was open is covered by that quiz.
         schedule.markDueAsFired()
@@ -394,6 +405,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         model.onPractice = { [weak self] scope, length in
             self?.startPractice(scope, length: length)
+        }
+        model.onSpeedrun = { [weak self] scope in
+            self?.startSpeedrun(scope)
         }
         home = HomeWindowController(model: model)
     }
