@@ -30,7 +30,7 @@ struct AccountPane: View {
                 .frame(minHeight: account.isSignedIn && !account.needsUsername ? CGFloat(0) : max(0, geo.size.height - toolbarOverlap - Theme.Space.s6),
                        alignment: .center)
             }
-            .contentMargins(.top, toolbarOverlap, for: .scrollContent)
+            .scrollBelowToolbar(toolbarOverlap)
         }
         .onAppear {
             if !account.isSignedIn { focus = .username }

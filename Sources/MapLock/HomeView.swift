@@ -399,6 +399,7 @@ final class HomeWindowController: NSObject, NSWindowDelegate {
             w.minSize = NSSize(width: 680, height: 460)
             w.titlebarAppearsTransparent = false
             w.titlebarSeparatorStyle = .line
+            // Unified style lives on the window. windowToolbarStyle is a Scene modifier.
             w.toolbarStyle = .unified
             let hosting = HomeHostingView(rootView: HomeView(model: model, account: account, chrome: chrome))
             hosting.chrome = chrome
@@ -455,7 +456,7 @@ struct HomeView: View {
             .listStyle(.sidebar)
             // Keep system label colors so the selected row gets white (or vibrancy) on the blue highlight.
             .navigationSplitViewColumnWidth(min: 150, ideal: 168, max: 200)
-            .contentMargins(.top, chrome.toolbarOverlap, for: .scrollContent)
+            .scrollBelowToolbar(chrome.toolbarOverlap)
         } detail: {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -466,7 +467,6 @@ struct HomeView: View {
         // Do not set foregroundStyle on the split view: it paints sidebar labels dark on the selection fill.
         // No preferredColorScheme: NSApp.appearance drives Light / Dark / Match system.
         .frame(minWidth: 680, minHeight: 460)
-        .windowToolbarStyle(.unified)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -477,7 +477,7 @@ struct HomeView: View {
                 .help("Start an unlock quiz with Unlock quiz settings")
             }
         }
-        .overlay(alignment: .top) {
+        .overlay(alignment: Alignment.top) {
             WindowToolbarCover(height: chrome.toolbarOverlap)
         }
     }
@@ -516,6 +516,19 @@ private struct WindowToolbarCover: View {
             }
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    /// Keep scrolled pane content below the toolbar band.
+    /// contentMargins is macOS 14. Earlier systems pad the scroll view down instead.
+    @ViewBuilder
+    func scrollBelowToolbar(_ height: CGFloat) -> some View {
+        if #available(macOS 14, *) {
+            contentMargins(.top, height, for: .scrollContent)
+        } else {
+            padding(.top, height)
+        }
     }
 }
 
@@ -561,7 +574,7 @@ private struct PracticePane: View {
             .frame(maxWidth: 720, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .contentMargins(.top, toolbarOverlap, for: .scrollContent)
+        .scrollBelowToolbar(toolbarOverlap)
     }
 
     private var header: some View {
@@ -975,7 +988,7 @@ private struct StatsPane: View {
             }
         }
         .formStyle(.grouped)
-        .contentMargins(.top, toolbarOverlap, for: .scrollContent)
+        .scrollBelowToolbar(toolbarOverlap)
     }
 
     @ViewBuilder
@@ -1271,7 +1284,7 @@ private struct SettingsPane: View {
             }
         }
         .formStyle(.grouped)
-        .contentMargins(.top, toolbarOverlap, for: .scrollContent)
+        .scrollBelowToolbar(toolbarOverlap)
         .toggleStyle(.switch)
     }
 
