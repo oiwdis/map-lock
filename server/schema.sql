@@ -61,12 +61,13 @@ CREATE TABLE IF NOT EXISTS stat_snapshots (
 );
 
 -- Race metadata. Live progress lives in the RaceRoom Durable Object.
+-- subject and style are last so this matches ALTER TABLE in 0003.
 CREATE TABLE IF NOT EXISTS races (
   code TEXT PRIMARY KEY,
   host_id TEXT NOT NULL REFERENCES users(id),
   region TEXT NOT NULL,
-  subject TEXT NOT NULL DEFAULT 'countries',
-  style TEXT NOT NULL DEFAULT 'click',
   seed TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  subject TEXT NOT NULL DEFAULT 'countries',
+  style TEXT NOT NULL DEFAULT 'click'
 );

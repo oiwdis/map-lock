@@ -37,13 +37,13 @@ From this `server/` directory:
    npx wrangler d1 execute map-lock-api --remote --file=schema.sql
    ```
 
-   If this database already exists, do not run `schema.sql` again. Apply the password migration once instead:
+   If this database already exists, do not run `schema.sql` again. Apply only a migration that database does not have yet.
 
-   ```
-   npx wrangler d1 execute map-lock-api --remote --file=migrations/0002_password_accounts.sql
-   ```
+   `migrations/0001_initial.sql` is the original tables. Production already has them.
+   `migrations/0002_password_accounts.sql` adds `password_hash` (null for Apple users), rebuilds `users` so `apple_sub` can be null, and creates `login_attempts`. Production already has that. Running it on a database created from the current `schema.sql` fails, because those columns are already there.
+   `migrations/0003_race_subject_style.sql` adds `races.subject` and `races.style`. It is already applied on production. SQLite has no `ADD COLUMN IF NOT EXISTS`, so running 0003 again fails. Do not run it on prod.
 
-   That adds `password_hash` (null for Apple users), rebuilds `users` so `apple_sub` can be null, and creates `login_attempts`. Running it on a database created from the current `schema.sql` fails, because those columns are already there.
+   Applying 0001, then 0002, then 0003 builds the same database as `schema.sql`.
 
 5. Check the project: `npm run check`
 6. Deploy: `npx wrangler deploy`
