@@ -6,6 +6,7 @@ out="$(mktemp -d)/stats"
 swiftc -O -o "$out" \
   Sources/MapLock/Countries.swift \
   Sources/MapLock/Settings.swift \
+  Sources/MapLock/Speedrun.swift \
   Sources/MapLock/Stats.swift \
   Checks/stats/main.swift
 "$out" "$@"

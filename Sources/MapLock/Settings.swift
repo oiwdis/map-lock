@@ -213,6 +213,7 @@ final class AppSettings {
         static let practiceFlagStyle = "maplock.practice.style.flags"
         static let practiceCapitalStyle = "maplock.practice.style.capitals"
         static let practiceLength = "maplock.practice.length"
+        static let practiceSpeedrun = "maplock.practice.speedrun"
     }
 
     static let defaultRegions: Set<Region> = [.africa, .asia]
@@ -300,6 +301,12 @@ final class AppSettings {
     var practiceLength: PracticeLength {
         get { PracticeLength(rawValue: defaults.string(forKey: Keys.practiceLength) ?? "") ?? .twenty }
         set { defaults.set(newValue.rawValue, forKey: Keys.practiceLength) }
+    }
+
+    /// Practice tab is showing Speedrun instead of Country / Flag / Capital.
+    var practiceSpeedrun: Bool {
+        get { defaults.bool(forKey: Keys.practiceSpeedrun) }
+        set { defaults.set(newValue, forKey: Keys.practiceSpeedrun) }
     }
 
     func practiceStyle(for subject: QuizSubject) -> PracticeAnswerStyle {

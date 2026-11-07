@@ -58,6 +58,25 @@ enum StatsScopeKey: String, Codable, CaseIterable {
         }
         return .several
     }
+
+    /// Places a speedrun can be scored against, in the same order as the practice picker.
+    static let speedrunOrder: [StatsScopeKey] = [
+        .africa, .asia, .europe, .northAmerica, .southAmerica, .world,
+    ]
+}
+
+/// One finished speedrun, kept apart from practice and unlock quizzes.
+struct SpeedrunRecord: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    var date: Date
+    var duration: TimeInterval
+    var misses: Int
+    var countries: Int
+    var scopeRaw: String
+
+    var scope: StatsScopeKey {
+        StatsScopeKey(rawValue: scopeRaw) ?? .unknown
+    }
 }
 
 /// One finished quiz, for the Stats page.
@@ -187,7 +206,32 @@ struct StatsSnapshot: Equatable {
     var history: [StatsHistoryRow] = []
     var dayHistory: [StatsBreakdownRow] = []
     var mostMissed: [StatsMissRow] = []
+    var speedrunBests: [SpeedrunBestRow] = []
+    var speedrunRuns: [SpeedrunHistoryRow] = []
     var hasAnyQuiz: Bool = false
+}
+
+/// Fastest speedrun for one place. `timeText` is "-" until a run is saved.
+struct SpeedrunBestRow: Identifiable, Equatable {
+    var id: String { scopeTitle }
+    let scopeTitle: String
+    let timeText: String
+}
+
+/// One finished speedrun, newest first in the Stats tab.
+struct SpeedrunHistoryRow: Identifiable, Equatable {
+    let id: UUID
+    let date: Date
+    let scopeTitle: String
+    let timeText: String
+    let misses: Int
+    let accuracyText: String
+}
+
+/// What saving a speedrun did to that place's best time.
+struct SpeedrunSaveResult: Equatable {
+    var isNewBest: Bool
+    var best: TimeInterval
 }
 
 /// Saves per-country results, the daily streak, and recent quiz scores in UserDefaults.
@@ -195,6 +239,8 @@ final class StatsStore {
     private let defaults: UserDefaults
     private(set) var stats: [String: CountryStat] = [:]
     private(set) var quizzes: [QuizRecord] = []
+    private(set) var speedruns: [SpeedrunRecord] = []
+    private var speedrunBests: [String: Double] = [:]
 
     private enum Keys {
         static let stats = "maplock.stats"
@@ -204,9 +250,12 @@ final class StatsStore {
         static let quizzes = "maplock.quizRecords"
         static let bestPercent = "maplock.bestPercent"
         static let bestTime = "maplock.bestTimeSeconds"
+        static let speedruns = "maplock.speedrunRecords"
+        static let speedrunBests = "maplock.speedrunBests"
     }
 
     private static let maxQuizRecords = 100
+    private static let maxSpeedrunRecords = 100
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -217,6 +266,14 @@ final class StatsStore {
         if let data = defaults.data(forKey: Keys.quizzes),
            let decoded = try? JSONDecoder().decode([QuizRecord].self, from: data) {
             quizzes = decoded
+        }
+        if let data = defaults.data(forKey: Keys.speedruns),
+           let decoded = try? JSONDecoder().decode([SpeedrunRecord].self, from: data) {
+            speedruns = decoded
+        }
+        if let data = defaults.data(forKey: Keys.speedrunBests),
+           let decoded = try? JSONDecoder().decode([String: Double].self, from: data) {
+            speedrunBests = decoded
         }
     }
 
@@ -229,6 +286,15 @@ final class StatsStore {
     private func saveQuizzes() {
         if let data = try? JSONEncoder().encode(quizzes) {
             defaults.set(data, forKey: Keys.quizzes)
+        }
+    }
+
+    private func saveSpeedruns() {
+        if let data = try? JSONEncoder().encode(speedruns) {
+            defaults.set(data, forKey: Keys.speedruns)
+        }
+        if let data = try? JSONEncoder().encode(speedrunBests) {
+            defaults.set(data, forKey: Keys.speedrunBests)
         }
     }
 
@@ -387,8 +453,53 @@ final class StatsStore {
         snap.unlock = summary(for: .lock)
         snap.history = recentHistory(limit: 12)
         snap.dayHistory = recentDays(limit: 14, now: now)
+        snap.speedrunBests = speedrunBestRows()
+        snap.speedrunRuns = recentSpeedruns(limit: 12)
         snap.hasAnyQuiz = !quizzes.isEmpty || seen > 0
         return snap
+    }
+
+    /// Saves a finished speedrun and that place's fastest time. Does not change practice or unlock stats.
+    @discardableResult
+    func recordSpeedrun(scope: StatsScopeKey, duration: TimeInterval, misses: Int, countries: Int,
+                        now: Date = Date()) -> SpeedrunSaveResult {
+        let key = scope.rawValue
+        let previous = speedrunBests[key]
+        let isNew = SpeedrunRules.isNewBest(duration: duration, previous: previous)
+        if isNew { speedrunBests[key] = duration }
+        if countries > 0, duration.isFinite, duration >= 0 {
+            let record = SpeedrunRecord(date: now, duration: duration, misses: max(misses, 0),
+                                        countries: countries, scopeRaw: key)
+            speedruns.insert(record, at: 0)
+            if speedruns.count > Self.maxSpeedrunRecords {
+                speedruns = Array(speedruns.prefix(Self.maxSpeedrunRecords))
+            }
+        }
+        saveSpeedruns()
+        let best = speedrunBests[key] ?? 0
+        return SpeedrunSaveResult(isNewBest: isNew, best: best)
+    }
+
+    private func speedrunBestRows() -> [SpeedrunBestRow] {
+        StatsScopeKey.speedrunOrder.map { scope in
+            let time = speedrunBests[scope.rawValue]
+            let text = (time != nil && (time ?? 0) > 0) ? SpeedrunClock.format(time ?? 0) : "-"
+            return SpeedrunBestRow(scopeTitle: scope.title, timeText: text)
+        }
+    }
+
+    private func recentSpeedruns(limit: Int) -> [SpeedrunHistoryRow] {
+        speedruns.prefix(limit).map { run in
+            let pct = SpeedrunRules.accuracy(countries: run.countries, misses: run.misses)
+            return SpeedrunHistoryRow(
+                id: run.id,
+                date: run.date,
+                scopeTitle: run.scope.title,
+                timeText: SpeedrunClock.format(run.duration),
+                misses: run.misses,
+                accuracyText: String(format: "%.0f%%", pct * 100)
+            )
+        }
     }
 
     private func summary(for kind: QuizRecordKind) -> StatsKindSummary {

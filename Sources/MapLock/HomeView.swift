@@ -54,6 +54,8 @@ final class HomeModel: ObservableObject {
     var onQuizNow: () -> Void = {}
     /// Practice test for one continent or the whole world (no lock).
     var onPractice: (PracticeScope, PracticeLength) -> Void = { _, _ in }
+    /// Speedrun for one continent or the whole world (no lock).
+    var onSpeedrun: (PracticeScope) -> Void = { _ in }
     var onShowStats: () -> Void = {}
 
     @Published var mode: QuizMode = .mixed {
@@ -120,6 +122,9 @@ final class HomeModel: ObservableObject {
             settings.setPracticeStyle(practiceAnswerStyle, for: practiceSubject)
             onChange()
         }
+    }
+    @Published var practiceSpeedrun = false {
+        didSet { if !loading { settings.practiceSpeedrun = practiceSpeedrun } }
     }
     @Published var homeTab: HomeTab = .practice
 
@@ -192,6 +197,7 @@ final class HomeModel: ObservableObject {
         practiceSubject = settings.practiceSubject
         practiceAnswerStyle = settings.practiceStyle(for: settings.practiceSubject)
         practiceLength = settings.practiceLength
+        practiceSpeedrun = settings.practiceSpeedrun
         scheduleKind = schedule.kind
         fixedSlots = schedule.times.map { TimeSlot(date: schedule.date(forMinute: $0)) }
         randomStart = schedule.date(forMinute: schedule.randomStart)
@@ -246,18 +252,30 @@ final class HomeModel: ObservableObject {
     }
 
     func startPracticeNow() {
-        onPractice(practiceChoice.scope, practiceLength)
+        if practiceSpeedrun {
+            onSpeedrun(practiceChoice.scope)
+        } else {
+            onPractice(practiceChoice.scope, practiceLength)
+        }
     }
 
     /// Switching practice subject loads that subject's saved answer style.
     func selectPracticeSubject(_ subject: QuizSubject) {
-        guard practiceSubject != subject else { return }
+        let leavingSpeedrun = practiceSpeedrun
+        if practiceSubject == subject && !leavingSpeedrun { return }
         loading = true
+        practiceSpeedrun = false
         practiceSubject = subject
         practiceAnswerStyle = settings.practiceStyle(for: subject)
         loading = false
         settings.practiceSubject = subject
+        settings.practiceSpeedrun = false
         onChange()
+    }
+
+    func selectSpeedrun() {
+        guard !practiceSpeedrun else { return }
+        practiceSpeedrun = true
     }
 
     func selectPracticeAnswerStyle(_ style: PracticeAnswerStyle) {
@@ -271,10 +289,15 @@ final class HomeModel: ObservableObject {
     var settingsUnlockSummary: String { settings.unlockQuizSummary }
 
     var practicePoolHint: String {
+        let place: String
         switch practiceChoice.scope {
-        case .world: return "Every included country (no Oceania)."
-        case .region(let r): return "Only \(r.title): that continent map and countries only."
+        case .world: place = "Every included country (no Oceania)."
+        case .region(let r): place = "Only \(r.title): that continent map and countries only."
         }
+        if practiceSpeedrun {
+            return place + " Speedrun asks each one once."
+        }
+        return place
     }
 
     var canUseLoginItem: Bool { LoginItem.isAppBundle }
@@ -404,13 +427,15 @@ private struct PracticePane: View {
                 header
                 modeSection
                 whereSection
-                lengthSection
+                if !model.practiceSpeedrun {
+                    lengthSection
+                }
                 Button {
                     model.startPracticeNow()
                 } label: {
                     HStack(spacing: Theme.Space.s2) {
-                        Image(systemName: "play.fill")
-                        Text("Start practice")
+                        Image(systemName: model.practiceSpeedrun ? "timer" : "play.fill")
+                        Text(model.practiceSpeedrun ? "Start speedrun" : "Start practice")
                     }
                     .frame(maxWidth: 280)
                 }
@@ -439,7 +464,9 @@ private struct PracticePane: View {
             Text("Practice")
                 .font(Theme.font(Theme.Size.xl, .bold))
                 .kerning(-0.4)
-            Text("Pick what to practice, how to answer, then a place.")
+            Text(model.practiceSpeedrun
+                 ? "Pick a place. Speedrun asks every country there, once."
+                 : "Pick what to practice, how to answer, then a place.")
                 .font(Theme.font(Theme.Size.body))
                 .foregroundStyle(Theme.text2)
             HStack(spacing: Theme.Space.s2) {
@@ -466,40 +493,64 @@ private struct PracticePane: View {
                     PracticeModeChip(
                         title: subject.practiceTitle,
                         symbol: subject.practiceSymbol,
-                        selected: model.practiceSubject == subject
+                        selected: !model.practiceSpeedrun && model.practiceSubject == subject
                     ) {
                         model.selectPracticeSubject(subject)
                     }
                 }
-            }
-            VStack(alignment: .leading, spacing: Theme.Space.s2) {
-                Text("How to answer")
-                    .font(Theme.font(Theme.Size.sm, .semibold))
-                    .foregroundStyle(Theme.text3)
-                ForEach(PracticeAnswerStyle.allCases) { style in
-                    PracticeAnswerRow(
-                        title: style.title(for: model.practiceSubject),
-                        selected: model.practiceAnswerStyle == style
-                    ) {
-                        model.selectPracticeAnswerStyle(style)
-                    }
+                PracticeModeChip(
+                    title: "Speedrun",
+                    symbol: "timer",
+                    selected: model.practiceSpeedrun
+                ) {
+                    model.selectSpeedrun()
                 }
-                Text(model.practiceHelpText)
+            }
+            if model.practiceSpeedrun {
+                Text("A name appears and you click that country. A wrong click flashes and counts a miss. You stay on that country until you find it. The timer starts when the first country is shown.")
                     .font(Theme.font(Theme.Size.xs))
                     .foregroundStyle(Theme.text3)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, Theme.Space.s1)
+                    .padding(Theme.Space.s3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                            .fill(Theme.card)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                            .strokeBorder(Theme.hairline2, lineWidth: 1)
+                    )
+            } else {
+                VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                    Text("How to answer")
+                        .font(Theme.font(Theme.Size.sm, .semibold))
+                        .foregroundStyle(Theme.text3)
+                    ForEach(PracticeAnswerStyle.allCases) { style in
+                        PracticeAnswerRow(
+                            title: style.title(for: model.practiceSubject),
+                            selected: model.practiceAnswerStyle == style
+                        ) {
+                            model.selectPracticeAnswerStyle(style)
+                        }
+                    }
+                    Text(model.practiceHelpText)
+                        .font(Theme.font(Theme.Size.xs))
+                        .foregroundStyle(Theme.text3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, Theme.Space.s1)
+                }
+                .padding(Theme.Space.s3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                        .fill(Theme.card)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                        .strokeBorder(Theme.hairline2, lineWidth: 1)
+                )
             }
-            .padding(Theme.Space.s3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .fill(Theme.card)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .strokeBorder(Theme.hairline2, lineWidth: 1)
-            )
         }
     }
 
@@ -565,6 +616,8 @@ private struct PracticeModeChip: View {
                     .font(.system(size: 13, weight: .semibold))
                 Text(title)
                     .font(Theme.font(Theme.Size.body, selected ? .semibold : .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
             .foregroundStyle(selected ? Theme.accent : Theme.text)
             .padding(.horizontal, Theme.Space.s3)
@@ -686,6 +739,65 @@ private struct StatsPane: View {
 
             kindSection(title: "Practice", summary: snap.practice, empty: "Finish a practice test to see numbers here.")
             kindSection(title: "Unlock", summary: snap.unlock, empty: "Finish an unlock quiz to see numbers here.")
+
+            Section {
+                ForEach(snap.speedrunBests) { row in
+                    HStack {
+                        Text(row.scopeTitle)
+                        Spacer()
+                        Text(row.timeText)
+                            .foregroundStyle(row.timeText == "-" ? Theme.text3 : Theme.text)
+                            .monospacedDigit()
+                    }
+                }
+            } header: {
+                Label("Speedrun bests", systemImage: "timer")
+            } footer: {
+                Text("Fastest time for each place. A miss still counts in the time. Saved on this Mac only.")
+            }
+
+            Section {
+                if snap.speedrunRuns.isEmpty {
+                    Text("No speedruns yet.")
+                        .foregroundStyle(Theme.text2)
+                } else {
+                    ForEach(snap.speedrunRuns) { row in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(row.scopeTitle)
+                                    .font(Theme.font(Theme.Size.sm, .semibold))
+                                Spacer()
+                                Text(row.timeText)
+                                    .font(Theme.font(Theme.Size.body, .semibold))
+                                    .monospacedDigit()
+                            }
+                            HStack {
+                                Text(row.misses == 1 ? "1 miss" : "\(row.misses) misses")
+                                    .font(Theme.font(Theme.Size.xs))
+                                    .foregroundStyle(Theme.text3)
+                                Text("·")
+                                    .foregroundStyle(Theme.text3)
+                                Text(row.accuracyText)
+                                    .font(Theme.font(Theme.Size.xs))
+                                    .foregroundStyle(Theme.text3)
+                                    .monospacedDigit()
+                                Spacer()
+                                Text(row.date, style: .date)
+                                    .font(Theme.font(Theme.Size.xs))
+                                    .foregroundStyle(Theme.text3)
+                                Text(row.date, style: .time)
+                                    .font(Theme.font(Theme.Size.xs))
+                                    .foregroundStyle(Theme.text3)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            } header: {
+                Label("Recent speedruns", systemImage: "stopwatch")
+            } footer: {
+                Text("Newest first. Time, misses, and accuracy. Up to the last 12 runs.")
+            }
 
             Section {
                 if snap.mostMissed.isEmpty {

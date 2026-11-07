@@ -12,6 +12,8 @@ struct ClickMapView: View {
     let enabled: Bool
     /// Whole-world practice uses the flat world map; nil keeps the region view.
     var mapScope: PracticeScope? = nil
+    /// When false, a wrong click only flashes the place that was hit. The real target stays hidden.
+    var revealTarget: Bool = true
     let onClick: (String) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -32,7 +34,8 @@ struct ClickMapView: View {
                 }
                 if state != .asking {
                     ClickResultLayer(layout: layout, target: target.name, state: state,
-                                     clicked: clicked, animate: !reduceMotion, zoom: zoom, size: geo.size)
+                                     clicked: clicked, animate: !reduceMotion, zoom: zoom, size: geo.size,
+                                     revealTarget: revealTarget)
                         .id(clicked ?? "-")
                 }
 
@@ -245,6 +248,7 @@ private struct ClickResultLayer: View {
     let animate: Bool
     let zoom: MapZoomState
     let size: CGSize
+    var revealTarget: Bool = true
     @State private var start = Date()
 
     static let flashLength = 0.9
@@ -264,6 +268,7 @@ private struct ClickResultLayer: View {
             let look: TargetState = state == .right ? .right : .asking
             let targetColor = look.color
             let ringColor = state == .right ? Theme.ringGood : Theme.ringTiny
+            let showTarget = revealTarget || state == .right
             let inv = max(zoom.scale, 0.001)
 
             Canvas { context, size in
@@ -278,21 +283,23 @@ private struct ClickResultLayer: View {
                     ctx.stroke(path, with: .color(Theme.mapBadOutline),
                                style: StrokeStyle(lineWidth: 1.2 / inv, lineJoin: .round))
                 }
-                for shape in targetShapes {
-                    if shape.needsLeader, let a = shape.anchor, let d = shape.dot {
-                        ClickDots.leader(from: a, to: d, in: &ctx, color: ringColor, scale: inv)
+                if showTarget {
+                    for shape in targetShapes {
+                        if shape.needsLeader, let a = shape.anchor, let d = shape.dot {
+                            ClickDots.leader(from: a, to: d, in: &ctx, color: ringColor, scale: inv)
+                        }
+                        let path = ClickDots.path(for: shape, scale: inv)
+                        ctx.fill(path, with: .color(targetColor), style: FillStyle(eoFill: true))
+                        ctx.stroke(path, with: .color(look.outline),
+                                   style: StrokeStyle(lineWidth: 1.2 / inv, lineJoin: .round))
                     }
-                    let path = ClickDots.path(for: shape, scale: inv)
-                    ctx.fill(path, with: .color(targetColor), style: FillStyle(eoFill: true))
-                    ctx.stroke(path, with: .color(look.outline),
-                               style: StrokeStyle(lineWidth: 1.2 / inv, lineJoin: .round))
-                }
-                if let ring = MapDrawing.markerRing(for: targetShapes.flatMap { $0.polygons }) {
-                    ctx.stroke(Path(ellipseIn: ring), with: .color(ringColor),
-                               style: StrokeStyle(lineWidth: 2.5 / inv, lineCap: .round, dash: [5 / inv, 4 / inv]))
+                    if let ring = MapDrawing.markerRing(for: targetShapes.flatMap { $0.polygons }) {
+                        ctx.stroke(Path(ellipseIn: ring), with: .color(ringColor),
+                                   style: StrokeStyle(lineWidth: 2.5 / inv, lineCap: .round, dash: [5 / inv, 4 / inv]))
+                    }
                 }
             }
-            .shadow(color: targetColor.opacity(0.7), radius: 12)
+            .shadow(color: showTarget ? targetColor.opacity(0.7) : Theme.mapBad.opacity(0.45), radius: 12)
         }
         .allowsHitTesting(false)
         .onAppear { start = Date() }
