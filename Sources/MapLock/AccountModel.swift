@@ -1,5 +1,6 @@
 import AppKit
 import AuthenticationServices
+import Security
 import SwiftUI
 
 /// Optional account. Practice, stats, and speedrun keep working when this is signed out.
@@ -43,6 +44,10 @@ final class AccountModel: NSObject, ObservableObject, ASAuthorizationControllerD
 
     func signIn() {
         message = nil
+        if AppleSignInSupport.entitlement == .missing {
+            message = AppleSignInSupport.unavailableMessage
+            return
+        }
         let raw = UUID().uuidString
         nonceHash = AccountClient.sha256Hex(raw)
         let request = ASAuthorizationAppleIDProvider().createRequest()
@@ -188,6 +193,10 @@ final class AccountModel: NSObject, ObservableObject, ASAuthorizationControllerD
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        if AppleSignInSupport.failureIsMissingEntitlement(error) || AppleSignInSupport.entitlement == .missing {
+            message = AppleSignInSupport.unavailableMessage
+            return
+        }
         message = "Apple sign-in was cancelled."
     }
 
@@ -265,6 +274,47 @@ final class AccountModel: NSObject, ObservableObject, ASAuthorizationControllerD
         } catch {
             message = fallback
         }
+    }
+}
+
+enum AppleSignInSupport {
+    static let unavailableMessage = "Sign in with Apple isn't available in this copy of Map Lock. Practice, quizzes, and speedruns still work on this Mac."
+
+    enum Entitlement {
+        case present
+        case missing
+        case unknown
+    }
+
+    /// Reads the signed entitlements of this running app.
+    /// An ad hoc signature with no Sign in with Apple entitlement is `.missing`.
+    /// If the signature cannot be read, returns `.unknown` and the sign-in attempt still runs.
+    static var entitlement: Entitlement {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return .unknown }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return .unknown }
+        var information: CFDictionary?
+        let flags = SecCSFlags(rawValue: kSecCSSigningInformation)
+        guard SecCodeCopySigningInformation(staticCode, flags, &information) == errSecSuccess,
+              let info = information as? [String: Any] else { return .unknown }
+        guard let entitlements = info[kSecCodeInfoEntitlementsDict as String] as? [String: Any] else { return .missing }
+        guard let raw = entitlements["com.apple.developer.applesignin"] else { return .missing }
+        if let values = raw as? [String] {
+            return values.contains("Default") ? .present : .missing
+        }
+        return .missing
+    }
+
+    static func failureIsMissingEntitlement(_ error: Error) -> Bool {
+        var current: NSError? = error as NSError
+        while let err = current {
+            if err.code == Int(errSecMissingEntitlement) { return true }
+            let text = (err.domain + " " + err.localizedDescription + " " + String(describing: err.userInfo)).lowercased()
+            if text.contains("entitlement") { return true }
+            current = err.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
     }
 }
 

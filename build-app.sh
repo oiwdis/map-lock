@@ -110,9 +110,23 @@ fi
 
 clean_app "$APP"
 if [ "${NO_SIGN:-0}" != "1" ]; then
-    echo "==> Signing (ad hoc, for this Mac only)"
-    clean_app "$APP"
-    codesign --force --deep -s - "$APP"
+    ENTITLEMENTS="$ROOT/MapLock.entitlements"
+    PROFILE_PATH="${MAPLOCK_PROFILE:-$ROOT/profiles/MapLock_DeveloperID.provisionprofile}"
+    if [ -f "$PROFILE_PATH" ]; then
+        echo "==> Embedding provisioning profile"
+        cp "$PROFILE_PATH" "$APP/Contents/embedded.provisionprofile"
+        clean_app "$APP"
+        echo "==> Signing with the Sign in with Apple entitlement and hardened runtime"
+        codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" -s - "$APP"
+    else
+        echo "WARNING: No provisioning profile found."
+        echo "         Looked for: $PROFILE_PATH"
+        echo "         Sign in with Apple will be disabled. Signing without entitlements."
+        echo "         To turn it on, put the Developer ID profile at profiles/MapLock_DeveloperID.provisionprofile"
+        echo "         or set MAPLOCK_PROFILE to that file."
+        clean_app "$APP"
+        codesign --force --deep -s - "$APP"
+    fi
 fi
 
 if [ "${NO_INSTALL:-0}" = "1" ]; then

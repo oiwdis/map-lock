@@ -5,6 +5,7 @@ dist/
 *.app
 *.xcodeproj
 .DS_Store
+profiles/
 node_modules/
 .wrangler/
 server/worker-configuration.d.ts
