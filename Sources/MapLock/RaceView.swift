@@ -165,7 +165,7 @@ struct RaceView: View {
                 Text(session.opponentName)
                     .font(Theme.font(Theme.Size.sm, .semibold))
                 Spacer()
-                Text("\(session.opponentFound) of \(session.opponentTotal), \(session.opponentMisses) misses")
+                Text(opponentLine)
                     .font(Theme.font(Theme.Size.xs))
                     .foregroundStyle(Theme.text3)
                     .monospacedDigit()
@@ -173,6 +173,13 @@ struct RaceView: View {
             ProgressView(value: Double(session.opponentFound), total: Double(max(session.opponentTotal, 1)))
                 .tint(Theme.accent)
         }
+    }
+
+    private var opponentLine: String {
+        let penalty = session.opponentMisses * 3 + session.opponentSkips * 10
+        var text = "\(session.opponentFound) of \(session.opponentTotal), \(session.opponentMisses) misses, \(session.opponentSkips) skips"
+        if penalty > 0 { text += " (+\(penalty)s)" }
+        return text
     }
 }
 
@@ -204,8 +211,8 @@ private struct RaceResultView: View {
     private var title: String {
         if session.youForfeited { return "You forfeited" }
         if session.opponentForfeited { return "You win" }
-        if session.youWon == true { return "You finished first" }
-        if session.youWon == false { return "\(session.opponentName) finished first" }
+        if session.youWon == true { return "You win" }
+        if session.youWon == false { return "\(session.opponentName) wins" }
         return "Race over"
     }
 
@@ -213,7 +220,7 @@ private struct RaceResultView: View {
         HStack {
             Text(name)
             Spacer()
-            Text(forfeited ? "Forfeit" : elapsed.map { SpeedrunClock.format($0) } ?? "No time yet")
+            Text(forfeited ? "Forfeit" : elapsed.map { SpeedrunClock.format($0) } ?? "Still going")
                 .monospacedDigit()
                 .font(Theme.font(Theme.Size.md, .semibold))
         }

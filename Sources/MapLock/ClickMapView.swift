@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The map for a "Click the country" question: the whole region with nothing highlighted.
@@ -51,12 +52,13 @@ struct ClickMapView: View {
                 }
                 if let speedrunCue, !speedrunCue.right {
                     WrongMapFlash(layout: layout, correctName: speedrunCue.correctName,
-                                  wrongName: speedrunCue.wrongName, zoom: zoom, animate: !reduceMotion)
+                                  wrongName: speedrunCue.wrongName, zoom: zoom,
+                                  revealCorrect: speedrunCue.revealsCorrect, animate: !reduceMotion)
                         .id(speedrunCue.token)
                         .allowsHitTesting(false)
                 } else if state == .wrong {
                     WrongMapFlash(layout: layout, correctName: target.name, wrongName: clicked,
-                                  zoom: zoom, animate: !reduceMotion)
+                                  zoom: zoom, revealCorrect: true, animate: !reduceMotion)
                         .id(clicked ?? target.name)
                         .allowsHitTesting(false)
                 }
@@ -68,7 +70,8 @@ struct ClickMapView: View {
                     onZoomChange: { zoom = $0 },
                     onClick: { viewPoint in
                         let mapPt = zoom.mapPoint(from: viewPoint, in: geo.size)
-                        guard let name = ClickMap.hit(mapPt, in: layout.targets) else { return }
+                        guard let name = ClickMap.hit(mapPt, in: layout.targets), !name.isEmpty else { return }
+                        if found.contains(name) { return }
                         hovered = nil
                         clicks.append((name, viewPoint))
                         onClick(name)
@@ -80,7 +83,13 @@ struct ClickMapView: View {
                         }
                         let mapPt = zoom.mapPoint(from: viewPoint, in: geo.size)
                         let name = ClickMap.hit(mapPt, in: layout.targets)
-                        if name != hovered { hovered = name }
+                        if let name, !name.isEmpty, !found.contains(name) {
+                            NSCursor.pointingHand.set()
+                            if name != hovered { hovered = name }
+                        } else {
+                            NSCursor.arrow.set()
+                            if hovered != nil { hovered = nil }
+                        }
                     }
                 )
 
@@ -446,6 +455,7 @@ private struct WrongMapFlash: View {
     let correctName: String
     let wrongName: String?
     let zoom: MapZoomState
+    var revealCorrect: Bool = true
     let animate: Bool
     @State private var start = Date()
 
@@ -464,7 +474,7 @@ private struct WrongMapFlash: View {
                     }
                     .offset(x: shake)
                 }
-                if t > 0.22 || !animate {
+                if revealCorrect, t > 0.22 || !animate {
                     Canvas { context, size in
                         var ctx = context
                         ctx.beginMapZoom(zoom, size: size)

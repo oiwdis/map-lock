@@ -215,7 +215,7 @@ struct AccountPane: View {
                         .frame(minHeight: 28)
                 }
             }
-            AccountSegment(
+            SegmentedChoice(
                 selection: $account.page,
                 choices: AccountPage.allCases.map { SegmentChoice(value: $0, title: $0.title) }
             )
@@ -352,50 +352,48 @@ struct AccountPane: View {
 
     private var racePage: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s4) {
-            Text("Race a friend")
-                .font(Theme.font(Theme.Size.lg, .bold))
-                .foregroundStyle(Theme.text)
-            Text("Pick a place, then send the link.")
-                .font(Theme.font(Theme.Size.sm))
-                .foregroundStyle(Theme.text2)
-
-            AccountField(title: "Where") {
-                Picker("Where", selection: $account.raceRegion) {
-                    ForEach(PracticeChoice.allCases) { choice in
-                        Text(choice.title).tag(choice)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
+            VStack(alignment: .leading, spacing: Theme.Space.s1) {
+                Text("Race a friend")
+                    .font(Theme.font(Theme.Size.lg, .bold))
+                    .foregroundStyle(Theme.text)
+                Text("Pick a place, then send the link.")
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.text2)
             }
 
-            DisclosureGroup("Options") {
+            labeledMenu("Where", selection: $account.raceRegion) {
+                ForEach(PracticeChoice.allCases) { choice in
+                    Text(choice.title).tag(choice)
+                }
+            }
+
+            DisclosureGroup {
                 VStack(alignment: .leading, spacing: Theme.Space.s3) {
-                    Text("Uses your Practice settings until you change them.")
+                    Text("Starts from your Practice settings.")
                         .font(Theme.font(Theme.Size.xs))
                         .foregroundStyle(Theme.text3)
-                    AccountSegment(
+                    SegmentedChoice(
                         selection: $account.raceSubject,
                         choices: QuizSubject.allCases.map { SegmentChoice(value: $0, title: $0.practiceTitle) }
                     )
-                    Picker("How to answer", selection: $account.raceStyle) {
+                    labeledMenu("How to answer", selection: $account.raceStyle) {
                         ForEach(PracticeAnswerStyle.allCases) { style in
                             Text(style.title(for: account.raceSubject)).tag(style)
                         }
                     }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
                 }
                 .padding(.top, Theme.Space.s2)
+            } label: {
+                Text("Options")
+                    .font(Theme.font(Theme.Size.body))
+                    .foregroundStyle(Theme.text)
             }
-            .font(Theme.font(Theme.Size.sm, .semibold))
-            .foregroundStyle(Theme.text2)
 
             Button { account.createRace() } label: {
                 Text("Create race")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(AppButtonStyle(kind: .primary, height: 40, fullWidth: true))
+            .buttonStyle(AppButtonStyle(kind: .primary, height: 36, fullWidth: true))
             .disabled(account.busy)
 
             if let race = account.lastRace {
@@ -407,13 +405,34 @@ struct AccountPane: View {
             Text("Have a code?")
                 .font(Theme.font(Theme.Size.sm, .semibold))
                 .foregroundStyle(Theme.text)
-            TextField("Paste it here", text: $account.joinCode)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit { account.joinDraft() }
-                .onChange(of: account.joinCode) { _, value in
-                    guard let code = RaceLink.code(in: value), code != value else { return }
-                    account.joinCode = code
+            HStack(alignment: .center, spacing: Theme.Space.s2) {
+                HStack(spacing: Theme.Space.s2) {
+                    Image(systemName: "link")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Theme.text3)
+                    TextField("Paste a code or link", text: $account.joinCode)
+                        .textFieldStyle(.plain)
+                        .onSubmit { account.joinDraft() }
+                        .onChange(of: account.joinCode) { _, value in
+                            guard let code = RaceLink.code(in: value), code != value else { return }
+                            account.joinCode = code
+                        }
                 }
+                .padding(.horizontal, Theme.Space.s3)
+                .frame(height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
+                        .fill(Theme.background)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
+                        .strokeBorder(Theme.hairline2, lineWidth: 1)
+                )
+                Button("Join") { account.joinDraft() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(account.busy || joinCodeIsEmpty)
+            }
             if let code = account.clipboardCode {
                 HitButton {
                     account.joinClipboard()
@@ -426,14 +445,33 @@ struct AccountPane: View {
                 }
                 .help(code)
             }
-            Button("Join") { account.joinDraft() }
-                .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
-                .disabled(account.busy || account.joinCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(Theme.Space.s4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accountCardChrome()
         .onAppear { account.refreshClipboardOffer() }
+    }
+
+    private var joinCodeIsEmpty: Bool {
+        account.joinCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func labeledMenu<Selection: Hashable, Content: View>(
+        _ title: String, selection: Binding<Selection>, @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(spacing: Theme.Space.s3) {
+            Text(title)
+                .font(Theme.font(Theme.Size.body))
+                .foregroundStyle(Theme.text)
+            Spacer(minLength: Theme.Space.s3)
+            Picker(title, selection: selection) {
+                content()
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .fixedSize()
+        }
+        .frame(minHeight: 32)
     }
 
     private func raceLobby(_ race: RaceTicket) -> some View {
@@ -472,31 +510,32 @@ struct AccountPane: View {
     // MARK: Leaderboard
 
     private var boardPage: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s3) {
-            Text("How you compare")
-                .font(Theme.font(Theme.Size.lg, .bold))
-                .foregroundStyle(Theme.text)
-            AccountSegment(
+        VStack(alignment: .leading, spacing: Theme.Space.s4) {
+            VStack(alignment: .leading, spacing: Theme.Space.s1) {
+                Text("How you compare")
+                    .font(Theme.font(Theme.Size.lg, .bold))
+                    .foregroundStyle(Theme.text)
+                Text("Fastest final time for this speedrun.")
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.text2)
+            }
+            SegmentedChoice(
                 selection: $account.leaderboardSubject,
                 choices: QuizSubject.allCases.map { SegmentChoice(value: $0, title: $0.practiceTitle) }
             )
             .onChange(of: account.leaderboardSubject) { _, _ in account.loadLeaderboard() }
-            HStack(spacing: Theme.Space.s3) {
-                Picker("Method", selection: $account.leaderboardStyle) {
-                    ForEach(PracticeAnswerStyle.allCases) { style in
-                        Text(style.title(for: account.leaderboardSubject)).tag(style)
-                    }
+            labeledMenu("Method", selection: $account.leaderboardStyle) {
+                ForEach(PracticeAnswerStyle.allCases) { style in
+                    Text(style.title(for: account.leaderboardSubject)).tag(style)
                 }
-                .pickerStyle(.menu)
-                .onChange(of: account.leaderboardStyle) { _, _ in account.loadLeaderboard() }
-                Picker("Region", selection: $account.leaderboardRegion) {
-                    ForEach(PracticeChoice.allCases) { choice in
-                        Text(choice.title).tag(choice)
-                    }
-                }
-                .pickerStyle(.menu)
-                .onChange(of: account.leaderboardRegion) { _, _ in account.loadLeaderboard() }
             }
+            .onChange(of: account.leaderboardStyle) { _, _ in account.loadLeaderboard() }
+            labeledMenu("Region", selection: $account.leaderboardRegion) {
+                ForEach(PracticeChoice.allCases) { choice in
+                    Text(choice.title).tag(choice)
+                }
+            }
+            .onChange(of: account.leaderboardRegion) { _, _ in account.loadLeaderboard() }
 
             yourRank
 
@@ -585,18 +624,35 @@ struct AccountPane: View {
     // MARK: Friends
 
     private var friendsPage: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s3) {
-            Text("Friends")
-                .font(Theme.font(Theme.Size.lg, .bold))
-                .foregroundStyle(Theme.text)
-            Text("They have to accept before you can race.")
-                .font(Theme.font(Theme.Size.sm))
-                .foregroundStyle(Theme.text2)
+        VStack(alignment: .leading, spacing: Theme.Space.s4) {
+            VStack(alignment: .leading, spacing: Theme.Space.s1) {
+                Text("Friends")
+                    .font(Theme.font(Theme.Size.lg, .bold))
+                    .foregroundStyle(Theme.text)
+                Text("They have to accept before you can race.")
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.text2)
+            }
 
-            HStack(spacing: Theme.Space.s2) {
-                TextField("Username", text: $account.friendDraft)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { account.addFriend() }
+            HStack(alignment: .center, spacing: Theme.Space.s2) {
+                HStack(spacing: Theme.Space.s2) {
+                    Image(systemName: "person")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Theme.text3)
+                    TextField("Username", text: $account.friendDraft)
+                        .textFieldStyle(.plain)
+                        .onSubmit { account.addFriend() }
+                }
+                .padding(.horizontal, Theme.Space.s3)
+                .frame(height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
+                        .fill(Theme.background)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
+                        .strokeBorder(Theme.hairline2, lineWidth: 1)
+                )
                 HitButton(enabled: !account.busy) {
                     account.addFriend()
                 } label: {
@@ -705,30 +761,6 @@ struct AccountPane: View {
 
 private enum SignInField: Hashable {
     case username, password, confirm
-}
-
-private struct SegmentChoice<Value: Hashable>: Identifiable {
-    let value: Value
-    let title: String
-    var id: Value { value }
-}
-
-/// System segmented control. The whole segment is the hit target, including the
-/// click that leaves a text field, and the selected label stays white.
-private struct AccountSegment<Value: Hashable>: View {
-    @Binding var selection: Value
-    let choices: [SegmentChoice<Value>]
-
-    var body: some View {
-        Picker("", selection: $selection) {
-            ForEach(choices) { choice in
-                Text(choice.title).tag(choice.value)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.regular)
-    }
 }
 
 private struct AccountField<Content: View>: View {

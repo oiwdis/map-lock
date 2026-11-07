@@ -2,6 +2,11 @@ import AppKit
 import SwiftUI
 
 /// A short right-or-wrong note. It fades on its own and never takes clicks.
+struct PenaltyPop: Equatable {
+    var token: Int
+    var text: String
+}
+
 struct AnswerChip: Equatable {
     var token: Int
     var right: Bool

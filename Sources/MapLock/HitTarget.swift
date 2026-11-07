@@ -47,6 +47,51 @@ final class HitTargetView: NSView {
     }
 }
 
+struct SegmentChoice<Value: Hashable>: Identifiable {
+    let value: Value
+    let title: String
+    var id: Value { value }
+}
+
+/// Full-width segments. The selected one is an accent fill with white text.
+/// Each segment's whole rectangle is the hit target, including the click that leaves a text field.
+struct SegmentedChoice<Value: Hashable>: View {
+    @Binding var selection: Value
+    let choices: [SegmentChoice<Value>]
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(choices) { choice in
+                let selected = selection == choice.value
+                HitButton {
+                    selection = choice.value
+                } label: {
+                    Text(choice.title)
+                        .font(Theme.font(Theme.Size.sm, .semibold))
+                        .foregroundStyle(selected ? Color.white : Theme.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 32)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(selected ? Theme.accentFill : Color.clear)
+                                .shadow(color: selected ? Color.black.opacity(0.16) : .clear, radius: 3, y: 1)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(Theme.fill2)
+        )
+    }
+}
+
 /// Draws `label` and hits the entire frame, not only the glyphs.
 struct HitButton<Label: View>: View {
     var enabled: Bool = true

@@ -65,8 +65,12 @@ struct SpeedrunCue: Equatable {
     var wrongCountry: String?
     var showsMap: Bool
 
+    /// Skip reveals the right country. A plain miss does not.
+    var revealsCorrect: Bool = false
+
     var mapCue: SpeedrunMapCue {
-        SpeedrunMapCue(token: token, right: right, correctName: correctCountry, wrongName: wrongCountry)
+        SpeedrunMapCue(token: token, right: right, correctName: correctCountry,
+                       wrongName: wrongCountry, revealsCorrect: revealsCorrect)
     }
 }
 
@@ -76,6 +80,7 @@ struct SpeedrunMapCue: Equatable {
     var right: Bool
     var correctName: String
     var wrongName: String?
+    var revealsCorrect: Bool = false
 }
 
 enum SpeedrunPool {

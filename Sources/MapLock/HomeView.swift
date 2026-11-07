@@ -344,7 +344,12 @@ final class HomeWindowController: NSObject, NSWindowDelegate {
             w.isReleasedWhenClosed = false
             w.backgroundColor = Theme.windowBackground
             w.minSize = NSSize(width: 680, height: 460)
-            w.contentView = NSHostingView(rootView: HomeView(model: model, account: account))
+            w.titlebarAppearsTransparent = false
+            w.titlebarSeparatorStyle = .line
+            w.toolbarStyle = .unified
+            let hosting = NSHostingView(rootView: HomeView(model: model, account: account))
+            hosting.safeAreaRegions = .all
+            w.contentView = hosting
             account.presentationWindow = w
             w.setFrame(frame, display: false)
             _ = w.setFrameAutosaveName("MapLockHome")
@@ -415,6 +420,8 @@ struct HomeView: View {
                 .help("Start an unlock quiz with Unlock quiz settings")
             }
         }
+        .toolbarBackground(Theme.background, for: .windowToolbar)
+        .toolbarBackground(.visible, for: .windowToolbar)
     }
 
     @ViewBuilder

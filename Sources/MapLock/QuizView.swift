@@ -165,11 +165,24 @@ private struct QuestionView: View {
             }
             Spacer(minLength: Theme.Space.s2)
             TimelineView(.animation(minimumInterval: 0.1, paused: session.speedrunFrozenAt != nil || session.speedrunClockStart == nil)) { timeline in
-                Text(session.speedrunTimeText(at: timeline.date))
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .accessibilityLabel("Time \(session.speedrunTimeText(at: timeline.date))")
+                HStack(spacing: 6) {
+                    Text(session.speedrunTimeText(at: timeline.date))
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                    if let pop = session.penaltyPop {
+                        Text(pop.text)
+                            .font(Theme.font(Theme.Size.sm, .bold))
+                            .foregroundStyle(Theme.bad)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                }
+                .animation(.easeOut(duration: 0.2), value: session.penaltyPop?.token)
+                .accessibilityLabel("Time \(session.speedrunTimeText(at: timeline.date))")
             }
+            Button("Skip") { session.skipSpeedrun() }
+                .buttonStyle(QuietButtonStyle())
+                .keyboardShortcut(.escape, modifiers: [])
+                .disabled(!session.speedrunAcceptsInput || session.speedrunRevealing)
             HStack(spacing: Theme.Space.s2) {
                 Image(systemName: "checkmark")
                     .font(.system(size: 12, weight: .bold))
@@ -242,7 +255,7 @@ private struct QuestionView: View {
                     case .click: clickArea
                     }
                 }
-                if session.isSpeedrun, let cue = session.speedrunCue, !cue.showsMap {
+                if session.isSpeedrun, let cue = session.speedrunCue, !cue.showsMap, cue.revealsCorrect {
                     SpeedrunChoiceFlash(cue: cue, reduceMotion: reduceMotion)
                         .allowsHitTesting(false)
                 }
@@ -321,7 +334,7 @@ private struct QuestionView: View {
                             ) {
                                 session.choose(options[i])
                             }
-                            .disabled(!session.canAnswer)
+                            .disabled(!session.canAnswer || session.eliminatedChoices.contains(options[i]))
                         }
                     }
                 }
@@ -332,6 +345,11 @@ private struct QuestionView: View {
     }
 
     private func choiceState(_ option: String) -> ChoiceButton.Look {
+        if session.isSpeedrun {
+            if session.speedrunRevealing, option == question.answer { return .right }
+            if session.eliminatedChoices.contains(option) { return .dim }
+            return .normal
+        }
         guard session.phase == .answered else { return .normal }
         if option == question.answer { return .right }
         if option == session.chosen { return .wrong }
@@ -664,6 +682,9 @@ private struct FinishedView: View {
                 .font(.system(size: 52, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(session.speedrunIsNewBest ? Theme.accent : Theme.text)
+            Text("Final time")
+                .font(Theme.font(Theme.Size.sm, .semibold))
+                .foregroundStyle(Theme.text2)
             if session.speedrunIsNewBest {
                 Text("New best")
                     .font(Theme.font(Theme.Size.sm, .bold))
@@ -677,13 +698,15 @@ private struct FinishedView: View {
                 .font(Theme.font(Theme.Size.sm))
                 .foregroundStyle(Theme.text2)
                 .multilineTextAlignment(.center)
-            HStack(spacing: Theme.Space.s3) {
-                Label("\(session.score) right", systemImage: "checkmark")
-                    .foregroundStyle(Theme.good)
-                Label("\(session.speedrunMisses) wrong", systemImage: "xmark")
-                    .foregroundStyle(Theme.bad)
+            VStack(spacing: Theme.Space.s1) {
+                resultLine("Raw time", session.speedrunRawText)
+                resultLine("\(session.speedrunWrongs) misses x 3s", SpeedrunClock.format(Double(session.speedrunWrongs) * 3))
+                resultLine("\(session.speedrunSkips) skips x 10s", SpeedrunClock.format(Double(session.speedrunSkips) * 10))
+                resultLine("Final time", session.speedrunFinalTime)
+                resultLine("First try", String(format: "%.0f%%", session.speedrunAccuracy * 100))
             }
-            .font(Theme.font(Theme.Size.sm, .semibold))
+            .font(Theme.font(Theme.Size.sm))
+            .frame(maxWidth: 280)
             HStack(spacing: Theme.Space.s2) {
                 Image(systemName: "timer").foregroundStyle(Theme.text2)
                 Text("Personal best")
@@ -693,6 +716,14 @@ private struct FinishedView: View {
                     .monospacedDigit()
             }
             .padding(.bottom, Theme.Space.s4)
+        }
+    }
+
+    private func resultLine(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).foregroundStyle(Theme.text2)
+            Spacer(minLength: Theme.Space.s3)
+            Text(value).monospacedDigit().foregroundStyle(Theme.text)
         }
     }
 

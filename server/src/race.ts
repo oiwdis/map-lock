@@ -2,6 +2,9 @@ import { DurableObject } from "cloudflare:workers";
 
 const FORFEIT_AFTER_MS = 20_000;
 const COUNTDOWN_STEP_MS = 1_000;
+const RACE_LIMIT_MS = 10 * 60 * 1000;
+const MISS_PENALTY_S = 3;
+const SKIP_PENALTY_S = 10;
 
 export interface RacePlayer {
   userId: string;
@@ -11,8 +14,13 @@ export interface RacePlayer {
   found: number;
   total: number;
   misses: number;
+  skips: number;
   finished: boolean;
+  /** Server clock from the start, before penalties. */
+  raw: number | null;
+  /** Final time: raw + misses * 3s + skips * 10s. */
   elapsed: number | null;
+  finishedAt: number | null;
   forfeited: boolean;
   disconnectedAt: number | null;
   wantsRematch: boolean;
@@ -32,7 +40,7 @@ export interface RaceState {
 
 type ClientMessage =
   | { type: "ready"; total?: number }
-  | { type: "progress"; found: number; total: number; misses: number; finished?: boolean }
+  | { type: "progress"; found: number; total: number; misses: number; skips?: number; finished?: boolean }
   | { type: "forfeit" }
   | { type: "rematch" };
 
@@ -119,13 +127,13 @@ export class RaceRoom extends DurableObject<Env> {
       player.found = clampCount(parsed.found);
       player.total = clampCount(parsed.total);
       player.misses = clampCount(parsed.misses);
+      player.skips = clampCount(parsed.skips ?? 0);
       if (parsed.finished && player.found >= player.total && player.total > 0 && state.startedAt) {
         player.finished = true;
-        player.elapsed = Math.max(0, (Date.now() - state.startedAt) / 1000);
-        if (!state.winnerId) {
-          state.winnerId = player.userId;
-          state.phase = "finished";
-        }
+        player.finishedAt = Date.now();
+        player.raw = Math.max(0, (player.finishedAt - state.startedAt) / 1000);
+        player.elapsed = player.raw + player.misses * MISS_PENALTY_S + player.skips * SKIP_PENALTY_S;
+        this.awardIfBothFinished(state);
       }
     } else if (parsed.type === "forfeit" && (state.phase === "racing" || state.phase === "countdown")) {
       this.forfeit(state, player);
@@ -165,6 +173,7 @@ export class RaceRoom extends DurableObject<Env> {
         state.countdown = null;
         state.phase = "racing";
         state.startedAt = now;
+        await this.ctx.storage.setAlarm(now + RACE_LIMIT_MS);
       } else {
         await this.ctx.storage.setAlarm(now + COUNTDOWN_STEP_MS);
       }
@@ -175,13 +184,33 @@ export class RaceRoom extends DurableObject<Env> {
 
     if (state.phase === "racing" || state.phase === "countdown") {
       for (const player of state.players) {
-        if (!player.connected && player.disconnectedAt && now - player.disconnectedAt >= FORFEIT_AFTER_MS) {
+        if (!player.finished && !player.connected && player.disconnectedAt && now - player.disconnectedAt >= FORFEIT_AFTER_MS) {
           this.forfeit(state, player);
         }
+      }
+      if (state.phase === "racing" && state.startedAt && now - state.startedAt >= RACE_LIMIT_MS) {
+        this.finishByTimeout(state);
+      } else if (state.phase === "racing" && state.startedAt) {
+        await this.armRace(state);
       }
       await this.save(state);
       this.broadcast(state);
     }
+  }
+
+  /** Keep the 10 minute limit armed without dropping a sooner forfeit check. */
+  private async armRace(state: RaceState): Promise<void> {
+    if (!state.startedAt || state.phase !== "racing") return;
+    const timeoutAt = state.startedAt + RACE_LIMIT_MS;
+    let when = timeoutAt;
+    const now = Date.now();
+    for (const player of state.players) {
+      if (!player.finished && !player.connected && player.disconnectedAt) {
+        const at = player.disconnectedAt + FORFEIT_AFTER_MS;
+        if (at > now && at < when) when = at;
+      }
+    }
+    if (when > now) await this.ctx.storage.setAlarm(when);
   }
 
   private admit(state: RaceState, userId: string, username: string): boolean {
@@ -201,8 +230,11 @@ export class RaceRoom extends DurableObject<Env> {
       found: 0,
       total: 0,
       misses: 0,
+      skips: 0,
       finished: false,
+      raw: null,
       elapsed: null,
+      finishedAt: null,
       forfeited: false,
       disconnectedAt: null,
       wantsRematch: false,
@@ -227,6 +259,33 @@ export class RaceRoom extends DurableObject<Env> {
     state.countdown = null;
   }
 
+  /** Lower final time wins. A tie goes to whoever finished earlier. */
+  private awardIfBothFinished(state: RaceState): void {
+    const contenders = state.players.filter((player) => !player.forfeited);
+    if (contenders.length < 2 || contenders.some((player) => !player.finished)) return;
+    contenders.sort((a, b) => (a.elapsed ?? Number.POSITIVE_INFINITY) - (b.elapsed ?? Number.POSITIVE_INFINITY)
+      || (a.finishedAt ?? 0) - (b.finishedAt ?? 0));
+    state.winnerId = contenders[0]?.userId ?? null;
+    state.phase = "finished";
+    state.countdown = null;
+  }
+
+  /** At 10 minutes, a finisher beats someone still going. Otherwise more countries found wins. */
+  private finishByTimeout(state: RaceState): void {
+    if (state.phase === "finished") return;
+    const finished = state.players.filter((player) => player.finished && !player.forfeited && player.elapsed != null);
+    if (finished.length > 0) {
+      finished.sort((a, b) => (a.elapsed ?? 0) - (b.elapsed ?? 0));
+      state.winnerId = finished[0]?.userId ?? null;
+    } else {
+      const ranked = state.players.filter((player) => !player.forfeited)
+        .sort((a, b) => b.found - a.found || a.misses - b.misses || a.skips - b.skips);
+      state.winnerId = ranked[0]?.userId ?? null;
+    }
+    state.phase = "finished";
+    state.countdown = null;
+  }
+
   private resetForRematch(state: RaceState): void {
     const bytes = crypto.getRandomValues(new Uint8Array(8));
     state.seed = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -238,8 +297,11 @@ export class RaceRoom extends DurableObject<Env> {
       player.ready = false;
       player.found = 0;
       player.misses = 0;
+      player.skips = 0;
       player.finished = false;
+      player.raw = null;
       player.elapsed = null;
+      player.finishedAt = null;
       player.forfeited = false;
       player.wantsRematch = false;
     }
@@ -281,7 +343,9 @@ function publicState(state: RaceState) {
       found: player.found,
       total: player.total,
       misses: player.misses,
+      skips: player.skips,
       finished: player.finished,
+      raw: player.raw,
       elapsed: player.elapsed,
       forfeited: player.forfeited,
       wantsRematch: player.wantsRematch,

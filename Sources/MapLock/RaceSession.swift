@@ -18,8 +18,10 @@ struct RaceWirePlayer: Decodable {
     var found: Int
     var total: Int
     var misses: Int
+    var skips: Int?
     var finished: Bool
     var elapsed: Double?
+    var raw: Double?
     var forfeited: Bool
     var wantsRematch: Bool
 }
@@ -49,8 +51,11 @@ final class RaceSession: ObservableObject {
     @Published private(set) var opponentFound = 0
     @Published private(set) var opponentTotal = 0
     @Published private(set) var opponentMisses = 0
+    @Published private(set) var opponentSkips = 0
     @Published private(set) var youElapsed: Double?
+    @Published private(set) var youRaw: Double?
     @Published private(set) var opponentElapsed: Double?
+    @Published private(set) var opponentRaw: Double?
     @Published private(set) var youForfeited = false
     @Published private(set) var opponentForfeited = false
     @Published private(set) var youWon: Bool?
@@ -70,8 +75,8 @@ final class RaceSession: ObservableObject {
         self.order = built
         self.opponentTotal = built.count
         self.quiz = Self.makeQuiz(ticket: ticket, world: world, scope: scope, order: built, stats: stats, onClose: {})
-        self.quiz.onSpeedrunProgress = { [weak self] found, total, misses, finished in
-            self?.sendProgressValues(found: found, total: total, misses: misses, finished: finished)
+        self.quiz.onSpeedrunProgress = { [weak self] found, total, misses, skips, finished in
+            self?.sendProgressValues(found: found, total: total, misses: misses, skips: skips, finished: finished)
         }
         self.quiz.onClose = { [weak self] in self?.close() }
         self.quiz.speedrunAcceptsInput = false
@@ -128,8 +133,8 @@ final class RaceSession: ObservableObject {
             let next = Self.makeQuiz(ticket: ticket, world: world, scope: scope, order: order, stats: stats) { [weak self] in
                 self?.close()
             }
-            next.onSpeedrunProgress = { [weak self] found, total, misses, finished in
-                self?.sendProgressValues(found: found, total: total, misses: misses, finished: finished)
+            next.onSpeedrunProgress = { [weak self] found, total, misses, skips, finished in
+                self?.sendProgressValues(found: found, total: total, misses: misses, skips: skips, finished: finished)
             }
             next.speedrunAcceptsInput = false
             quiz = next
@@ -140,6 +145,7 @@ final class RaceSession: ObservableObject {
             opponentForfeited = false
             opponentFound = 0
             opponentMisses = 0
+            opponentSkips = 0
             sendJSON(("type", "ready"), ("total", order.count))
         }
         phase = race.phase
@@ -149,6 +155,7 @@ final class RaceSession: ObservableObject {
         if let mine {
             myUserId = mine.userId
             youElapsed = mine.elapsed
+            youRaw = mine.raw
             youForfeited = mine.forfeited
         }
         if let other {
@@ -156,7 +163,9 @@ final class RaceSession: ObservableObject {
             opponentFound = other.found
             opponentTotal = other.total > 0 ? other.total : order.count
             opponentMisses = other.misses
+            opponentSkips = other.skips ?? 0
             opponentElapsed = other.elapsed
+            opponentRaw = other.raw
             opponentForfeited = other.forfeited
         }
         if race.phase == "racing" {
@@ -168,7 +177,17 @@ final class RaceSession: ObservableObject {
             if let winner = race.winnerId {
                 youWon = winner == myUserId
             }
-            status = youForfeited ? "You forfeited." : (opponentForfeited ? "\(opponentName) forfeited." : "Race finished.")
+            if youForfeited {
+                status = "You forfeited."
+            } else if opponentForfeited {
+                status = "\(opponentName) forfeited."
+            } else if youWon == true {
+                status = "You win on final time."
+            } else if youWon == false {
+                status = "\(opponentName) wins on final time."
+            } else {
+                status = "Race finished."
+            }
         } else if race.phase == "countdown" {
             quiz.speedrunAcceptsInput = false
             status = "Get ready"
@@ -178,12 +197,13 @@ final class RaceSession: ObservableObject {
         }
     }
 
-    private func sendProgressValues(found: Int, total: Int, misses: Int, finished: Bool) {
+    private func sendProgressValues(found: Int, total: Int, misses: Int, skips: Int, finished: Bool) {
         sendJSON(
             ("type", "progress"),
             ("found", found),
             ("total", total),
             ("misses", misses),
+            ("skips", skips),
             ("finished", finished)
         )
     }
