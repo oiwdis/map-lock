@@ -385,6 +385,9 @@ struct HomeView: View {
                 Section {
                     ForEach(HomeTab.allCases) { tab in
                         Label(tab.title, systemImage: tab.symbol)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .overlay(HitTarget { model.homeTab = tab })
                             .tag(tab)
                     }
                 }
@@ -608,7 +611,7 @@ private struct PracticeModeChip: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        HitButton(action: action) {
             HStack(spacing: Theme.Space.s2) {
                 Image(systemName: symbol)
                     .font(.system(size: 13, weight: .semibold))
@@ -617,20 +620,19 @@ private struct PracticeModeChip: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
-            .foregroundStyle(selected ? Theme.accent : Theme.text)
+            .foregroundStyle(selected ? Color.white : Theme.text)
             .padding(.horizontal, Theme.Space.s3)
             .padding(.vertical, Theme.Space.s2)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .fill(selected ? Theme.accent.opacity(0.12) : Theme.card)
+                    .fill(selected ? Theme.accentFill : Theme.card)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .strokeBorder(selected ? Theme.accent : Theme.hairline2, lineWidth: selected ? 1.5 : 1)
+                    .strokeBorder(selected ? Theme.accentFill : Theme.hairline2, lineWidth: selected ? 1.5 : 1)
             )
         }
-        .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -641,7 +643,7 @@ private struct PracticeAnswerRow: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        HitButton(action: action) {
             HStack(spacing: Theme.Space.s3) {
                 Image(systemName: selected ? "largecircle.fill.circle" : "circle")
                     .font(.system(size: 16, weight: .regular))
@@ -652,10 +654,10 @@ private struct PracticeAnswerRow: View {
                     .multilineTextAlignment(.leading)
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, Theme.Space.s1)
+            .padding(.vertical, Theme.Space.s2)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -667,14 +669,14 @@ private struct PracticePlaceCard: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        HitButton(action: action) {
             VStack(alignment: .leading, spacing: Theme.Space.s2) {
                 Image(systemName: symbol)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(selected ? Theme.accent : Theme.text2)
+                    .foregroundStyle(selected ? Color.white : Theme.text2)
                 Text(title)
                     .font(Theme.font(Theme.Size.body, selected ? .semibold : .medium))
-                    .foregroundStyle(Theme.text)
+                    .foregroundStyle(selected ? Color.white : Theme.text)
                     .lineLimit(2)
                     .minimumScaleFactor(0.85)
                     .multilineTextAlignment(.leading)
@@ -683,15 +685,14 @@ private struct PracticePlaceCard: View {
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .fill(selected ? Theme.accent.opacity(0.12) : Theme.card)
+                    .fill(selected ? Theme.accentFill : Theme.card)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .strokeBorder(selected ? Theme.accent : Theme.hairline2, lineWidth: selected ? 1.5 : 1)
+                    .strokeBorder(selected ? Theme.accentFill : Theme.hairline2, lineWidth: selected ? 1.5 : 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
         }
-        .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

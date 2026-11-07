@@ -106,14 +106,16 @@ struct AccountPane: View {
             .buttonStyle(AppButtonStyle(kind: .primary, height: 40, fullWidth: true))
             .disabled(account.busy)
 
-            Button(account.creatingAccount ? "Have an account? Sign in" : "Need an account? Create one") {
+            HitButton {
                 account.setCreatingAccount(!account.creatingAccount)
                 focus = .username
+            } label: {
+                Text(account.creatingAccount ? "Have an account? Sign in" : "Need an account? Create one")
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.accent)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 28)
             }
-            .buttonStyle(.plain)
-            .font(Theme.font(Theme.Size.sm))
-            .foregroundStyle(Theme.accent)
-            .frame(maxWidth: .infinity)
 
             HStack(spacing: Theme.Space.s3) {
                 Rectangle().fill(Theme.hairline2).frame(height: 1)
@@ -123,10 +125,12 @@ struct AccountPane: View {
                 Rectangle().fill(Theme.hairline2).frame(height: 1)
             }
 
-            Button { account.signIn() } label: { AppleSignInLabel() }
-                .buttonStyle(.plain)
-                .disabled(account.busy)
-                .opacity(account.busy ? 0.6 : 1)
+            HitButton(enabled: !account.busy) {
+                account.signIn()
+            } label: {
+                AppleSignInLabel()
+            }
+            .opacity(account.busy ? 0.6 : 1)
 
             Text("Optional. Everything works without an account.")
                 .font(Theme.font(Theme.Size.xs))
@@ -203,10 +207,13 @@ struct AccountPane: View {
                 welcomeCard
             }
             if !account.friends.incoming.isEmpty && account.page != .friends {
-                Button("You have a friend request") { account.page = .friends }
-                    .buttonStyle(.plain)
-                    .font(Theme.font(Theme.Size.sm, .semibold))
-                    .foregroundStyle(Theme.accent)
+                HitButton { account.page = .friends } label: {
+                    Text("You have a friend request")
+                        .font(Theme.font(Theme.Size.sm, .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(minHeight: 28)
+                }
             }
             AccountSegment(
                 selection: $account.page,
@@ -256,7 +263,9 @@ struct AccountPane: View {
                 syncedLine
             }
             Spacer(minLength: Theme.Space.s2)
-            Button { account.syncNow() } label: {
+            HitButton(enabled: !account.busy) {
+                account.syncNow()
+            } label: {
                 Group {
                     if account.syncing {
                         ProgressView().controlSize(.small)
@@ -269,9 +278,8 @@ struct AccountPane: View {
                 .frame(width: 28, height: 28)
                 .background(Circle().fill(Theme.fill2))
             }
-            .buttonStyle(.plain)
-            .disabled(account.busy)
             .help("Sync now")
+            .opacity(account.busy ? 0.5 : 1)
             Menu {
                 Button("Sign Out") { account.signOut() }
             } label: {
@@ -407,12 +415,15 @@ struct AccountPane: View {
                     account.joinCode = code
                 }
             if let code = account.clipboardCode {
-                Button("Join race from clipboard?") {
+                HitButton {
                     account.joinClipboard()
+                } label: {
+                    Text("Join race from clipboard?")
+                        .font(Theme.font(Theme.Size.sm, .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(minHeight: 28)
                 }
-                .buttonStyle(.plain)
-                .font(Theme.font(Theme.Size.sm, .semibold))
-                .foregroundStyle(Theme.accent)
                 .help(code)
             }
             Button("Join") { account.joinDraft() }
@@ -586,16 +597,17 @@ struct AccountPane: View {
                 TextField("Username", text: $account.friendDraft)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { account.addFriend() }
-                Button { account.addFriend() } label: {
+                HitButton(enabled: !account.busy) {
+                    account.addFriend()
+                } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(Color.white)
                         .frame(width: 28, height: 28)
                         .background(Circle().fill(Theme.accentFill))
                 }
-                .buttonStyle(.plain)
-                .disabled(account.busy)
                 .help("Add friend")
+                .opacity(account.busy ? 0.5 : 1)
             }
 
             if let message = account.message, isFriendNotice(message) {
@@ -701,35 +713,21 @@ private struct SegmentChoice<Value: Hashable>: Identifiable {
     var id: Value { value }
 }
 
+/// System segmented control. The whole segment is the hit target, including the
+/// click that leaves a text field, and the selected label stays white.
 private struct AccountSegment<Value: Hashable>: View {
     @Binding var selection: Value
     let choices: [SegmentChoice<Value>]
 
     var body: some View {
-        HStack(spacing: 2) {
+        Picker("", selection: $selection) {
             ForEach(choices) { choice in
-                let selected = selection == choice.value
-                Button {
-                    selection = choice.value
-                } label: {
-                    Text(choice.title)
-                        .font(Theme.font(Theme.Size.sm, .semibold))
-                        .foregroundStyle(selected ? Color.white : Theme.text)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 30)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(selected ? Theme.accentFill : Color.clear)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(selected ? .isSelected : [])
+                Text(choice.title).tag(choice.value)
             }
         }
-        .padding(2)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Theme.fill2))
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.regular)
     }
 }
 
@@ -768,14 +766,13 @@ private struct PasswordField: View {
                 .textFieldStyle(.roundedBorder)
                 .focused(focus, equals: field)
                 .onSubmit(next)
-                Button {
+                HitButton {
                     shown.toggle()
                 } label: {
                     Image(systemName: shown ? "eye.slash" : "eye")
                         .foregroundStyle(Theme.text3)
-                        .frame(width: 22, height: 22)
+                        .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
                 .help(shown ? "Hide password" : "Show password")
             }
         }

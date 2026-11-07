@@ -248,23 +248,24 @@ enum ButtonKind {
 }
 
 /// The standard button: 40pt tall, radius 12, 15pt semibold.
-struct AppButtonStyle: ButtonStyle {
+struct AppButtonStyle: PrimitiveButtonStyle {
     var kind: ButtonKind = .primary
     var height: CGFloat = 40
     var fullWidth = false
 
     func makeBody(configuration: Configuration) -> some View {
-        AppButtonBody(label: configuration.label, isPressed: configuration.isPressed,
-                      kind: kind, height: height, fullWidth: fullWidth)
+        AppButtonBody(label: configuration.label, kind: kind, height: height, fullWidth: fullWidth) {
+            configuration.trigger()
+        }
     }
 }
 
 private struct AppButtonBody<Label: View>: View {
     let label: Label
-    let isPressed: Bool
     let kind: ButtonKind
     let height: CGFloat
     let fullWidth: Bool
+    let trigger: () -> Void
     @State private var hovering = false
     @Environment(\.isEnabled) private var isEnabled
 
@@ -282,11 +283,9 @@ private struct AppButtonBody<Label: View>: View {
                     .fill(fillColor)
             )
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
-            .scaleEffect(isPressed ? 0.98 : 1)
             .opacity(isEnabled ? 1 : 0.5)
-            .animation(Theme.Motion.fast, value: isPressed)
             .animation(Theme.Motion.medium, value: hovering)
-            .onHover { hovering = $0 }
+            .overlay(HitTarget(enabled: isEnabled, action: trigger, hover: { hovering = $0 }))
     }
 
     private var fillColor: Color {
@@ -299,16 +298,19 @@ private struct AppButtonBody<Label: View>: View {
 }
 
 /// Small quiet text button, like "Emergency skip".
-struct QuietButtonStyle: ButtonStyle {
+struct QuietButtonStyle: PrimitiveButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        QuietButtonBody(label: configuration.label, isPressed: configuration.isPressed)
+        QuietButtonBody(label: configuration.label) {
+            configuration.trigger()
+        }
     }
 }
 
 private struct QuietButtonBody<Label: View>: View {
     let label: Label
-    let isPressed: Bool
+    let trigger: () -> Void
     @State private var hovering = false
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         label
@@ -316,13 +318,10 @@ private struct QuietButtonBody<Label: View>: View {
             .foregroundStyle(hovering ? Theme.text2 : Theme.text3)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
-                    .fill(hovering ? Theme.fill : Color.clear)
-            )
+            .frame(minHeight: 28)
             .contentShape(Rectangle())
-            .opacity(isPressed ? 0.7 : 1)
-            .onHover { hovering = $0 }
+            .opacity(isEnabled ? 1 : 0.5)
+            .overlay(HitTarget(enabled: isEnabled, action: trigger, hover: { hovering = $0 }))
     }
 }
 
