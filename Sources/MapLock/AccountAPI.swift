@@ -73,6 +73,12 @@ struct FriendStatsResponse: Codable {
 }
 
 enum AccountClient {
+    static func exchange(code: String, state: String) async throws -> AuthResponse {
+        try await send(AuthResponse.self, path: "/v1/auth/exchange", method: "POST", token: nil,
+                       json: try encode(["code": code, "state": state]))
+    }
+
+    /// Native identity-token sign-in. The app uses the web flow; this stays for the worker.
     static func signIn(identityToken: String, nonce: String) async throws -> AuthResponse {
         try await send(AuthResponse.self, path: "/v1/auth/apple", method: "POST", token: nil,
                        json: try encode(["identityToken": identityToken, "nonce": nonce]))

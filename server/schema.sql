@@ -17,6 +17,20 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 
+-- Web Sign in with Apple: nonce for the authorize request, then a one-time app code.
+CREATE TABLE IF NOT EXISTS apple_logins (
+  state TEXT PRIMARY KEY,
+  nonce TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auth_codes (
+  code_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  state TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS friendships (
   id TEXT PRIMARY KEY,
   requester_id TEXT NOT NULL REFERENCES users(id),

@@ -1,5 +1,5 @@
 import { verifyAppleIdentityToken } from "./apple";
-import { createSession, randomCode, randomSeed, userFromRequest, type SessionUser } from "./auth";
+import { createSession, randomCode, randomSeed, randomToken, sha256Hex, userFromRequest, type SessionUser } from "./auth";
 import { canonicalBestKey, emptyPayload, isRegion, mergePayload, parsePayload } from "./merge";
 import { RaceRoom } from "./race";
 import { canonicalUsername, usernameProblem } from "./username";
@@ -29,6 +29,9 @@ async function route(request: Request, env: Env): Promise<Response> {
 
   if (!url.pathname.startsWith("/v1/")) return json({ error: "Not found" }, 404);
 
+  if (request.method === "GET" && url.pathname === "/v1/auth/apple/start") return appleStart(url, env);
+  if (request.method === "POST" && url.pathname === "/v1/auth/apple/callback") return appleCallback(request, env);
+  if (request.method === "POST" && url.pathname === "/v1/auth/exchange") return exchangeAuth(request, env);
   if (request.method === "POST" && url.pathname === "/v1/auth/apple") return authApple(request, env);
 
   const user = await userFromRequest(request, env.DB);
@@ -86,6 +89,100 @@ async function authApple(request: Request, env: Env): Promise<Response> {
   return json({
     token,
     user: { id: userId, username, needsUsername: !username },
+  });
+}
+
+async function appleStart(url: URL, env: Env): Promise<Response> {
+  const state = url.searchParams.get("state") ?? "";
+  const nonce = url.searchParams.get("nonce") ?? "";
+  if (!/^[A-Za-z0-9._-]{8,200}$/.test(state) || !/^[A-Za-z0-9._-]{8,200}$/.test(nonce)) {
+    return json({ error: "Missing state or nonce" }, 400);
+  }
+  const now = Date.now();
+  await env.DB.prepare("DELETE FROM apple_logins WHERE created_at < ?").bind(now - 10 * 60 * 1000).run();
+  await env.DB.prepare(
+    `INSERT INTO apple_logins (state, nonce, created_at) VALUES (?, ?, ?)
+     ON CONFLICT(state) DO UPDATE SET nonce = excluded.nonce, created_at = excluded.created_at`,
+  ).bind(state, nonce, now).run();
+  const redirectUri = `${env.PUBLIC_ORIGIN.replace(/\/$/, "")}/v1/auth/apple/callback`;
+  const authorize = new URL("https://appleid.apple.com/auth/authorize");
+  authorize.searchParams.set("client_id", env.APPLE_WEB_CLIENT_ID);
+  authorize.searchParams.set("redirect_uri", redirectUri);
+  authorize.searchParams.set("response_type", "code id_token");
+  authorize.searchParams.set("response_mode", "form_post");
+  authorize.searchParams.set("state", state);
+  authorize.searchParams.set("nonce", nonce);
+  return Response.redirect(authorize.toString(), 302);
+}
+
+async function appleCallback(request: Request, env: Env): Promise<Response> {
+  const form = new URLSearchParams(await request.text());
+  const idToken = form.get("id_token") ?? "";
+  const state = form.get("state") ?? "";
+  const pending = await env.DB.prepare(
+    "SELECT nonce, created_at FROM apple_logins WHERE state = ?",
+  ).bind(state).first<{ nonce: string; created_at: number }>();
+  await env.DB.prepare("DELETE FROM apple_logins WHERE state = ?").bind(state).run();
+  if (!pending || Date.now() - pending.created_at > 10 * 60 * 1000) {
+    return signInPage("That sign-in expired. Close this window and try again in Map Lock.");
+  }
+  let sub: string;
+  try {
+    const claims = await verifyAppleIdentityToken(idToken, env.APPLE_WEB_CLIENT_ID, pending.nonce);
+    sub = claims.sub;
+  } catch (error) {
+    console.log(JSON.stringify({ event: "apple_web_auth_failed", message: error instanceof Error ? error.message : "unknown" }));
+    return signInPage("Apple didn't accept that sign-in. Close this window and try again in Map Lock.");
+  }
+  const existing = await env.DB.prepare(
+    "SELECT id FROM users WHERE apple_sub = ?",
+  ).bind(sub).first<{ id: string }>();
+  let userId = existing?.id;
+  if (!userId) {
+    userId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO users (id, apple_sub, username, username_lower, created_at) VALUES (?, ?, NULL, NULL, ?)",
+    ).bind(userId, sub, Date.now()).run();
+  }
+  const code = randomToken();
+  const codeHash = await sha256Hex(code);
+  await env.DB.prepare("DELETE FROM auth_codes WHERE expires_at < ?").bind(Date.now()).run();
+  await env.DB.prepare(
+    "INSERT INTO auth_codes (code_hash, user_id, state, expires_at) VALUES (?, ?, ?, ?)",
+  ).bind(codeHash, userId, state, Date.now() + 2 * 60 * 1000).run();
+  const location = `maplock://auth?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+  return new Response(null, { status: 302, headers: { Location: location } });
+}
+
+async function exchangeAuth(request: Request, env: Env): Promise<Response> {
+  const body = await readJson(request);
+  const code = stringField(body, "code") ?? "";
+  const state = stringField(body, "state") ?? "";
+  if (!code || !state) return json({ error: "That sign-in code has expired. Try again." }, 401);
+  const codeHash = await sha256Hex(code);
+  const row = await env.DB.prepare(
+    "SELECT user_id, state, expires_at FROM auth_codes WHERE code_hash = ?",
+  ).bind(codeHash).first<{ user_id: string; state: string; expires_at: number }>();
+  await env.DB.prepare("DELETE FROM auth_codes WHERE code_hash = ?").bind(codeHash).run();
+  if (!row || row.expires_at < Date.now() || row.state !== state) {
+    return json({ error: "That sign-in code has expired. Try again." }, 401);
+  }
+  const person = await env.DB.prepare(
+    "SELECT id, username FROM users WHERE id = ?",
+  ).bind(row.user_id).first<{ id: string; username: string | null }>();
+  if (!person) return json({ error: "That sign-in code has expired. Try again." }, 401);
+  const token = await createSession(env.DB, person.id);
+  return json({
+    token,
+    user: { id: person.id, username: person.username, needsUsername: !person.username },
+  });
+}
+
+function signInPage(message: string): Response {
+  const safe = message.replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[char] ?? char));
+  return new Response(`<!doctype html><html><body style="font:16px -apple-system,sans-serif;padding:2rem"><p>${safe}</p></body></html>`, {
+    status: 400,
+    headers: { "content-type": "text/html; charset=utf-8" },
   });
 }
 

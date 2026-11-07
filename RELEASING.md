@@ -43,11 +43,7 @@ It should say "Credentials saved to Keychain". You only do this once.
    ```
    VERSION=1.1.2 ./release.sh
    ```
-   Put the Developer ID provisioning profile at `profiles/MapLock_DeveloperID.provisionprofile`
-   (or pass its path as `MAPLOCK_PROFILE`) before this step. The script copies it into the app
-   and signs with `MapLock.entitlements`, which turns on Sign in with Apple.
-   Without that profile it still signs and notarizes, and prints a warning that Sign in with Apple will be disabled.
-   It builds, signs, sends the app to Apple, waits (usually a few minutes), staples the result, and checks it.
+   It builds, signs with the hardened runtime and a timestamp (no extra entitlements), sends the app to Apple, waits (usually a few minutes), staples the result, and checks it.
    At the end you get `dist/MapLock.zip`.
 2. On GitHub, open [github.com/oiwdis/map-lock/releases/new](https://github.com/oiwdis/map-lock/releases/new).
 3. Make a new tag like `v1.1.2`, add a title and a few notes about what changed.

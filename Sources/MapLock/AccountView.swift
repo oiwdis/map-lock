@@ -45,14 +45,20 @@ struct AccountPane: View {
             Button {
                 account.signIn()
             } label: {
-                HStack(spacing: Theme.Space.s2) {
+                HStack(spacing: 8) {
                     Image(systemName: "apple.logo")
+                        .font(.system(size: 16, weight: .medium))
                     Text("Sign in with Apple")
+                        .font(.system(size: 16, weight: .medium))
                 }
+                .foregroundStyle(Color.white)
                 .frame(maxWidth: 280)
+                .frame(height: 40)
+                .background(Color.black, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
-            .buttonStyle(AppButtonStyle(kind: .primary, height: 40, fullWidth: true))
+            .buttonStyle(.plain)
             .disabled(account.busy)
+            .opacity(account.busy ? 0.6 : 1)
         }
     }
 

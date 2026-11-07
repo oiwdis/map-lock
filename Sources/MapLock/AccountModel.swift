@@ -1,14 +1,14 @@
 import AppKit
 import AuthenticationServices
-import Security
 import SwiftUI
 
 /// Optional account. Practice, stats, and speedrun keep working when this is signed out.
 @MainActor
-final class AccountModel: NSObject, ObservableObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+final class AccountModel: NSObject, ObservableObject, ASWebAuthenticationSessionPresentationContextProviding {
     private let stats: StatsStore
     private var token: String?
-    private var nonceHash = ""
+    private var pendingState = ""
+    private var webAuth: ASWebAuthenticationSession?
     weak var presentationWindow: NSWindow?
 
     var onOpenRace: (RaceTicket) -> Void = { _ in }
@@ -48,19 +48,32 @@ final class AccountModel: NSObject, ObservableObject, ASAuthorizationControllerD
 
     func signIn() {
         message = nil
-        if AppleSignInSupport.entitlement == .missing {
-            message = AppleSignInSupport.unavailableMessage
+        let state = UUID().uuidString
+        let nonce = UUID().uuidString
+        pendingState = state
+        var parts = URLComponents(url: MapLockAPI.url("/v1/auth/apple/start"), resolvingAgainstBaseURL: true)
+        parts?.queryItems = [
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "nonce", value: nonce),
+        ]
+        guard let url = parts?.url else {
+            message = Self.signInFailed
             return
         }
-        let raw = UUID().uuidString
-        nonceHash = AccountClient.sha256Hex(raw)
-        let request = ASAuthorizationAppleIDProvider().createRequest()
-        request.requestedScopes = []
-        request.nonce = nonceHash
-        let controller = ASAuthorizationController(authorizationRequests: [request])
-        controller.delegate = self
-        controller.presentationContextProvider = self
-        controller.performRequests()
+        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "maplock") { [weak self] callback, error in
+            Task { @MainActor in
+                self?.finishWebSignIn(callback: callback, error: error)
+            }
+        }
+        session.presentationContextProvider = self
+        session.prefersEphemeralWebBrowserSession = false
+        webAuth = session
+        busy = true
+        if !session.start() {
+            busy = false
+            webAuth = nil
+            message = Self.signInFailed
+        }
     }
 
     func signOut() {
@@ -167,7 +180,7 @@ final class AccountModel: NSObject, ObservableObject, ASAuthorizationControllerD
     }
 
     func handle(_ url: URL) {
-        guard url.scheme?.lowercased() == "maplock" else { return }
+        guard url.scheme?.lowercased() == "maplock", url.host?.lowercased() != "auth" else { return }
         let code: String?
         if url.host?.lowercased() == "race" {
             code = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -179,17 +192,35 @@ final class AccountModel: NSObject, ObservableObject, ASAuthorizationControllerD
         handle(code: code)
     }
 
-    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
-              let data = credential.identityToken,
-              let identityToken = String(data: data, encoding: .utf8) else {
-            message = "Apple did not return a sign-in token."
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        presentationWindow ?? NSApp.keyWindow ?? ASPresentationAnchor()
+    }
+
+    private func finishWebSignIn(callback: URL?, error: Error?) {
+        webAuth = nil
+        if let error {
+            busy = false
+            let ns = error as NSError
+            if ns.domain == ASWebAuthenticationSessionError.errorDomain,
+               ns.code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
+                message = "Sign in was cancelled."
+            } else {
+                message = Self.signInFailed
+            }
             return
         }
-        let nonce = nonceHash
+        guard let callback,
+              let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems,
+              let code = items.first(where: { $0.name == "code" })?.value,
+              let state = items.first(where: { $0.name == "state" })?.value,
+              state == pendingState else {
+            busy = false
+            message = Self.signInFailed
+            return
+        }
         Task {
-            await run("Apple sign-in failed") {
-                let response = try await AccountClient.signIn(identityToken: identityToken, nonce: nonce)
+            await run(Self.signInFailed) {
+                let response = try await AccountClient.exchange(code: code, state: state)
                 token = response.token
                 user = response.user
                 KeychainStore.saveSession(response.token)
@@ -199,17 +230,7 @@ final class AccountModel: NSObject, ObservableObject, ASAuthorizationControllerD
         }
     }
 
-    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-        if AppleSignInSupport.failureIsMissingEntitlement(error) || AppleSignInSupport.entitlement == .missing {
-            message = AppleSignInSupport.unavailableMessage
-            return
-        }
-        message = "Apple sign-in was cancelled."
-    }
-
-    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        presentationWindow ?? NSApp.keyWindow ?? ASPresentationAnchor()
-    }
+    private static let signInFailed = "Sign in with Apple didn't finish. You can try again. Practice still works on this Mac."
 
     private func decide(_ item: FriendItem, accept: Bool) {
         guard let token else { return }
@@ -283,47 +304,6 @@ final class AccountModel: NSObject, ObservableObject, ASAuthorizationControllerD
         } catch {
             message = fallback
         }
-    }
-}
-
-enum AppleSignInSupport {
-    static let unavailableMessage = "Sign in with Apple isn't available in this copy of Map Lock. Practice, quizzes, and speedruns still work on this Mac."
-
-    enum Entitlement {
-        case present
-        case missing
-        case unknown
-    }
-
-    /// Reads the signed entitlements of this running app.
-    /// An ad hoc signature with no Sign in with Apple entitlement is `.missing`.
-    /// If the signature cannot be read, returns `.unknown` and the sign-in attempt still runs.
-    static var entitlement: Entitlement {
-        var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return .unknown }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return .unknown }
-        var information: CFDictionary?
-        let flags = SecCSFlags(rawValue: kSecCSSigningInformation)
-        guard SecCodeCopySigningInformation(staticCode, flags, &information) == errSecSuccess,
-              let info = information as? [String: Any] else { return .unknown }
-        guard let entitlements = info[kSecCodeInfoEntitlementsDict as String] as? [String: Any] else { return .missing }
-        guard let raw = entitlements["com.apple.developer.applesignin"] else { return .missing }
-        if let values = raw as? [String] {
-            return values.contains("Default") ? .present : .missing
-        }
-        return .missing
-    }
-
-    static func failureIsMissingEntitlement(_ error: Error) -> Bool {
-        var current: NSError? = error as NSError
-        while let err = current {
-            if err.code == Int(errSecMissingEntitlement) { return true }
-            let text = (err.domain + " " + err.localizedDescription + " " + String(describing: err.userInfo)).lowercased()
-            if text.contains("entitlement") { return true }
-            current = err.userInfo[NSUnderlyingErrorKey] as? NSError
-        }
-        return false
     }
 }
 

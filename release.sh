@@ -76,24 +76,10 @@ APP="$STAGE/$APP_NAME.app"
 clean_app "$APP"
 
 # 4. Sign with hardened runtime and a secure timestamp (both needed for notarization).
-# Sign in with Apple also needs the entitlements file and a Developer ID provisioning profile.
-ENTITLEMENTS="$ROOT/MapLock.entitlements"
-PROFILE_PATH="${MAPLOCK_PROFILE:-$ROOT/profiles/MapLock_DeveloperID.provisionprofile}"
+# No extra entitlements: Sign in with Apple uses the website flow, and the Keychain
+# session token is a generic password, which does not need a provisioning profile.
 clean_app "$APP"
-if [ -f "$PROFILE_PATH" ]; then
-    echo "==> Embedding provisioning profile"
-    cp "$PROFILE_PATH" "$APP/Contents/embedded.provisionprofile"
-    clean_app "$APP"
-    echo "==> Signing with the Sign in with Apple entitlement and hardened runtime"
-    codesign --force --deep --options runtime --timestamp --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP"
-else
-    echo "WARNING: No provisioning profile found."
-    echo "         Looked for: $PROFILE_PATH"
-    echo "         Sign in with Apple will be disabled. Signing without entitlements."
-    echo "         To turn it on, put the Developer ID profile at profiles/MapLock_DeveloperID.provisionprofile"
-    echo "         or set MAPLOCK_PROFILE to that file."
-    codesign --force --deep --options runtime --timestamp --sign "$IDENTITY" "$APP"
-fi
+codesign --force --deep --options runtime --timestamp --sign "$IDENTITY" "$APP"
 codesign --verify --strict --verbose=2 "$APP"
 
 # 5. Zip and send to Apple

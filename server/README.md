@@ -2,9 +2,21 @@
 
 Cloudflare Worker for Map Lock accounts, friends, stat sync, and live races. It is separate from the site worker that serves `map-lock.elliot-7c9.workers.dev`. This folder does not deploy anything by itself.
 
-The app bundle id is `com.elliot.maplock`. Sign in with Apple identity tokens are checked against Apple's JWKS (`https://appleid.apple.com/auth/keys`). The token audience must be that bundle id and the issuer must be `https://appleid.apple.com`. Team ID `5225T54S66` is the Apple Developer team for the app; Apple's identity token does not include the team id, so the worker binds the token to the app with the audience check.
+The Mac app is `com.elliot.maplock`, signed with Developer ID and no extra entitlements. Sign in with Apple uses the web flow and the Services ID `com.elliot.maplock.web` (`APPLE_WEB_CLIENT_ID`). The worker checks Apple's identity token against `https://appleid.apple.com/auth/keys`. No client secret and no `.p8` key are used.
 
-The worker then issues its own session token. Only a SHA-256 hash of that token is stored. The app keeps the token in the Keychain. Stored profile data is the Apple user id (`sub`) and the chosen username. Email is never read into the database.
+The worker then issues its own session token. Only a SHA-256 hash of that token is stored. The app keeps the token in the Keychain. Stored profile data is the Apple user id (`sub`) and the chosen username. Email is never requested or stored.
+
+## Sign in with Apple
+
+In the Apple Developer account (team `5225T54S66`):
+
+1. The primary App ID stays `com.elliot.maplock`. Native Sign in with Apple is not used on the Mac build.
+2. Create a Services ID with identifier `com.elliot.maplock.web`.
+3. Enable Sign in with Apple on that Services ID and group it with the primary App ID `com.elliot.maplock`.
+4. Register the domain `map-lock.elliot-7c9.workers.dev`.
+5. Register the return URL `https://map-lock.elliot-7c9.workers.dev/v1/auth/apple/callback`.
+
+The app opens `GET /v1/auth/apple/start`. Apple posts the identity token to that return URL. The worker redirects the browser to `maplock://auth` with a one-time code, and the app exchanges it at `POST /v1/auth/exchange`. The session token is never put in the URL.
 
 ## What you need
 
@@ -52,7 +64,8 @@ npx wrangler d1 execute map-lock-api --local --file=schema.sql
 
 Session header: `Authorization: Bearer <token>`.
 
-- `POST /v1/auth/apple` with `{ "identityToken", "nonce" }`. Returns `{ token, user }`.
+- `GET /v1/auth/apple/start?state=…&nonce=…` redirects to Apple. `POST /v1/auth/apple/callback` verifies the form `id_token` (`aud` is `APPLE_WEB_CLIENT_ID`) and redirects to `maplock://auth?code=…&state=…`. `POST /v1/auth/exchange` with `{ "code", "state" }` returns `{ token, user }`.
+- `POST /v1/auth/apple` with `{ "identityToken", "nonce" }` still accepts a native identity token (`aud` is `com.elliot.maplock`). The Mac app does not call it.
 - `POST /v1/me/username` with `{ "username" }`. 3 to 20 characters: letters, numbers, underscores. Rejects reserved names and a small profanity list.
 - `GET /v1/me`
 - `GET /v1/friends`, `POST /v1/friends/requests`, `POST /v1/friends/requests/:id/accept`, `POST /v1/friends/requests/:id/decline`, `DELETE /v1/friends/:userId`
