@@ -5,6 +5,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private let overlay = OverlayController()
     private let practice = PracticeController()
+    private let races = RaceController()
+    private var account: AccountModel?
     private let settings = AppSettings()
     private let schedule = ScheduleStore()
     private let stats = StatsStore()
@@ -39,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // Never let macOS close Map Lock by itself when it has no windows open.
         ProcessInfo.processInfo.disableAutomaticTermination("Map Lock waits for the next quiz")
+        AnswerSound.warmUp()
         loadWorld()
         setUpMainMenu()
         setUpStatusItem()
@@ -62,6 +65,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             try? await Task.sleep(nanoseconds: 700_000_000)
             self?.checkSchedule()
         }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard !overlay.isShowing, !practice.isShowing, !races.isShowing else { return }
+        account?.syncNow()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -181,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Quiz
 
     func startQuiz() {
-        guard !overlay.isShowing, !practice.isShowing, !world.isEmpty else { return }
+        guard !overlay.isShowing, !practice.isShowing, !races.isShowing, !world.isEmpty else { return }
         let pool = self.pool
         guard !pool.isEmpty else { return }
         // Any quiz counts for a scheduled time that is due now.
@@ -209,7 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Practice test: one continent or the whole world, in a normal window (no lock).
     func startPractice(_ scope: PracticeScope, length: PracticeLength = .all) {
-        guard !overlay.isShowing, !practice.isShowing, !world.isEmpty else { return }
+        guard !overlay.isShowing, !practice.isShowing, !races.isShowing, !world.isEmpty else { return }
         let pool: [String]
         switch scope {
         case .region(let region):
@@ -218,47 +226,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             pool = world.filter { $0.quizzable }.map { $0.name }
         }
         guard !pool.isEmpty else { return }
-        let count = length.resolve(poolSize: pool.count)
+        let practiceQuiz = settings.practiceEngine
+        let speedrun = settings.practiceSpeedrun(for: practiceQuiz.subject)
+        let count = speedrun ? pool.count : length.resolve(poolSize: pool.count)
+        let order = speedrun ? SpeedrunRules.shuffled(pool) : nil
         // Own deck for this run so practice does not reshuffle the unlock progress.
         let suite = "maplock.practice.ephemeral"
         if let box = UserDefaults(suiteName: suite) {
             box.removePersistentDomain(forName: suite)
         }
         let practiceDeck = DeckStore(defaults: UserDefaults(suiteName: suite) ?? .standard)
-        let practiceQuiz = settings.practiceEngine
         let session = QuizSession(
             world: world, pool: pool, mode: practiceQuiz.mode,
             quizType: practiceQuiz.type, subject: practiceQuiz.subject,
             stats: stats, deck: practiceDeck, count: count, kind: .practice,
-            requirePerfect: false, mapScope: scope
+            requirePerfect: false, mapScope: scope,
+            speedrun: speedrun, speedrunStyle: settings.practiceStyle(for: practiceQuiz.subject),
+            speedrunOrder: order
         ) { [weak self] in
             self?.practice.close()
         }
         practice.onClosed = { [weak self] in
+            self?.account?.syncNow()
             self?.home?.model.reload()
         }
         if NSApp.isHidden { NSApp.unhide(nil) }
         practice.show(session: session)
     }
 
-    /// Speedrun: every country in the place, once, click to find it. No screen lock.
-    func startSpeedrun(_ scope: PracticeScope) {
-        guard !overlay.isShowing, !practice.isShowing, !world.isEmpty else { return }
-        let names = SpeedrunPool.names(world: world, scope: scope)
-        guard !names.isEmpty else { return }
-        let session = SpeedrunSession(world: world, scope: scope, stats: stats) { [weak self] in
-            self?.practice.close()
-        }
-        practice.onClosed = { [weak self] in
-            self?.home?.model.reload()
-        }
-        if NSApp.isHidden { NSApp.unhide(nil) }
-        practice.show(speedrun: session)
-    }
-
     private func quizClosed() {
         // A time that came up while the quiz was open is covered by that quiz.
         schedule.markDueAsFired()
+        account?.syncNow()
         home?.model.reload()
         if homeWasVisible {
             homeWasVisible = false
@@ -282,7 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Shows the quiz if a scheduled time has come today and has not fired yet.
     private func checkSchedule() {
-        guard !overlay.isShowing, !practice.isShowing, !isLocked, !world.isEmpty else { return }
+        guard !overlay.isShowing, !practice.isShowing, !races.isShowing, !isLocked, !world.isEmpty else { return }
         if !schedule.dueSlots().isEmpty {
             startQuiz()
         }
@@ -395,6 +394,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Home window
 
     private func setUpHome() {
+        let account = AccountModel(stats: stats)
+        self.account = account
+        account.onShowAccount = { [weak self] in
+            self?.home?.model.homeTab = .account
+            self?.home?.show()
+        }
+        account.onOpenRace = { [weak self] ticket in
+            self?.openRace(ticket)
+        }
+        account.onStartSpeedrun = { [weak self] choice, subject, style in
+            self?.home?.model.showSpeedrunSetup(choice: choice, subject: subject, style: style)
+            self?.home?.model.homeTab = .practice
+            self?.home?.show()
+        }
         let model = HomeModel(settings: settings, schedule: schedule, stats: stats, deck: deck,
                               pool: { [weak self] in self?.pool ?? [] })
         model.onChange = { [weak self] in
@@ -406,10 +419,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.onPractice = { [weak self] scope, length in
             self?.startPractice(scope, length: length)
         }
-        model.onSpeedrun = { [weak self] scope in
-            self?.startSpeedrun(scope)
+        home = HomeWindowController(model: model, account: account)
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            account?.handle(url)
         }
-        home = HomeWindowController(model: model)
+    }
+
+    private func openRace(_ ticket: RaceTicket) {
+        guard !overlay.isShowing, let scope = PracticeScope.fromServer(ticket.region),
+              let token = account?.sessionToken, let userId = account?.user?.id else { return }
+        let session = RaceSession(ticket: ticket, world: world, scope: scope, token: token,
+                                  userId: userId, stats: stats)
+        races.onClosed = { [weak self] in
+            self?.account?.syncNow()
+            self?.home?.model.reload()
+        }
+        races.show(session: session)
     }
 
     private func settingsChanged() {
@@ -524,7 +552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         let quiz = action("Quiz me now", #selector(quizNow(_:)))
-        quiz.isEnabled = !world.isEmpty && !practice.isShowing
+        quiz.isEnabled = !world.isEmpty && !practice.isShowing && !races.isShowing
         menu.addItem(quiz)
 
         let practiceMenu = NSMenu(title: "Practice test")
@@ -532,12 +560,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let item = NSMenuItem(title: region.title, action: #selector(practiceRegion(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = region.rawValue
-            item.isEnabled = !world.isEmpty && !overlay.isShowing && !practice.isShowing
+            item.isEnabled = !world.isEmpty && !overlay.isShowing && !practice.isShowing && !races.isShowing
             practiceMenu.addItem(item)
         }
         let worldItem = NSMenuItem(title: "Whole world", action: #selector(practiceWorld(_:)), keyEquivalent: "")
         worldItem.target = self
-        worldItem.isEnabled = !world.isEmpty && !overlay.isShowing && !practice.isShowing
+        worldItem.isEnabled = !world.isEmpty && !overlay.isShowing && !practice.isShowing && !races.isShowing
         practiceMenu.addItem(worldItem)
         let practiceItem = NSMenuItem(title: "Practice test", action: nil, keyEquivalent: "")
         practiceItem.submenu = practiceMenu

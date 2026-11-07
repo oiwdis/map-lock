@@ -1,0 +1,35 @@
+"$schema" = "./node_modules/wrangler/config-schema.json"
+name = "map-lock-api"
+main = "src/index.ts"
+compatibility_date = "2026-11-07"
+compatibility_flags = ["nodejs_compat"]
+upload_source_maps = true
+
+# Public links look like https://map-lock.elliot-7c9.workers.dev/race/<code>.
+# That host is the existing site. Point /v1/* and /race/* at this worker
+# (see README.md) or change PUBLIC_ORIGIN to this worker's own URL.
+[vars]
+PUBLIC_ORIGIN = "https://map-lock.elliot-7c9.workers.dev"
+APPLE_AUDIENCE = "com.elliot.maplock"
+APPLE_WEB_CLIENT_ID = "com.elliot.maplock.web"
+APPLE_TEAM_ID = "5225T54S66"
+
+[observability]
+enabled = true
+
+[observability.traces]
+enabled = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "map-lock-api"
+# Replace this after `npx wrangler d1 create map-lock-api`.
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[durable_objects.bindings]]
+name = "RACE"
+class_name = "RaceRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RaceRoom"]

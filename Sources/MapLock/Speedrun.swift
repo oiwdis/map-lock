@@ -4,6 +4,85 @@ import Foundation
 /// and what a click does. The country list itself still comes from the shared map,
 /// so Russia stays in Asia, Oceania is absent, and places left out of the quiz
 /// (Palestine, the seven small Caribbean countries, merged territories) stay out.
+extension PracticeScope {
+    /// Wire value for the account API and race links.
+    var serverRegion: String {
+        switch self {
+        case .world: return "world"
+        case .region(let region): return region.rawValue
+        }
+    }
+
+    static func fromServer(_ region: String) -> PracticeScope? {
+        if region == "world" { return .world }
+        guard let region = Region(rawValue: region) else { return nil }
+        return .region(region)
+    }
+}
+
+/// `countries|click|Europe` style key. Older region-only bests become Country / Click map.
+enum SpeedrunKey {
+    static func make(subject: QuizSubject, style: PracticeAnswerStyle, scope: StatsScopeKey) -> String {
+        "\(subject.rawValue)|\(style.rawValue)|\(scope.rawValue)"
+    }
+
+    static func canonical(_ key: String) -> String {
+        if key.contains("|") { return key }
+        if key == "world" {
+            return make(subject: .countries, style: .clickMap, scope: .world)
+        }
+        if let scope = StatsScopeKey(rawValue: key), scope != .several, scope != .unknown {
+            return make(subject: .countries, style: .clickMap, scope: scope)
+        }
+        return key
+    }
+
+    static func title(_ key: String) -> String {
+        let parts = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3,
+              let subject = QuizSubject(rawValue: parts[0]),
+              let style = PracticeAnswerStyle(rawValue: parts[1]) else {
+            return StatsScopeKey(rawValue: key)?.title ?? key
+        }
+        let scope = StatsScopeKey(rawValue: parts[2]) ?? .unknown
+        let method: String
+        switch style {
+        case .multipleChoice: method = "Multiple choice"
+        case .typeIt: method = "Type"
+        case .clickMap: method = "Click map"
+        }
+        return "\(subject.practiceTitle) / \(method) / \(scope.title)"
+    }
+}
+
+/// Instant feedback for one speedrun answer. It never blocks the next question.
+struct SpeedrunCue: Equatable {
+    var token: Int
+    var right: Bool
+    var chosenText: String
+    var correctText: String
+    var correctCountry: String
+    var wrongCountry: String?
+    var showsMap: Bool
+
+    /// Skip reveals the right country. A plain miss does not.
+    var revealsCorrect: Bool = false
+
+    var mapCue: SpeedrunMapCue {
+        SpeedrunMapCue(token: token, right: right, correctName: correctCountry,
+                       wrongName: wrongCountry, revealsCorrect: revealsCorrect)
+    }
+}
+
+/// A non-blocking map flash for the answer that just happened.
+struct SpeedrunMapCue: Equatable {
+    var token: Int
+    var right: Bool
+    var correctName: String
+    var wrongName: String?
+    var revealsCorrect: Bool = false
+}
+
 enum SpeedrunPool {
     /// Quizzable countries in one continent, or every quizzable country for the whole world.
     static func names(world: [Country], scope: PracticeScope) -> [String] {
@@ -16,6 +95,25 @@ enum SpeedrunPool {
                 return country.region == region ? country.name : nil
             }
         }
+    }
+}
+
+/// Same numbers on every Mac for one race seed. Not used for solo speedruns.
+struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seedHex: String) {
+        var value: UInt64 = 0x6a09e667f3bcc909
+        for byte in seedHex.utf8 {
+            value = value &* 1099511628211 &+ UInt64(byte)
+        }
+        if value == 0 { value = 0x9E3779B97F4A7C15 }
+        state = value
+    }
+
+    mutating func next() -> UInt64 {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        return state
     }
 }
 

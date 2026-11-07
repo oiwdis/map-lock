@@ -1,6 +1,6 @@
 #!/bin/bash
 # Makes a signed, notarized dist/MapLock.zip that friends can open with no warnings.
-# Run it on your Mac:  ./release.sh            (or  VERSION=1.1.2 ./release.sh)
+# Run it on your Mac:  ./release.sh            (or  VERSION=1.2.0 ./release.sh)
 # One-time setup first: see RELEASING.md.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -10,7 +10,7 @@ APP_NAME="Map Lock"
 APP="$ROOT/build/$APP_NAME.app"
 DIST="$ROOT/dist"
 PROFILE="${NOTARY_PROFILE:-maplock-notary}"
-export VERSION="${VERSION:-1.1.2}"
+export VERSION="${VERSION:-1.2.0}"
 
 # Remove Finder info, resource forks and other extra data that codesign rejects.
 clean_app() {
@@ -76,7 +76,8 @@ APP="$STAGE/$APP_NAME.app"
 clean_app "$APP"
 
 # 4. Sign with hardened runtime and a secure timestamp (both needed for notarization).
-# Map Lock needs no special entitlements, so none are added.
+# No extra entitlements: Sign in with Apple uses the website flow, and the Keychain
+# session token is a generic password, which does not need a provisioning profile.
 clean_app "$APP"
 codesign --force --deep --options runtime --timestamp --sign "$IDENTITY" "$APP"
 codesign --verify --strict --verbose=2 "$APP"

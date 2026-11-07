@@ -129,13 +129,12 @@ struct MapZoomControls: View {
     }
 
     private func zoomButton(_ systemName: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        HitButton(enabled: enabled, action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 12, weight: .semibold))
                 .frame(width: 24, height: 22)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
         .opacity(enabled ? 1 : 0.35)
     }
 }

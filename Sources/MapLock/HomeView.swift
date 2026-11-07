@@ -18,6 +18,7 @@ struct TimeSlot: Identifiable, Equatable {
 enum HomeTab: String, CaseIterable, Identifiable, Hashable {
     case practice
     case stats
+    case account
     case settings
 
     var id: String { rawValue }
@@ -26,6 +27,7 @@ enum HomeTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .practice: return "Practice"
         case .stats: return "Stats"
+        case .account: return "Account"
         case .settings: return "Settings"
         }
     }
@@ -34,6 +36,7 @@ enum HomeTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .practice: return "map"
         case .stats: return "chart.bar"
+        case .account: return "person.crop.circle"
         case .settings: return "gearshape"
         }
     }
@@ -54,8 +57,6 @@ final class HomeModel: ObservableObject {
     var onQuizNow: () -> Void = {}
     /// Practice test for one continent or the whole world (no lock).
     var onPractice: (PracticeScope, PracticeLength) -> Void = { _, _ in }
-    /// Speedrun for one continent or the whole world (no lock).
-    var onSpeedrun: (PracticeScope) -> Void = { _ in }
     var onShowStats: () -> Void = {}
 
     @Published var mode: QuizMode = .mixed {
@@ -88,6 +89,10 @@ final class HomeModel: ObservableObject {
 
     @Published var quizOnWake = false {
         didSet { if !loading { settings.quizOnWake = quizOnWake; onChange() } }
+    }
+
+    @Published var answerSounds = true {
+        didSet { if !loading { settings.answerSounds = answerSounds; onChange() } }
     }
 
     @Published var questionCount: QuestionCount = .five {
@@ -124,7 +129,7 @@ final class HomeModel: ObservableObject {
         }
     }
     @Published var practiceSpeedrun = false {
-        didSet { if !loading { settings.practiceSpeedrun = practiceSpeedrun } }
+        didSet { if !loading { settings.setPracticeSpeedrun(practiceSpeedrun, for: practiceSubject) } }
     }
     @Published var homeTab: HomeTab = .practice
 
@@ -191,13 +196,14 @@ final class HomeModel: ObservableObject {
         regionFlags = Region.allCases.map { RegionFlag(region: $0, on: on.contains($0)) }
         quizOnUnlock = settings.quizOnUnlock
         quizOnWake = settings.quizOnWake
+        answerSounds = settings.answerSounds
         questionCount = settings.questionCount
         requirePerfect = settings.requirePerfect
         subject = settings.subject
         practiceSubject = settings.practiceSubject
         practiceAnswerStyle = settings.practiceStyle(for: settings.practiceSubject)
         practiceLength = settings.practiceLength
-        practiceSpeedrun = settings.practiceSpeedrun
+        practiceSpeedrun = settings.practiceSpeedrun(for: settings.practiceSubject)
         scheduleKind = schedule.kind
         fixedSlots = schedule.times.map { TimeSlot(date: schedule.date(forMinute: $0)) }
         randomStart = schedule.date(forMinute: schedule.randomStart)
@@ -252,30 +258,33 @@ final class HomeModel: ObservableObject {
     }
 
     func startPracticeNow() {
-        if practiceSpeedrun {
-            onSpeedrun(practiceChoice.scope)
-        } else {
-            onPractice(practiceChoice.scope, practiceLength)
-        }
+        onPractice(practiceChoice.scope, practiceLength)
     }
 
-    /// Switching practice subject loads that subject's saved answer style.
-    func selectPracticeSubject(_ subject: QuizSubject) {
-        let leavingSpeedrun = practiceSpeedrun
-        if practiceSubject == subject && !leavingSpeedrun { return }
+    /// Opens Practice with Speedrun on, ready for this place and answer method.
+    func showSpeedrunSetup(choice: PracticeChoice, subject: QuizSubject, style: PracticeAnswerStyle) {
         loading = true
-        practiceSpeedrun = false
+        practiceChoice = choice
         practiceSubject = subject
-        practiceAnswerStyle = settings.practiceStyle(for: subject)
+        practiceAnswerStyle = style
+        practiceSpeedrun = true
         loading = false
         settings.practiceSubject = subject
-        settings.practiceSpeedrun = false
+        settings.setPracticeStyle(style, for: subject)
+        settings.setPracticeSpeedrun(true, for: subject)
         onChange()
     }
 
-    func selectSpeedrun() {
-        guard !practiceSpeedrun else { return }
-        practiceSpeedrun = true
+    /// Switching practice subject loads that subject's saved answer style and Speedrun switch.
+    func selectPracticeSubject(_ subject: QuizSubject) {
+        if practiceSubject == subject { return }
+        loading = true
+        practiceSubject = subject
+        practiceAnswerStyle = settings.practiceStyle(for: subject)
+        practiceSpeedrun = settings.practiceSpeedrun(for: subject)
+        loading = false
+        settings.practiceSubject = subject
+        onChange()
     }
 
     func selectPracticeAnswerStyle(_ style: PracticeAnswerStyle) {
@@ -311,10 +320,12 @@ final class HomeModel: ObservableObject {
 @MainActor
 final class HomeWindowController: NSObject, NSWindowDelegate {
     let model: HomeModel
+    let account: AccountModel
     private var window: NSWindow?
 
-    init(model: HomeModel) {
+    init(model: HomeModel, account: AccountModel) {
         self.model = model
+        self.account = account
     }
 
     var isVisible: Bool { window?.isVisible ?? false }
@@ -333,7 +344,13 @@ final class HomeWindowController: NSObject, NSWindowDelegate {
             w.isReleasedWhenClosed = false
             w.backgroundColor = Theme.windowBackground
             w.minSize = NSSize(width: 680, height: 460)
-            w.contentView = NSHostingView(rootView: HomeView(model: model))
+            w.titlebarAppearsTransparent = false
+            w.titlebarSeparatorStyle = .line
+            w.toolbarStyle = .unified
+            let hosting = NSHostingView(rootView: HomeView(model: model, account: account))
+            hosting.safeAreaRegions = .all
+            w.contentView = hosting
+            account.presentationWindow = w
             w.setFrame(frame, display: false)
             _ = w.setFrameAutosaveName("MapLockHome")
             w.delegate = self
@@ -365,6 +382,7 @@ final class HomeWindowController: NSObject, NSWindowDelegate {
 
 struct HomeView: View {
     @ObservedObject var model: HomeModel
+    @ObservedObject var account: AccountModel
 
     var body: some View {
         NavigationSplitView {
@@ -372,6 +390,9 @@ struct HomeView: View {
                 Section {
                     ForEach(HomeTab.allCases) { tab in
                         Label(tab.title, systemImage: tab.symbol)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .overlay(HitTarget { model.homeTab = tab })
                             .tag(tab)
                     }
                 }
@@ -399,6 +420,8 @@ struct HomeView: View {
                 .help("Start an unlock quiz with Unlock quiz settings")
             }
         }
+        .toolbarBackground(Theme.background, for: .windowToolbar)
+        .toolbarBackground(.visible, for: .windowToolbar)
     }
 
     @ViewBuilder
@@ -408,6 +431,8 @@ struct HomeView: View {
             PracticePane(model: model)
         case .stats:
             StatsPane(model: model)
+        case .account:
+            AccountPane(account: account, home: model)
         case .settings:
             SettingsPane(model: model)
         }
@@ -464,9 +489,7 @@ private struct PracticePane: View {
             Text("Practice")
                 .font(Theme.font(Theme.Size.xl, .bold))
                 .kerning(-0.4)
-            Text(model.practiceSpeedrun
-                 ? "Pick a place. Speedrun asks every country there, once."
-                 : "Pick what to practice, how to answer, then a place.")
+            Text("Pick what to practice, how to answer, then a place.")
                 .font(Theme.font(Theme.Size.body))
                 .foregroundStyle(Theme.text2)
             HStack(spacing: Theme.Space.s2) {
@@ -493,64 +516,49 @@ private struct PracticePane: View {
                     PracticeModeChip(
                         title: subject.practiceTitle,
                         symbol: subject.practiceSymbol,
-                        selected: !model.practiceSpeedrun && model.practiceSubject == subject
+                        selected: model.practiceSubject == subject
                     ) {
                         model.selectPracticeSubject(subject)
                     }
                 }
-                PracticeModeChip(
-                    title: "Speedrun",
-                    symbol: "timer",
-                    selected: model.practiceSpeedrun
-                ) {
-                    model.selectSpeedrun()
-                }
             }
-            if model.practiceSpeedrun {
-                Text("A name appears and you click that country. A wrong click flashes and counts a miss. You stay on that country until you find it. The timer starts when the first country is shown.")
+            VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                Text("How to answer")
+                    .font(Theme.font(Theme.Size.sm, .semibold))
+                    .foregroundStyle(Theme.text3)
+                ForEach(PracticeAnswerStyle.allCases) { style in
+                    PracticeAnswerRow(
+                        title: style.title(for: model.practiceSubject),
+                        selected: model.practiceAnswerStyle == style
+                    ) {
+                        model.selectPracticeAnswerStyle(style)
+                    }
+                }
+                Text(model.practiceHelpText)
                     .font(Theme.font(Theme.Size.xs))
                     .foregroundStyle(Theme.text3)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(Theme.Space.s3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                            .fill(Theme.card)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                            .strokeBorder(Theme.hairline2, lineWidth: 1)
-                    )
-            } else {
-                VStack(alignment: .leading, spacing: Theme.Space.s2) {
-                    Text("How to answer")
-                        .font(Theme.font(Theme.Size.sm, .semibold))
-                        .foregroundStyle(Theme.text3)
-                    ForEach(PracticeAnswerStyle.allCases) { style in
-                        PracticeAnswerRow(
-                            title: style.title(for: model.practiceSubject),
-                            selected: model.practiceAnswerStyle == style
-                        ) {
-                            model.selectPracticeAnswerStyle(style)
-                        }
-                    }
-                    Text(model.practiceHelpText)
-                        .font(Theme.font(Theme.Size.xs))
-                        .foregroundStyle(Theme.text3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, Theme.Space.s1)
-                }
-                .padding(Theme.Space.s3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                        .fill(Theme.card)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                        .strokeBorder(Theme.hairline2, lineWidth: 1)
-                )
+                    .padding(.top, Theme.Space.s1)
+                Divider()
+                    .padding(.top, Theme.Space.s2)
+                Toggle("Speedrun", isOn: $model.practiceSpeedrun)
+                    .toggleStyle(.switch)
+                    .font(Theme.font(Theme.Size.body, .medium))
+                Text("Timer on, no pause between questions.")
+                    .font(Theme.font(Theme.Size.xs))
+                    .foregroundStyle(Theme.text3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .padding(Theme.Space.s3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(Theme.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .strokeBorder(Theme.hairline2, lineWidth: 1)
+            )
         }
     }
 
@@ -610,7 +618,7 @@ private struct PracticeModeChip: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        HitButton(action: action) {
             HStack(spacing: Theme.Space.s2) {
                 Image(systemName: symbol)
                     .font(.system(size: 13, weight: .semibold))
@@ -619,20 +627,19 @@ private struct PracticeModeChip: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
-            .foregroundStyle(selected ? Theme.accent : Theme.text)
+            .foregroundStyle(selected ? Color.white : Theme.text)
             .padding(.horizontal, Theme.Space.s3)
             .padding(.vertical, Theme.Space.s2)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .fill(selected ? Theme.accent.opacity(0.12) : Theme.card)
+                    .fill(selected ? Theme.accentFill : Theme.card)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .strokeBorder(selected ? Theme.accent : Theme.hairline2, lineWidth: selected ? 1.5 : 1)
+                    .strokeBorder(selected ? Theme.accentFill : Theme.hairline2, lineWidth: selected ? 1.5 : 1)
             )
         }
-        .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -643,7 +650,7 @@ private struct PracticeAnswerRow: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        HitButton(action: action) {
             HStack(spacing: Theme.Space.s3) {
                 Image(systemName: selected ? "largecircle.fill.circle" : "circle")
                     .font(.system(size: 16, weight: .regular))
@@ -654,10 +661,10 @@ private struct PracticeAnswerRow: View {
                     .multilineTextAlignment(.leading)
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, Theme.Space.s1)
+            .padding(.vertical, Theme.Space.s2)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -669,14 +676,14 @@ private struct PracticePlaceCard: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        HitButton(action: action) {
             VStack(alignment: .leading, spacing: Theme.Space.s2) {
                 Image(systemName: symbol)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(selected ? Theme.accent : Theme.text2)
+                    .foregroundStyle(selected ? Color.white : Theme.text2)
                 Text(title)
                     .font(Theme.font(Theme.Size.body, selected ? .semibold : .medium))
-                    .foregroundStyle(Theme.text)
+                    .foregroundStyle(selected ? Color.white : Theme.text)
                     .lineLimit(2)
                     .minimumScaleFactor(0.85)
                     .multilineTextAlignment(.leading)
@@ -685,15 +692,14 @@ private struct PracticePlaceCard: View {
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .fill(selected ? Theme.accent.opacity(0.12) : Theme.card)
+                    .fill(selected ? Theme.accentFill : Theme.card)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .strokeBorder(selected ? Theme.accent : Theme.hairline2, lineWidth: selected ? 1.5 : 1)
+                    .strokeBorder(selected ? Theme.accentFill : Theme.hairline2, lineWidth: selected ? 1.5 : 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
         }
-        .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -1165,6 +1171,7 @@ private struct SettingsPane: View {
             }
 
             Section {
+                Toggle("Answer sounds", isOn: $model.answerSounds)
                 Toggle("Open at login", isOn: $model.openAtLogin)
                     .disabled(!model.canUseLoginItem)
                 if let message = model.loginMessage {

@@ -1,0 +1,9 @@
+# Changelog
+
+## 1.2.0
+
+- Speedrun mode: time yourself across a continent or the whole world, with personal bests.
+- Optional accounts. Sign in with Apple, or with a username and password.
+- Friends, a speedrun leaderboard, and live 1v1 races.
+- Seterra-style answer feedback. A correct country turns white and its name rises. A wrong click flashes.
+- Fixes for the first-click freeze, click targets, the account layout, and a fairer speedrun clock.

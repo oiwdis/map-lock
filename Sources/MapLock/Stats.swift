@@ -1,7 +1,7 @@
 import Foundation
 
 /// How well a single country is known (practice and unlock combined).
-struct CountryStat: Codable {
+struct CountryStat: Codable, Equatable {
     var seen: Int = 0
     var correct: Int = 0
     var wrong: Int = 0
@@ -213,7 +213,8 @@ struct StatsSnapshot: Equatable {
 
 /// Fastest speedrun for one place. `timeText` is "-" until a run is saved.
 struct SpeedrunBestRow: Identifiable, Equatable {
-    var id: String { scopeTitle }
+    var id: String { key }
+    let key: String
     let scopeTitle: String
     let timeText: String
 }
@@ -273,8 +274,26 @@ final class StatsStore {
         }
         if let data = defaults.data(forKey: Keys.speedrunBests),
            let decoded = try? JSONDecoder().decode([String: Double].self, from: data) {
-            speedrunBests = decoded
+            speedrunBests = Self.migratedBests(decoded)
         }
+        speedruns = speedruns.map { run in
+            var copy = run
+            copy.scopeRaw = SpeedrunKey.canonical(run.scopeRaw)
+            return copy
+        }
+    }
+
+    private static func migratedBests(_ raw: [String: Double]) -> [String: Double] {
+        var out: [String: Double] = [:]
+        for (key, value) in raw where value > 0 {
+            let canonical = SpeedrunKey.canonical(key)
+            if let current = out[canonical] {
+                out[canonical] = min(current, value)
+            } else {
+                out[canonical] = value
+            }
+        }
+        return out
     }
 
     private func saveStats() {
@@ -313,7 +332,13 @@ final class StatsStore {
             s.box = 0
         }
         stats[name] = s
-        saveStats()
+        let snapshot = stats
+        let store = defaults
+        DispatchQueue.global(qos: .utility).async {
+            if let data = try? JSONEncoder().encode(snapshot) {
+                store.set(data, forKey: Keys.stats)
+            }
+        }
     }
 
     /// Countries answered right at least 3 times in a row.
@@ -461,13 +486,13 @@ final class StatsStore {
 
     /// Saves a finished speedrun and that place's fastest time. Does not change practice or unlock stats.
     @discardableResult
-    func recordSpeedrun(scope: StatsScopeKey, duration: TimeInterval, misses: Int, countries: Int,
+    func recordSpeedrun(key rawKey: String, duration: TimeInterval, misses: Int, countries: Int,
                         now: Date = Date()) -> SpeedrunSaveResult {
-        let key = scope.rawValue
+        let key = SpeedrunKey.canonical(rawKey)
         let previous = speedrunBests[key]
         let isNew = SpeedrunRules.isNewBest(duration: duration, previous: previous)
         if isNew { speedrunBests[key] = duration }
-        if countries > 0, duration.isFinite, duration >= 0 {
+        if duration.isFinite, duration >= 0, countries + max(misses, 0) > 0 {
             let record = SpeedrunRecord(date: now, duration: duration, misses: max(misses, 0),
                                         countries: countries, scopeRaw: key)
             speedruns.insert(record, at: 0)
@@ -481,10 +506,27 @@ final class StatsStore {
     }
 
     private func speedrunBestRows() -> [SpeedrunBestRow] {
-        StatsScopeKey.speedrunOrder.map { scope in
-            let time = speedrunBests[scope.rawValue]
-            let text = (time != nil && (time ?? 0) > 0) ? SpeedrunClock.format(time ?? 0) : "-"
-            return SpeedrunBestRow(scopeTitle: scope.title, timeText: text)
+        speedrunBests.keys.sorted().compactMap { key in
+            guard let time = speedrunBests[key], time > 0 else { return nil }
+            return SpeedrunBestRow(key: key, scopeTitle: SpeedrunKey.title(key), timeText: SpeedrunClock.format(time))
+        }
+    }
+
+    /// Subject, answer method, and place of the newest finished speedrun.
+    func latestSpeedrunPick() -> (subject: QuizSubject, style: PracticeAnswerStyle, region: PracticeChoice)? {
+        guard let raw = speedruns.first?.scopeRaw else { return nil }
+        let parts = SpeedrunKey.canonical(raw).split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3,
+              let subject = QuizSubject(rawValue: parts[0]),
+              let style = PracticeAnswerStyle(rawValue: parts[1]) else { return nil }
+        switch StatsScopeKey(rawValue: parts[2]) ?? .unknown {
+        case .africa: return (subject, style, .africa)
+        case .asia: return (subject, style, .asia)
+        case .europe: return (subject, style, .europe)
+        case .northAmerica: return (subject, style, .northAmerica)
+        case .southAmerica: return (subject, style, .southAmerica)
+        case .world: return (subject, style, .world)
+        case .several, .unknown: return nil
         }
     }
 
@@ -494,7 +536,7 @@ final class StatsStore {
             return SpeedrunHistoryRow(
                 id: run.id,
                 date: run.date,
-                scopeTitle: run.scope.title,
+                scopeTitle: SpeedrunKey.title(run.scopeRaw),
                 timeText: SpeedrunClock.format(run.duration),
                 misses: run.misses,
                 accuracyText: String(format: "%.0f%%", pct * 100)
@@ -592,5 +634,101 @@ final class StatsStore {
             rows.append(StatsBreakdownRow(label: label, quizzes: inDay.count, correct: c, total: t))
         }
         return rows
+    }
+
+    // MARK: Account sync
+
+    func exportPayload() -> SyncPayload {
+        SyncPayload(quizzes: quizzes, speedruns: speedruns, speedrunBests: speedrunBests, countries: stats)
+    }
+
+    /// Replaces local history and bests with a merged payload. Streak and the unlock deck stay as they are.
+    func replace(with payload: SyncPayload) {
+        var quizzesById: [UUID: QuizRecord] = [:]
+        for record in payload.quizzes { quizzesById[record.id] = record }
+        quizzes = quizzesById.values.sorted { $0.date > $1.date }
+        if quizzes.count > Self.maxQuizRecords { quizzes = Array(quizzes.prefix(Self.maxQuizRecords)) }
+
+        var runsById: [UUID: SpeedrunRecord] = [:]
+        for record in payload.speedruns {
+            var copy = record
+            copy.scopeRaw = SpeedrunKey.canonical(record.scopeRaw)
+            runsById[copy.id] = copy
+        }
+        speedruns = runsById.values.sorted { $0.date > $1.date }
+        if speedruns.count > Self.maxSpeedrunRecords {
+            speedruns = Array(speedruns.prefix(Self.maxSpeedrunRecords))
+        }
+        speedrunBests = Self.migratedBests(payload.speedrunBests)
+        stats = payload.countries
+        saveQuizzes()
+        saveSpeedruns()
+        saveStats()
+    }
+
+    static func previewSnapshot(_ payload: SyncPayload) -> StatsSnapshot {
+        let name = "maplock.preview.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name) ?? UserDefaults()
+        defaults.removePersistentDomain(forName: name)
+        let store = StatsStore(defaults: defaults)
+        store.replace(with: payload)
+        return store.snapshot(roundText: "")
+    }
+}
+
+/// Stats a Mac uploads and the worker merges. Dates stay in Apple's JSON date format.
+struct SyncPayload: Codable, Equatable {
+    var quizzes: [QuizRecord] = []
+    var speedruns: [SpeedrunRecord] = []
+    var speedrunBests: [String: Double] = [:]
+    var countries: [String: CountryStat] = [:]
+
+    /// Union of history, fastest time per region, higher country counts.
+    func merged(with other: SyncPayload) -> SyncPayload {
+        var quizzesById: [UUID: QuizRecord] = [:]
+        for record in quizzes + other.quizzes { quizzesById[record.id] = record }
+        var runsById: [UUID: SpeedrunRecord] = [:]
+        for record in speedruns + other.speedruns { runsById[record.id] = record }
+
+        var bests: [String: Double] = [:]
+        for (key, value) in speedrunBests.merging(other.speedrunBests, uniquingKeysWith: min) where value > 0 {
+            let canonical = SpeedrunKey.canonical(key)
+            if let current = bests[canonical] {
+                bests[canonical] = min(current, value)
+            } else {
+                bests[canonical] = value
+            }
+        }
+
+        var countries = self.countries
+        for (name, remote) in other.countries {
+            if let local = countries[name] {
+                countries[name] = local.merged(with: remote)
+            } else {
+                countries[name] = remote
+            }
+        }
+        return SyncPayload(
+            quizzes: quizzesById.values.sorted { $0.date > $1.date },
+            speedruns: runsById.values.sorted { $0.date > $1.date },
+            speedrunBests: bests,
+            countries: countries
+        )
+    }
+}
+
+extension CountryStat {
+    func merged(with other: CountryStat) -> CountryStat {
+        var result = self
+        result.seen = max(seen, other.seen)
+        result.correct = max(correct, other.correct)
+        result.wrong = max(wrong, other.wrong)
+        result.box = max(box, other.box)
+        switch (lastSeen, other.lastSeen) {
+        case let (left?, right?): result.lastSeen = max(left, right)
+        case (nil, let right?): result.lastSeen = right
+        default: break
+        }
+        return result
     }
 }

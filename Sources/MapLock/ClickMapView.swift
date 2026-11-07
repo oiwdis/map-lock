@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The map for a "Click the country" question: the whole region with nothing highlighted.
@@ -14,12 +15,21 @@ struct ClickMapView: View {
     var mapScope: PracticeScope? = nil
     /// When false, a wrong click only flashes the place that was hit. The real target stays hidden.
     var revealTarget: Bool = true
+    /// Speedrun feedback drawn over the live question. It does not take clicks.
+    var speedrunCue: SpeedrunMapCue? = nil
+    /// Countries already found. They stay white for the rest of the quiz.
+    var found: Set<String> = []
+    /// Fired once the layout exists, after a warm hit-test, so the clock can start.
+    var onReady: (() -> Void)? = nil
     let onClick: (String) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovered: String? = nil
     @State private var cache = ClickLayoutCache()
     @State private var zoom = MapZoomState()
+    @State private var clicks: [(name: String, at: CGPoint)] = []
+    @State private var pins: [MapPin] = []
+    @State private var pinnedNames: Set<String> = []
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -32,11 +42,27 @@ struct ClickMapView: View {
                 if enabled, !hoverParts.isEmpty {
                     HoverLayer(parts: hoverParts, zoom: zoom, size: geo.size)
                 }
-                if state != .asking {
+                if state == .wrong {
                     ClickResultLayer(layout: layout, target: target.name, state: state,
                                      clicked: clicked, animate: !reduceMotion, zoom: zoom, size: geo.size,
                                      revealTarget: revealTarget)
                         .id(clicked ?? "-")
+                }
+                if !found.isEmpty {
+                    FoundCountriesLayer(layout: layout, names: found, zoom: zoom, scheme: scheme)
+                        .allowsHitTesting(false)
+                }
+                if let speedrunCue, !speedrunCue.right {
+                    WrongMapFlash(layout: layout, correctName: speedrunCue.correctName,
+                                  wrongName: speedrunCue.wrongName, zoom: zoom,
+                                  revealCorrect: speedrunCue.revealsCorrect, animate: !reduceMotion)
+                        .id(speedrunCue.token)
+                        .allowsHitTesting(false)
+                } else if state == .wrong {
+                    WrongMapFlash(layout: layout, correctName: target.name, wrongName: clicked,
+                                  zoom: zoom, revealCorrect: true, animate: !reduceMotion)
+                        .id(clicked ?? target.name)
+                        .allowsHitTesting(false)
                 }
 
                 MapInteractionOverlay(
@@ -46,8 +72,10 @@ struct ClickMapView: View {
                     onZoomChange: { zoom = $0 },
                     onClick: { viewPoint in
                         let mapPt = zoom.mapPoint(from: viewPoint, in: geo.size)
-                        guard let name = ClickMap.hit(mapPt, in: layout.targets) else { return }
+                        guard let name = ClickMap.hit(mapPt, in: layout.targets), !name.isEmpty else { return }
+                        if found.contains(name) { return }
                         hovered = nil
+                        clicks.append((name, viewPoint))
                         onClick(name)
                     },
                     onHover: { viewPoint in
@@ -57,9 +85,18 @@ struct ClickMapView: View {
                         }
                         let mapPt = zoom.mapPoint(from: viewPoint, in: geo.size)
                         let name = ClickMap.hit(mapPt, in: layout.targets)
-                        if name != hovered { hovered = name }
+                        if let name, !name.isEmpty, !found.contains(name) {
+                            NSCursor.pointingHand.set()
+                            if name != hovered { hovered = name }
+                        } else {
+                            NSCursor.arrow.set()
+                            if hovered != nil { hovered = nil }
+                        }
                     }
                 )
+
+                MapPinLayer(pins: pins, reduceMotion: reduceMotion)
+                    .allowsHitTesting(false)
 
                 VStack {
                     HStack {
@@ -73,6 +110,26 @@ struct ClickMapView: View {
             }
             .clipShape(Rectangle())
             .contentShape(Rectangle())
+            .onAppear {
+                let targets = layout.targets
+                Task { @MainActor in
+                    _ = ClickMap.hit(CGPoint(x: -10_000, y: -10_000), in: targets)
+                    onReady?()
+                }
+            }
+            .onChange(of: found) { _, names in
+                let layout = layout
+                let size = geo.size
+                Task { @MainActor in
+                    spawnPins(for: names, layout: layout, size: size)
+                }
+            }
+        }
+        .task(id: pins.count) {
+            while pins.contains(where: { Date().timeIntervalSince($0.born) <= 1.15 }) {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                pins.removeAll { Date().timeIntervalSince($0.born) > 1.15 }
+            }
         }
         .onChange(of: target.name) { _, _ in
             hovered = nil
@@ -81,6 +138,27 @@ struct ClickMapView: View {
         .onChange(of: mapScope) { _, _ in
             zoom.reset()
         }
+    }
+
+    private func spawnPins(for names: Set<String>, layout: ClickLayout, size: CGSize) {
+        let added = names.subtracting(pinnedNames)
+        guard !added.isEmpty else { return }
+        for name in added {
+            guard let click = clicks.last(where: { $0.name == name }) else { continue }
+            let at = pinPoint(name: name, click: click.at, layout: layout, size: size)
+            pins.append(MapPin(name: name, at: at, born: Date()))
+            pinnedNames.insert(name)
+        }
+    }
+
+    /// Dot center for a microstate, otherwise the exact click.
+    private func pinPoint(name: String, click: CGPoint, layout: ClickLayout, size: CGSize) -> CGPoint {
+        guard let part = layout.targets.first(where: { $0.name == name }), let dot = part.dot else { return click }
+        let c = CGPoint(x: size.width / 2, y: size.height / 2)
+        return CGPoint(
+            x: (dot.x - c.x) * zoom.scale + c.x + zoom.offset.width,
+            y: (dot.y - c.y) * zoom.scale + c.y + zoom.offset.height
+        )
     }
 }
 
@@ -303,5 +381,178 @@ private struct ClickResultLayer: View {
         }
         .allowsHitTesting(false)
         .onAppear { start = Date() }
+    }
+}
+
+struct MapPin: Identifiable {
+    let id = UUID()
+    let name: String
+    let at: CGPoint
+    let born: Date
+}
+
+/// Found countries stay white (a light neutral in dark mode). The border stays the map border.
+private struct FoundCountriesLayer: View {
+    let layout: ClickLayout
+    let names: Set<String>
+    let zoom: MapZoomState
+    let scheme: ColorScheme
+
+    var body: some View {
+        let fill = scheme == .dark ? Color(hex: 0xF2F2F7) : Color.white
+        Canvas { context, size in
+            var ctx = context
+            ctx.beginMapZoom(zoom, size: size)
+            let inv = max(zoom.scale, 0.001)
+            for part in layout.targets where names.contains(part.name) {
+                let path = MapDrawing.makePath(part.polygons)
+                ctx.fill(path, with: .color(fill), style: FillStyle(eoFill: true))
+                ctx.stroke(path, with: .color(Theme.border),
+                           style: StrokeStyle(lineWidth: 0.6 / inv, lineJoin: .round))
+                if let dot = part.dot {
+                    let r = ClickMap.dotRadius / inv
+                    let circle = Path(ellipseIn: CGRect(x: dot.x - r, y: dot.y - r, width: r * 2, height: r * 2))
+                    ctx.fill(circle, with: .color(fill))
+                    ctx.stroke(circle, with: .color(Theme.dotStroke), lineWidth: 1.5 / inv)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// Rising name tag. It moves up about 25pt and fades out over 1.1s. Clicks pass through.
+private struct MapPinLayer: View {
+    let pins: [MapPin]
+    let reduceMotion: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: pins.isEmpty)) { timeline in
+                ZStack {
+                    ForEach(pins) { pin in
+                        let t = min(1, timeline.date.timeIntervalSince(pin.born) / 1.1)
+                        let rise: CGFloat = reduceMotion ? 0 : 25 * CGFloat(t)
+                        let labelBottom = pin.at.y - 12 - rise
+                        ZStack {
+                            Canvas { context, _ in
+                                var line = Path()
+                                line.move(to: pin.at)
+                                line.addLine(to: CGPoint(x: pin.at.x, y: labelBottom))
+                                context.stroke(line, with: .color(.black), lineWidth: 1)
+                            }
+                            Text(pin.name)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color.black)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.white)
+                                .border(Color.black, width: 1)
+                                .fixedSize()
+                                .position(x: pin.at.x, y: labelBottom - 11)
+                        }
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .opacity(1 - t)
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// Red shake on the miss, then the right country blinks so it can be learned.
+private struct WrongMapFlash: View {
+    let layout: ClickLayout
+    let correctName: String
+    let wrongName: String?
+    let zoom: MapZoomState
+    var revealCorrect: Bool = true
+    let animate: Bool
+    @State private var start = Date()
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animate)) { timeline in
+            let t = timeline.date.timeIntervalSince(start)
+            let shake: CGFloat = animate && t < 0.35 ? CGFloat(sin(t / 0.35 * .pi * 4)) * 5 * (1 - t / 0.35) : 0
+            let yellow = animate && sin(t * 14) > 0
+            ZStack {
+                if let wrongName {
+                    Canvas { context, size in
+                        var ctx = context
+                        ctx.beginMapZoom(zoom, size: size)
+                        fill(wrongName, color: Theme.mapBad.opacity(0.9), outline: Theme.mapBadOutline,
+                             in: &ctx, scale: max(zoom.scale, 0.001))
+                    }
+                    .offset(x: shake)
+                }
+                if revealCorrect, t > 0.22 || !animate {
+                    Canvas { context, size in
+                        var ctx = context
+                        ctx.beginMapZoom(zoom, size: size)
+                        let color = yellow ? Theme.mapTarget.opacity(0.9) : Theme.mapGood.opacity(0.85)
+                        fill(correctName, color: color, outline: yellow ? Theme.mapTargetOutline : Theme.mapGoodOutline,
+                             in: &ctx, scale: max(zoom.scale, 0.001))
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .onAppear { start = Date() }
+    }
+
+    private func fill(_ name: String, color: Color, outline: Color, in context: inout GraphicsContext, scale: CGFloat) {
+        for part in layout.targets where part.name == name {
+            let path = ClickDots.path(for: part, scale: scale)
+            context.fill(path, with: .color(color), style: FillStyle(eoFill: true))
+            context.stroke(path, with: .color(outline), style: StrokeStyle(lineWidth: 1.6 / scale, lineJoin: .round))
+        }
+    }
+}
+
+/// Green or red flash for the country that was just answered. Clicks pass through.
+private struct SpeedrunCountryFlash: View {
+    let layout: ClickLayout
+    let cue: SpeedrunMapCue
+    let zoom: MapZoomState
+    let animate: Bool
+    @State private var shown = false
+
+    var body: some View {
+        Canvas { context, size in
+            var ctx = context
+            ctx.beginMapZoom(zoom, size: size)
+            let inv = max(zoom.scale, 0.001)
+            let opacity = shown || !animate ? 0.72 : 0.2
+            if cue.right {
+                fill(cue.correctName, color: Theme.mapGood.opacity(opacity), outline: Theme.mapGoodOutline, in: &ctx, scale: inv)
+            } else {
+                if let wrong = cue.wrongName {
+                    fill(wrong, color: Theme.mapBad.opacity(opacity), outline: Theme.mapBadOutline, in: &ctx, scale: inv)
+                }
+                fill(cue.correctName, color: Theme.mapTarget.opacity(0.35), outline: Theme.mapTargetOutline, in: &ctx, scale: inv, dashed: true)
+            }
+        }
+        .allowsHitTesting(false)
+        .onAppear {
+            if animate {
+                withAnimation(.easeOut(duration: cue.right ? 0.4 : 0.6)) { shown = true }
+            } else {
+                shown = true
+            }
+        }
+    }
+
+    private func fill(_ name: String, color: Color, outline: Color, in context: inout GraphicsContext,
+                      scale: CGFloat, dashed: Bool = false) {
+        for part in layout.targets where part.name == name {
+            let path = ClickDots.path(for: part, scale: scale)
+            context.fill(path, with: .color(color), style: FillStyle(eoFill: true))
+            let style = dashed
+                ? StrokeStyle(lineWidth: 2.4 / scale, lineCap: .round, dash: [6 / scale, 4 / scale])
+                : StrokeStyle(lineWidth: 1.6 / scale, lineJoin: .round)
+            context.stroke(path, with: .color(outline), style: style)
+        }
     }
 }
