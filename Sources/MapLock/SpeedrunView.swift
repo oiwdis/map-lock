@@ -101,6 +101,10 @@ private struct SpeedrunQuestionView: View {
                 .font(Theme.font(Theme.Size.body, .medium))
                 .foregroundStyle(Theme.text2)
                 .monospacedDigit()
+            if let chip = session.answerChip {
+                AnswerChipBanner(chip: chip, reduceMotion: reduceMotion)
+                    .allowsHitTesting(false)
+            }
             Spacer(minLength: Theme.Space.s3)
             SpeedrunClockReadout(session: session)
             Pill {
@@ -115,11 +119,13 @@ private struct SpeedrunQuestionView: View {
         ClickMapView(
             world: session.world,
             target: country,
-            state: session.flashCountry == nil ? .asking : .wrong,
-            clicked: session.flashCountry,
+            state: .asking,
+            clicked: nil,
             enabled: true,
             mapScope: session.scope,
-            revealTarget: false
+            revealTarget: false,
+            speedrunCue: session.burst,
+            found: session.found
         ) { name in
             session.click(name)
         }

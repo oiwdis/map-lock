@@ -506,6 +506,24 @@ final class StatsStore {
         }
     }
 
+    /// Subject, answer method, and place of the newest finished speedrun.
+    func latestSpeedrunPick() -> (subject: QuizSubject, style: PracticeAnswerStyle, region: PracticeChoice)? {
+        guard let raw = speedruns.first?.scopeRaw else { return nil }
+        let parts = SpeedrunKey.canonical(raw).split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3,
+              let subject = QuizSubject(rawValue: parts[0]),
+              let style = PracticeAnswerStyle(rawValue: parts[1]) else { return nil }
+        switch StatsScopeKey(rawValue: parts[2]) ?? .unknown {
+        case .africa: return (subject, style, .africa)
+        case .asia: return (subject, style, .asia)
+        case .europe: return (subject, style, .europe)
+        case .northAmerica: return (subject, style, .northAmerica)
+        case .southAmerica: return (subject, style, .southAmerica)
+        case .world: return (subject, style, .world)
+        case .several, .unknown: return nil
+        }
+    }
+
     private func recentSpeedruns(limit: Int) -> [SpeedrunHistoryRow] {
         speedruns.prefix(limit).map { run in
             let pct = SpeedrunRules.accuracy(countries: run.countries, misses: run.misses)

@@ -66,6 +66,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard !overlay.isShowing, !practice.isShowing, !races.isShowing else { return }
+        account?.syncNow()
+        account?.refreshClipboardOffer()
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         // Clicking the Dock icon opens the home window (not while a quiz is up).
         if !overlay.isShowing {
@@ -396,6 +402,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         account.onOpenRace = { [weak self] ticket in
             self?.openRace(ticket)
+        }
+        account.onStartSpeedrun = { [weak self] choice, subject, style in
+            self?.home?.model.showSpeedrunSetup(choice: choice, subject: subject, style: style)
+            self?.home?.model.homeTab = .practice
+            self?.home?.show()
         }
         let model = HomeModel(settings: settings, schedule: schedule, stats: stats, deck: deck,
                               pool: { [weak self] in self?.pool ?? [] })

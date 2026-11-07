@@ -54,7 +54,7 @@ final class RaceSession: ObservableObject {
     @Published private(set) var youForfeited = false
     @Published private(set) var opponentForfeited = false
     @Published private(set) var youWon: Bool?
-    @Published private(set) var status = "Waiting for the other player"
+    @Published private(set) var status = "Waiting for your friend"
 
     var onClose: () -> Void = {}
 
@@ -174,7 +174,7 @@ final class RaceSession: ObservableObject {
             status = "Get ready"
         } else {
             quiz.speedrunAcceptsInput = false
-            status = race.players.count < 2 ? "Waiting for the other player" : "Waiting to start"
+            status = race.players.count < 2 ? "Waiting for your friend" : "Waiting to start"
         }
     }
 

@@ -91,6 +91,10 @@ final class HomeModel: ObservableObject {
         didSet { if !loading { settings.quizOnWake = quizOnWake; onChange() } }
     }
 
+    @Published var answerSounds = true {
+        didSet { if !loading { settings.answerSounds = answerSounds; onChange() } }
+    }
+
     @Published var questionCount: QuestionCount = .five {
         didSet { if !loading { settings.questionCount = questionCount; onChange() } }
     }
@@ -192,6 +196,7 @@ final class HomeModel: ObservableObject {
         regionFlags = Region.allCases.map { RegionFlag(region: $0, on: on.contains($0)) }
         quizOnUnlock = settings.quizOnUnlock
         quizOnWake = settings.quizOnWake
+        answerSounds = settings.answerSounds
         questionCount = settings.questionCount
         requirePerfect = settings.requirePerfect
         subject = settings.subject
@@ -254,6 +259,20 @@ final class HomeModel: ObservableObject {
 
     func startPracticeNow() {
         onPractice(practiceChoice.scope, practiceLength)
+    }
+
+    /// Opens Practice with Speedrun on, ready for this place and answer method.
+    func showSpeedrunSetup(choice: PracticeChoice, subject: QuizSubject, style: PracticeAnswerStyle) {
+        loading = true
+        practiceChoice = choice
+        practiceSubject = subject
+        practiceAnswerStyle = style
+        practiceSpeedrun = true
+        loading = false
+        settings.practiceSubject = subject
+        settings.setPracticeStyle(style, for: subject)
+        settings.setPracticeSpeedrun(true, for: subject)
+        onChange()
     }
 
     /// Switching practice subject loads that subject's saved answer style and Speedrun switch.
@@ -403,7 +422,7 @@ struct HomeView: View {
         case .stats:
             StatsPane(model: model)
         case .account:
-            AccountPane(account: account)
+            AccountPane(account: account, home: model)
         case .settings:
             SettingsPane(model: model)
         }
@@ -1144,6 +1163,7 @@ private struct SettingsPane: View {
             }
 
             Section {
+                Toggle("Answer sounds", isOn: $model.answerSounds)
                 Toggle("Open at login", isOn: $model.openAtLogin)
                     .disabled(!model.canUseLoginItem)
                 if let message = model.loginMessage {

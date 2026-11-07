@@ -131,6 +131,10 @@ private struct QuestionView: View {
                         .font(Theme.font(Theme.Size.body, .medium))
                         .foregroundStyle(Theme.text2)
                         .monospacedDigit()
+                    if let chip = session.answerChip {
+                        AnswerChipBanner(chip: chip, reduceMotion: reduceMotion)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
                     Spacer()
                     Pill {
                         Text(session.roundText).monospacedDigit()
@@ -143,6 +147,7 @@ private struct QuestionView: View {
                 ProgressSteps(total: session.total, results: session.results, current: session.index)
             }
         }
+        .animation(.easeOut(duration: 0.2), value: session.answerChip?.token)
         .frame(minHeight: session.isSpeedrun ? 40 : 32)
     }
 
@@ -154,11 +159,9 @@ private struct QuestionView: View {
                 .monospacedDigit()
                 .modifier(PulseEffect(pulses: reduceMotion ? 0 : CGFloat(session.pulseCount)))
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.35), value: session.pulseCount)
-            if let cue = session.speedrunCue {
-                Image(systemName: cue.right ? "checkmark.circle.fill" : "xmark.circle.fill")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(cue.right ? Theme.good : Theme.bad)
-                    .accessibilityLabel(cue.right ? "Right" : "Wrong")
+            if let chip = session.answerChip {
+                AnswerChipBanner(chip: chip, reduceMotion: reduceMotion)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
             Spacer(minLength: Theme.Space.s2)
             TimelineView(.animation(minimumInterval: 0.1, paused: session.speedrunFrozenAt != nil || session.speedrunClockStart == nil)) { timeline in
@@ -183,6 +186,7 @@ private struct QuestionView: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(session.score) right, \(session.speedrunMisses) wrong")
         }
+        .animation(.easeOut(duration: 0.2), value: session.answerChip?.token)
     }
 
     private var mapCard: some View {
@@ -195,7 +199,8 @@ private struct QuestionView: View {
                     clicked: session.isSpeedrun ? nil : session.clicked,
                     enabled: session.isSpeedrun ? session.speedrunAcceptsInput : session.phase == .asking,
                     mapScope: session.mapScope,
-                    speedrunCue: session.speedrunCue?.showsMap == true ? session.speedrunCue?.mapCue : nil
+                    speedrunCue: session.speedrunCue?.showsMap == true ? session.speedrunCue?.mapCue : nil,
+                    found: session.foundCountries
                 ) { name in
                     session.click(name)
                 }
@@ -362,6 +367,16 @@ private struct QuestionView: View {
                     .autocorrectionDisabled(true)
                     .onSubmit { session.submitTyped() }
                     .disabled(!session.canAnswer)
+                    .overlay(alignment: .trailing) {
+                        if session.phase == .answered, !session.isSpeedrun {
+                            Image(systemName: session.lastWasRight ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(session.lastWasRight ? Theme.good : Theme.bad)
+                                .padding(.trailing, Theme.Space.s3)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .scaleEffect(!reduceMotion && session.phase == .answered && session.lastWasRight && !session.isSpeedrun ? 1.03 : 1)
 
                 if session.canAnswer {
                     Button("Check") { session.submitTyped() }
@@ -490,6 +505,13 @@ private struct ChoiceButton: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                 Spacer(minLength: 0)
+                if look == .right {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Theme.good)
+                } else if look == .wrong {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Theme.bad)
+                }
             }
             .padding(.horizontal, Theme.Space.s4)
             // Up to 340 wide, narrower when the window is small.
@@ -512,9 +534,9 @@ private struct ChoiceButton: View {
         .offset(y: hovering && look == .normal && !reduceMotion ? -1 : 0)
         .opacity(look == .dim ? 0.45 : 1)
         // Green pulse when this is the answer, red shake when it was the wrong pick.
-        .modifier(PulseEffect(pulses: look == .right ? 1 : 0))
-        .modifier(ShakeEffect(shakes: look == .wrong ? 1 : 0))
-        .animation(reduceMotion ? nil : Theme.Motion.slow, value: look)
+        .scaleEffect(look == .right && !reduceMotion ? 1.04 : 1)
+        .modifier(ShakeEffect(shakes: reduceMotion ? 0 : (look == .wrong ? 1 : 0)))
+        .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.55), value: look)
         .animation(Theme.Motion.fast, value: hovering)
         .onHover { hovering = $0 }
     }
@@ -692,7 +714,10 @@ private struct SpeedrunChoiceFlash: View {
 
     var body: some View {
         VStack(spacing: Theme.Space.s2) {
-            Text(cue.chosenText)
+            HStack(spacing: 6) {
+                Image(systemName: cue.right ? "checkmark.circle.fill" : "xmark.circle.fill")
+                Text(cue.chosenText)
+            }
                 .font(Theme.font(Theme.Size.body, .semibold))
                 .foregroundStyle(cue.right ? Theme.good : Theme.bad)
                 .padding(.horizontal, Theme.Space.s3)

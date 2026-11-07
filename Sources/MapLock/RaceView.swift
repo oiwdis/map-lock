@@ -45,6 +45,37 @@ final class RaceController: NSObject, NSWindowDelegate {
     }
 }
 
+/// Opens the system share menu for a race link.
+struct RaceShareButton: NSViewRepresentable {
+    let text: String
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(title: "Share", target: context.coordinator, action: #selector(Coordinator.share(_:)))
+        button.bezelStyle = .rounded
+        button.setButtonType(.momentaryPushIn)
+        context.coordinator.text = text
+        return button
+    }
+
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.text = text
+        button.title = "Share"
+    }
+
+    final class Coordinator: NSObject {
+        var text = ""
+        private var picker: NSSharingServicePicker?
+
+        @objc func share(_ sender: NSButton) {
+            let picker = NSSharingServicePicker(items: [text])
+            self.picker = picker
+            picker.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+        }
+    }
+}
+
 enum PracticeFrame {
     static func fitted() -> NSRect {
         let screen = NSScreen.main?.visibleFrame
@@ -69,9 +100,29 @@ struct RaceView: View {
                         Text(session.countdown.map(String.init) ?? "1")
                             .font(.system(size: 96, weight: .bold, design: .rounded))
                             .monospacedDigit()
+                        Text("Get ready")
+                            .font(Theme.font(Theme.Size.md, .semibold))
+                    } else {
+                        Text("Waiting for your friend")
+                            .font(Theme.font(Theme.Size.lg, .semibold))
+                        Text(session.ticket.code)
+                            .font(.system(size: 48, weight: .bold, design: .monospaced))
+                            .textSelection(.enabled)
+                        Text(session.ticket.webUrl)
+                            .font(Theme.font(Theme.Size.sm))
+                            .foregroundStyle(Theme.text2)
+                            .textSelection(.enabled)
+                            .multilineTextAlignment(.center)
+                        HStack(spacing: Theme.Space.s2) {
+                            Button("Copy") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(session.ticket.webUrl, forType: .string)
+                            }
+                            .buttonStyle(AppButtonStyle(kind: .primary, height: 36))
+                            RaceShareButton(text: session.ticket.webUrl)
+                                .frame(width: 96, height: 36)
+                        }
                     }
-                    Text(session.status)
-                        .font(Theme.font(Theme.Size.md, .semibold))
                     Text(SpeedrunKey.title(SpeedrunKey.make(
                         subject: QuizSubject(rawValue: session.ticket.subject) ?? .countries,
                         style: PracticeAnswerStyle(rawValue: session.ticket.style) ?? .clickMap,
@@ -79,9 +130,9 @@ struct RaceView: View {
                     )))
                     .font(Theme.font(Theme.Size.sm))
                     .foregroundStyle(Theme.text2)
-                    opponentBar
                 }
                 .padding(Theme.Space.s6)
+                .frame(maxWidth: 520)
             }
             if session.phase == "racing" {
                 VStack {
@@ -114,7 +165,7 @@ struct RaceView: View {
                 Text(session.opponentName)
                     .font(Theme.font(Theme.Size.sm, .semibold))
                 Spacer()
-                Text("\(session.opponentFound) of \(session.opponentTotal) · \(session.opponentMisses) misses")
+                Text("\(session.opponentFound) of \(session.opponentTotal), \(session.opponentMisses) misses")
                     .font(Theme.font(Theme.Size.xs))
                     .foregroundStyle(Theme.text3)
                     .monospacedDigit()
@@ -162,7 +213,7 @@ private struct RaceResultView: View {
         HStack {
             Text(name)
             Spacer()
-            Text(forfeited ? "Forfeit" : elapsed.map { SpeedrunClock.format($0) } ?? "-")
+            Text(forfeited ? "Forfeit" : elapsed.map { SpeedrunClock.format($0) } ?? "No time yet")
                 .monospacedDigit()
                 .font(Theme.font(Theme.Size.md, .semibold))
         }

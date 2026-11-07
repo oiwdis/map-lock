@@ -68,6 +68,10 @@ final class QuizSession: ObservableObject {
     @Published private(set) var speedrunClockStart: Date?
     @Published private(set) var speedrunFrozenAt: Date?
     @Published var speedrunCue: SpeedrunCue?
+    /// Countries clicked correctly in this quiz. They stay filled for the rest of the run.
+    @Published private(set) var foundCountries: Set<String> = []
+    @Published var answerChip: AnswerChip?
+    private var chipToken = 0
     @Published private(set) var speedrunIsNewBest = false
     @Published private(set) var speedrunBestText = "-"
     @Published private(set) var speedrunFinalTime = "00:00.0"
@@ -298,8 +302,10 @@ final class QuizSession: ObservableObject {
         if right { score += 1 }
         results.append(right)
         if right { pulseCount += 1 } else { shakeCount += 1 }
+        if right, q.kind == .click { foundCountries.insert(name) }
         stats.record(name, correct: right)
         deck.answered(name, correct: right)
+        showChip(right: right, title: right ? "Correct!" : "It was \(q.answer)")
 
         if right {
             pendingRetry.removeAll { $0 == name }
@@ -372,7 +378,9 @@ final class QuizSession: ObservableObject {
         if right { score += 1 }
         results.append(right)
         if right { pulseCount += 1 } else { shakeCount += 1 }
+        if right, question.kind == .click { foundCountries.insert(question.target.name) }
         stats.record(question.target.name, correct: right)
+        showChip(right: right, title: right ? "Correct!" : "It was \(question.answer)")
         cueToken += 1
         let token = cueToken
         speedrunCue = SpeedrunCue(
@@ -384,7 +392,7 @@ final class QuizSession: ObservableObject {
             wrongCountry: (right || clicked == nil || clicked == question.target.name) ? nil : clicked,
             showsMap: question.kind == .click
         )
-        let delay = right ? 0.4 : 0.6
+        let delay = question.kind == .click && !right ? 0.85 : 0.6
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard let self, self.cueToken == token else { return }
@@ -402,6 +410,18 @@ final class QuizSession: ObservableObject {
             self.clicked = nil
             feedback = ""
             phase = .asking
+        }
+    }
+
+    private func showChip(right: Bool, title: String) {
+        chipToken += 1
+        let token = chipToken
+        answerChip = AnswerChip(token: token, right: right, title: title)
+        AnswerSound.play(correct: right)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard let self, self.chipToken == token else { return }
+            self.answerChip = nil
         }
     }
 

@@ -14,6 +14,7 @@ final class AccountModel: ObservableObject {
 
     var onOpenRace: (RaceTicket) -> Void = { _ in }
     var onShowAccount: () -> Void = {}
+    var onStartSpeedrun: (PracticeChoice, QuizSubject, PracticeAnswerStyle) -> Void = { _, _, _ in }
 
     @Published private(set) var user: AccountUser?
     @Published var usernameDraft = ""
@@ -26,7 +27,11 @@ final class AccountModel: ObservableObject {
     @Published var raceRegion: PracticeChoice = .africa
     @Published var raceSubject: QuizSubject = .countries
     @Published var raceStyle: PracticeAnswerStyle = .clickMap
-    @Published var leaderboardRegion: PracticeChoice = .world
+    @Published var leaderboardRegion: PracticeChoice = .africa
+    @Published var page: AccountPage = .race
+    @Published var justJoined = false
+    @Published var clipboardCode: String?
+    private var seededRaceOptions = false
     @Published var leaderboardSubject: QuizSubject = .countries
     @Published var leaderboardStyle: PracticeAnswerStyle = .clickMap
     @Published private(set) var friends = FriendLists(friends: [], incoming: [], outgoing: [])
@@ -34,12 +39,24 @@ final class AccountModel: ObservableObject {
     @Published private(set) var friendView: FriendStatsResponse?
     @Published private(set) var friendSnapshot = StatsSnapshot()
     @Published private(set) var busy = false
+    @Published private(set) var syncing = false
+    @Published private(set) var lastSyncedAt: Date?
+    @Published private(set) var signInKind: AccountSignInKind?
     @Published var message: String?
     @Published var lastRace: RaceTicket?
 
     init(stats: StatsStore) {
         self.stats = stats
         token = KeychainStore.loadSession()
+        if let raw = UserDefaults.standard.string(forKey: Self.kindKey),
+           let kind = AccountSignInKind(rawValue: raw) {
+            signInKind = kind
+        }
+        if let pick = stats.latestSpeedrunPick() {
+            leaderboardSubject = pick.subject
+            leaderboardStyle = pick.style
+            leaderboardRegion = pick.region
+        }
     }
 
     var isSignedIn: Bool { user != nil && token != nil }
@@ -81,27 +98,29 @@ final class AccountModel: ObservableObject {
         }
     }
 
-    func submitPasswordAccount() {
+    /// True when the request started. False when a field error was shown instead.
+    @discardableResult
+    func submitPasswordAccount() -> Bool {
         message = nil
         let name = loginUsername.trimmingCharacters(in: .whitespacesAndNewlines)
         if let problem = AccountName.problem(with: name) {
             message = problem
-            return
+            return false
         }
         if loginPassword.count < 8 || loginPassword.count > 200 {
-            message = "Passwords must be 8 to 200 characters."
-            return
+            message = "Use 8 or more characters."
+            return false
         }
         if creatingAccount && loginPassword != confirmPassword {
-            message = "Those passwords don't match."
-            return
+            message = "Those passwords don't match. Type the same password in both boxes."
+            return false
         }
         let password = loginPassword
         let making = creatingAccount
         loginPassword = ""
         confirmPassword = ""
         Task {
-            await run(making ? "Could not create the account." : "Wrong username or password.") {
+            await run(making ? "Could not create the account. Try again." : "Wrong username or password. Try again, or create an account.") {
                 let response: AuthResponse
                 if making {
                     response = try await AccountClient.register(username: name, password: password)
@@ -111,18 +130,29 @@ final class AccountModel: ObservableObject {
                 token = response.token
                 user = response.user
                 KeychainStore.saveSession(response.token)
+                rememberKind(.password)
                 loginUsername = ""
                 creatingAccount = false
-                message = "Signed in."
-                if !response.user.needsUsername { await refresh() }
+                justJoined = making && !response.user.needsUsername
+                message = nil
+                if !response.user.needsUsername {
+                    await refresh()
+                    joinPendingCode()
+                }
             }
         }
+        return true
+    }
+
+    func setCreatingAccount(_ creating: Bool) {
+        guard creatingAccount != creating else { return }
+        creatingAccount = creating
+        confirmPassword = ""
+        message = nil
     }
 
     func toggleCreateAccount() {
-        creatingAccount.toggle()
-        confirmPassword = ""
-        message = nil
+        setCreatingAccount(!creatingAccount)
     }
 
     func signOut() {
@@ -132,12 +162,17 @@ final class AccountModel: ObservableObject {
         loginPassword = ""
         confirmPassword = ""
         creatingAccount = false
+        lastSyncedAt = nil
+        clearKind()
         KeychainStore.deleteSession()
         friends = FriendLists(friends: [], incoming: [], outgoing: [])
         leaderboard = []
         friendView = nil
         lastRace = nil
-        message = "Signed out. Map Lock still works on this Mac."
+        justJoined = false
+        clipboardCode = nil
+        page = .race
+        message = nil
     }
 
     func saveUsername() {
@@ -153,6 +188,7 @@ final class AccountModel: ObservableObject {
                 usernameDraft = ""
                 message = "Username saved."
                 await refresh()
+                joinPendingCode()
             }
         }
     }
@@ -160,12 +196,15 @@ final class AccountModel: ObservableObject {
     func addFriend() {
         guard let token else { return }
         let name = friendDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
+        guard !name.isEmpty else {
+            message = "Type a username first."
+            return
+        }
         Task {
-            await run("Could not send the request") {
+            await run("Could not send that request. Check your connection and try again.") {
                 try await AccountClient.requestFriend(name, token: token)
                 friendDraft = ""
-                message = "Friend request sent."
+                message = "Request sent. They need to accept."
                 friends = try await AccountClient.friends(token: token)
             }
         }
@@ -195,6 +234,11 @@ final class AccountModel: ObservableObject {
         }
     }
 
+    func closeFriend() {
+        friendView = nil
+        friendSnapshot = StatsSnapshot()
+    }
+
     func openFriend(_ item: FriendItem) {
         guard let token, let name = item.username else { return }
         Task {
@@ -211,36 +255,73 @@ final class AccountModel: ObservableObject {
         Task { await sync(token: token) }
     }
 
-    func createRace() {
+    func createRace(telling name: String? = nil) {
         guard let token else { return }
         let region = raceRegion.scope.serverRegion
         let subject = raceSubject.rawValue
         let style = raceStyle.rawValue
         Task {
-            await run("Could not create a race") {
+            await run("Could not create a race. Try again.") {
                 let ticket = try await AccountClient.createRace(region: region, subject: subject, style: style, token: token)
                 lastRace = ticket
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(ticket.webUrl, forType: .string)
-                message = "Race link copied."
+                copyRaceLink(ticket)
+                message = name.map { "Link copied. Send it to \($0)." } ?? "Link copied."
+                page = .race
                 onOpenRace(ticket)
             }
         }
     }
 
+    func copyLastRaceLink() {
+        guard let lastRace else { return }
+        copyRaceLink(lastRace)
+        message = "Link copied."
+    }
+
+    private func joinPendingCode() {
+        guard RaceLink.code(in: joinCode) != nil else { return }
+        joinDraft()
+    }
+
     func joinDraft() {
-        handle(code: joinCode.trimmingCharacters(in: .whitespacesAndNewlines))
+        let raw = joinCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let code = RaceLink.code(in: raw) ?? raw
+        joinCode = code
+        handle(code: code)
+    }
+
+    func joinClipboard() {
+        guard let clipboardCode else { return }
+        joinCode = clipboardCode
+        self.clipboardCode = nil
+        handle(code: joinCode)
+    }
+
+    func refreshClipboardOffer() {
+        let text = NSPasteboard.general.string(forType: .string) ?? ""
+        let code = RaceLink.code(in: text)
+        clipboardCode = (code == nil || code == lastRace?.code) ? nil : code
+    }
+
+    func beginSpeedrun() {
+        onStartSpeedrun(leaderboardRegion, leaderboardSubject, leaderboardStyle)
+    }
+
+    func seedRaceOptions(subject: QuizSubject, style: PracticeAnswerStyle) {
+        guard !seededRaceOptions else { return }
+        seededRaceOptions = true
+        raceSubject = subject
+        raceStyle = style
+    }
+
+    func dismissWelcome() {
+        justJoined = false
     }
 
     func handle(_ url: URL) {
         guard url.scheme?.lowercased() == "maplock", url.host?.lowercased() != "auth" else { return }
-        let code: String?
-        if url.host?.lowercased() == "race" {
-            code = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        } else {
-            code = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "code" }?.value
-        }
-        guard let code, !code.isEmpty else { return }
+        guard let code = RaceLink.code(from: url) else { return }
+        page = .race
         onShowAccount()
         handle(code: code)
     }
@@ -273,8 +354,13 @@ final class AccountModel: ObservableObject {
                 token = response.token
                 user = response.user
                 KeychainStore.saveSession(response.token)
-                message = response.user.needsUsername ? "Pick a username." : "Signed in."
-                if !response.user.needsUsername { await refresh() }
+                rememberKind(.apple)
+                message = response.user.needsUsername ? "Pick a username." : nil
+                justJoined = false
+                if !response.user.needsUsername {
+                    await refresh()
+                    joinPendingCode()
+                }
             }
         }
     }
@@ -317,6 +403,8 @@ final class AccountModel: ObservableObject {
             if user?.needsUsername == false { await refresh() }
         } catch {
             self.token = nil
+            user = nil
+            clearKind()
             KeychainStore.deleteSession()
         }
     }
@@ -333,14 +421,29 @@ final class AccountModel: ObservableObject {
     }
 
     private func sync(token: String) async {
+        syncing = true
+        defer { syncing = false }
         do {
             let merged = try await AccountClient.pushStats(stats.exportPayload(), token: token)
             stats.replace(with: merged)
+            lastSyncedAt = Date()
         } catch let error as APIFailure {
             message = error.message
         } catch {
             message = "Could not sync stats. They are still saved on this Mac."
         }
+    }
+
+    private static let kindKey = "maplock.signInKind"
+
+    private func rememberKind(_ kind: AccountSignInKind) {
+        signInKind = kind
+        UserDefaults.standard.set(kind.rawValue, forKey: Self.kindKey)
+    }
+
+    private func clearKind() {
+        signInKind = nil
+        UserDefaults.standard.removeObject(forKey: Self.kindKey)
     }
 
     private func run(_ fallback: String, _ work: () async throws -> Void) async {
@@ -349,10 +452,89 @@ final class AccountModel: ObservableObject {
         do {
             try await work()
         } catch let error as APIFailure {
-            message = error.message
+            message = Self.friendlier(error.message)
         } catch {
-            message = fallback
+            message = Self.friendlier(fallback)
         }
+    }
+
+    private func copyRaceLink(_ ticket: RaceTicket) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(ticket.webUrl, forType: .string)
+    }
+
+    /// Turns worker wording into a short next step.
+    private static func friendlier(_ raw: String) -> String {
+        let lower = raw.lowercased()
+        if lower.contains("no player") { return "No one uses that username. Check the spelling." }
+        if lower.contains("cannot add yourself") || lower.contains("that's you") { return "That's you." }
+        if lower.contains("already friends") { return "You're already friends." }
+        if lower.contains("already waiting") { return "You already asked. They still need to accept." }
+        if lower.contains("wrong username or password") {
+            return "Wrong username or password. Try again, or create an account."
+        }
+        if lower.contains("username is taken") { return "That username is taken. Try another." }
+        if lower.contains("unknown race") { return "That code does not match a race. Check it and try again." }
+        return raw
+    }
+}
+
+enum AccountPage: String, CaseIterable, Identifiable {
+    case race, board, friends
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .race: return "Race"
+        case .board: return "Leaderboard"
+        case .friends: return "Friends"
+        }
+    }
+}
+
+enum AccountSignInKind: String {
+    case apple
+    case password
+
+    var caption: String {
+        switch self {
+        case .apple: return "Signed in with Apple"
+        case .password: return "Username & password"
+        }
+    }
+}
+
+/// Pulls a race code out of a pasted link, a maplock URL, or a bare code.
+enum RaceLink {
+    static func code(in text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let url = URL(string: trimmed), let code = code(from: url) { return code }
+        if let range = trimmed.range(of: "/race/", options: .caseInsensitive) {
+            let token = trimmed[range.upperBound...].prefix { $0.isLetter || $0.isNumber }
+            if (4...16).contains(token.count) { return String(token) }
+        }
+        let compact = trimmed.uppercased()
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+        guard (4...16).contains(compact.count),
+              compact.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        return compact
+    }
+
+    static func code(from url: URL) -> String? {
+        if url.scheme?.lowercased() == "maplock" {
+            if url.host?.lowercased() == "auth" { return nil }
+            if url.host?.lowercased() == "race" {
+                let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                if (4...16).contains(path.count) { return path }
+            }
+        }
+        let parts = url.path.split(separator: "/").map(String.init)
+        if parts.count >= 2, parts[0].lowercased() == "race", (4...16).contains(parts[1].count) {
+            return parts[1]
+        }
+        return nil
     }
 }
 

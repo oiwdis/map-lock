@@ -27,7 +27,12 @@ final class SpeedrunSession: ObservableObject {
     @Published private(set) var misses = 0
     /// Country that was just clicked wrong. Nil once the flash is over.
     @Published private(set) var flashCountry: String?
+    @Published private(set) var found: Set<String> = []
+    @Published var burst: SpeedrunMapCue?
+    @Published var answerChip: AnswerChip?
     @Published private(set) var shakeCount = 0
+    private var burstToken = 0
+    private var chipSerial = 0
     @Published private(set) var clockStart: Date?
     @Published private(set) var frozenAt: Date?
     @Published private(set) var isNewBest = false
@@ -92,12 +97,14 @@ final class SpeedrunSession: ObservableObject {
         case .miss:
             misses = progress.misses
             shakeCount += 1
-            flash(name)
+            showWrong(clicked: name, correct: progress.current ?? name)
         case .advanced:
-            clearFlash()
+            found.insert(name)
+            showChip(right: true, title: "Correct!")
             index = progress.index
         case .finished:
-            clearFlash()
+            found.insert(name)
+            showChip(right: true, title: "Correct!")
             index = progress.index
             finish()
         }
@@ -108,6 +115,30 @@ final class SpeedrunSession: ObservableObject {
     func endWithoutSaving() {
         confirmingEnd = false
         close()
+    }
+
+    private func showChip(right: Bool, title: String) {
+        chipSerial += 1
+        let token = chipSerial
+        answerChip = AnswerChip(token: token, right: right, title: title)
+        AnswerSound.play(correct: right)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard let self, self.chipSerial == token else { return }
+            self.answerChip = nil
+        }
+    }
+
+    private func showWrong(clicked: String, correct: String) {
+        burstToken += 1
+        let token = burstToken
+        burst = SpeedrunMapCue(token: token, right: false, correctName: correct, wrongName: clicked)
+        showChip(right: false, title: "It was \(correct)")
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 850_000_000)
+            guard let self, self.burstToken == token else { return }
+            self.burst = nil
+        }
     }
 
     private func flash(_ name: String) {

@@ -205,6 +205,7 @@ final class AppSettings {
         static let quizOnUnlock = "maplock.quizOnUnlock"
         static let quizOnWake = "maplock.quizOnWake"
         static let appearance = "maplock.appearance"
+        static let answerSounds = "maplock.answerSounds"
         static let questionCount = "maplock.questionCount"
         static let requirePerfect = "maplock.requirePerfect"
         // Practice tab.
@@ -272,6 +273,12 @@ final class AppSettings {
     var appearance: AppearanceMode {
         get { AppearanceMode(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .light }
         set { defaults.set(newValue.rawValue, forKey: Keys.appearance) }
+    }
+
+    /// Soft click sounds. On unless the user has turned them off.
+    var answerSounds: Bool {
+        get { defaults.object(forKey: Keys.answerSounds) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Keys.answerSounds) }
     }
 
     var quizOnUnlock: Bool {
