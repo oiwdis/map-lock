@@ -44,7 +44,7 @@ UserDefaults().removePersistentDomain(forName: suite)
 let store = StatsStore(defaults: UserDefaults(suiteName: suite)!)
 store.replace(with: merged)
 expect("replaced quiz count", store.quizzes.count == 2)
-expect("preview best", StatsStore.previewSnapshot(merged).speedrunBests.contains(where: { $0.scopeTitle == "Europe" && $0.timeText == "00:25.0" }))
+expect("preview best", StatsStore.previewSnapshot(merged).speedrunBests.contains(where: { $0.scopeTitle == "Country / Click map / Europe" && $0.timeText == "00:25.0" }))
 expect("world scope", PracticeScope.fromServer("world") == .world)
 expect("europe scope", PracticeScope.fromServer("Europe") == .region(.europe))
 

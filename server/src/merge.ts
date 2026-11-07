@@ -13,6 +13,18 @@ export function isRegion(value: string): boolean {
   return (REGIONS as readonly string[]).includes(value);
 }
 
+/** Old region-only bests become Country / Click map for that region. */
+export function canonicalBestKey(key: string): string | null {
+  if (isRegion(key)) return `countries|click|${key}`;
+  const parts = key.split("|");
+  if (parts.length !== 3) return null;
+  const [subject, style, region] = parts;
+  if (!["countries", "capitals", "flags"].includes(subject)) return null;
+  if (!["choice", "type", "click"].includes(style)) return null;
+  if (!isRegion(region)) return null;
+  return key;
+}
+
 export function emptyPayload(): SyncPayload {
   return { quizzes: [], speedruns: [], speedrunBests: {}, countries: {} };
 }
@@ -46,8 +58,10 @@ function asBests(value: unknown): Record<string, number> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const out: Record<string, number> = {};
   for (const [key, raw] of Object.entries(value as JsonObject)) {
-    if (!isRegion(key) || typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) continue;
-    out[key] = raw;
+    const canonical = canonicalBestKey(key);
+    if (!canonical || typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) continue;
+    const previous = out[canonical];
+    out[canonical] = previous === undefined ? raw : Math.min(previous, raw);
   }
   return out;
 }
@@ -78,11 +92,12 @@ function dateOf(item: JsonObject): number {
 }
 
 function mergeBests(a: Record<string, number>, b: Record<string, number>): Record<string, number> {
-  const out: Record<string, number> = { ...a };
-  for (const [key, value] of Object.entries(b)) {
-    if (!isRegion(key) || !(value > 0)) continue;
-    const previous = out[key];
-    out[key] = previous === undefined ? value : Math.min(previous, value);
+  const out: Record<string, number> = {};
+  for (const [key, value] of [...Object.entries(a), ...Object.entries(b)]) {
+    const canonical = canonicalBestKey(key);
+    if (!canonical || !(value > 0)) continue;
+    const previous = out[canonical];
+    out[canonical] = previous === undefined ? value : Math.min(previous, value);
   }
   return out;
 }

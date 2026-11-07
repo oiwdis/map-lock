@@ -99,8 +99,14 @@ private struct QuestionView: View {
             .padding(.bottom, Theme.Space.s10)
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
         }
-        .onAppear { focusFieldSoon() }
-        .onChange(of: session.index) { _, _ in focusFieldSoon() }
+        .onAppear {
+            focusFieldSoon()
+            session.noteSpeedrunVisible()
+        }
+        .onChange(of: session.index) { _, _ in
+            focusFieldSoon()
+            session.noteSpeedrunVisible()
+        }
     }
 
     private func focusFieldSoon() {
@@ -114,26 +120,69 @@ private struct QuestionView: View {
     // Header: title + "2 of 5", progress bar, round and streak pills.
     private var header: some View {
         ZStack {
-            HStack(spacing: Theme.Space.s3) {
-                Text("Map Lock")
-                    .font(Theme.font(Theme.Size.md, .bold))
-                    .kerning(-0.3)
-                Text(session.progressText)
-                    .font(Theme.font(Theme.Size.body, .medium))
-                    .foregroundStyle(Theme.text2)
-                    .monospacedDigit()
-                Spacer()
-                Pill {
-                    Text(session.roundText).monospacedDigit()
+            if session.isSpeedrun {
+                speedrunHeader
+            } else {
+                HStack(spacing: Theme.Space.s3) {
+                    Text("Map Lock")
+                        .font(Theme.font(Theme.Size.md, .bold))
+                        .kerning(-0.3)
+                    Text(session.progressText)
+                        .font(Theme.font(Theme.Size.body, .medium))
+                        .foregroundStyle(Theme.text2)
+                        .monospacedDigit()
+                    Spacer()
+                    Pill {
+                        Text(session.roundText).monospacedDigit()
+                    }
+                    Pill {
+                        Image(systemName: "flame.fill").foregroundStyle(Theme.warn)
+                        Text("\(session.streak)").monospacedDigit()
+                    }
                 }
-                Pill {
-                    Image(systemName: "flame.fill").foregroundStyle(Theme.warn)
-                    Text("\(session.streak)").monospacedDigit()
-                }
+                ProgressSteps(total: session.total, results: session.results, current: session.index)
             }
-            ProgressSteps(total: session.total, results: session.results, current: session.index)
         }
-        .frame(height: 32)
+        .frame(minHeight: session.isSpeedrun ? 40 : 32)
+    }
+
+    private var speedrunHeader: some View {
+        HStack(spacing: Theme.Space.s3) {
+            Text(session.progressText)
+                .font(Theme.font(Theme.Size.body, .semibold))
+                .foregroundStyle(Theme.text)
+                .monospacedDigit()
+                .modifier(PulseEffect(pulses: reduceMotion ? 0 : CGFloat(session.pulseCount)))
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.35), value: session.pulseCount)
+            if let cue = session.speedrunCue {
+                Image(systemName: cue.right ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(cue.right ? Theme.good : Theme.bad)
+                    .accessibilityLabel(cue.right ? "Right" : "Wrong")
+            }
+            Spacer(minLength: Theme.Space.s2)
+            TimelineView(.animation(minimumInterval: 0.1, paused: session.speedrunFrozenAt != nil || session.speedrunClockStart == nil)) { timeline in
+                Text(session.speedrunTimeText(at: timeline.date))
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .accessibilityLabel("Time \(session.speedrunTimeText(at: timeline.date))")
+            }
+            HStack(spacing: Theme.Space.s2) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Theme.good)
+                Text("\(session.score)")
+                    .monospacedDigit()
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Theme.bad)
+                Text("\(session.speedrunMisses)")
+                    .monospacedDigit()
+            }
+            .font(Theme.font(Theme.Size.sm, .semibold))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(session.score) right, \(session.speedrunMisses) wrong")
+        }
     }
 
     private var mapCard: some View {
@@ -142,10 +191,11 @@ private struct QuestionView: View {
                 ClickMapView(
                     world: session.world,
                     target: question.target,
-                    state: session.targetState,
-                    clicked: session.clicked,
-                    enabled: session.phase == .asking,
-                    mapScope: session.mapScope
+                    state: session.isSpeedrun ? .asking : session.targetState,
+                    clicked: session.isSpeedrun ? nil : session.clicked,
+                    enabled: session.isSpeedrun ? session.speedrunAcceptsInput : session.phase == .asking,
+                    mapScope: session.mapScope,
+                    speedrunCue: session.speedrunCue?.showsMap == true ? session.speedrunCue?.mapCue : nil
                 ) { name in
                     session.click(name)
                 }
@@ -179,13 +229,23 @@ private struct QuestionView: View {
                 .font(Theme.font(Theme.Size.body, .medium))
                 .foregroundStyle(Theme.text2)
 
-            switch question.kind {
-            case .choice: choiceGrid
-            case .typing: typingArea
-            case .click: clickArea
+            ZStack(alignment: .top) {
+                VStack(spacing: Theme.Space.s3) {
+                    switch question.kind {
+                    case .choice: choiceGrid
+                    case .typing: typingArea
+                    case .click: clickArea
+                    }
+                }
+                if session.isSpeedrun, let cue = session.speedrunCue, !cue.showsMap {
+                    SpeedrunChoiceFlash(cue: cue, reduceMotion: reduceMotion)
+                        .allowsHitTesting(false)
+                }
             }
 
-            feedbackRow
+            if !session.isSpeedrun {
+                feedbackRow
+            }
         }
     }
 
@@ -217,7 +277,7 @@ private struct QuestionView: View {
                     .modifier(ShakeEffect(shakes: CGFloat(session.shakeCount)))
                     .animation(reduceMotion ? nil : .linear(duration: 0.4), value: session.shakeCount)
             }
-            if session.phase == .asking {
+            if session.phase == .asking, !session.isSpeedrun {
                 Button("I don't know") { session.giveUp() }
                     .buttonStyle(QuietButtonStyle())
             }
@@ -256,7 +316,7 @@ private struct QuestionView: View {
                             ) {
                                 session.choose(options[i])
                             }
-                            .disabled(session.phase != .asking)
+                            .disabled(!session.canAnswer)
                         }
                     }
                 }
@@ -301,14 +361,14 @@ private struct QuestionView: View {
                     .focused($fieldFocused)
                     .autocorrectionDisabled(true)
                     .onSubmit { session.submitTyped() }
-                    .disabled(session.phase != .asking)
+                    .disabled(!session.canAnswer)
 
-                if session.phase == .asking {
+                if session.canAnswer {
                     Button("Check") { session.submitTyped() }
                         .buttonStyle(AppButtonStyle(kind: .primary, height: 56))
                 }
             }
-            if session.phase == .asking {
+            if session.phase == .asking, !session.isSpeedrun {
                 Button("I don't know") { session.giveUp() }
                     .buttonStyle(QuietButtonStyle())
             }
@@ -539,39 +599,79 @@ private struct FinishedView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScoreRing(fraction: session.scoreFraction, text: "\(session.score)/\(session.askedCount)")
-                .frame(width: 200, height: 200)
-                .padding(.bottom, Theme.Space.s5)
-
-            Text(session.finishedTitle)
-                .font(Theme.font(Theme.Size.xl, .bold))
-                .kerning(-0.5)
-            Text(message)
-                .font(Theme.font(Theme.Size.sm))
-                .foregroundStyle(Theme.text2)
-                .multilineTextAlignment(.center)
-                .padding(.top, Theme.Space.s2)
-                .padding(.bottom, Theme.Space.s4)
-
-            HStack(spacing: Theme.Space.s2) {
-                Pill {
-                    Image(systemName: "flame.fill").foregroundStyle(Theme.warn)
-                    Text(session.streak == 1 ? "1 day streak" : "\(session.streak) day streak")
+            if session.isSpeedrun {
+                speedrunFinish
+            } else {
+                ScoreRing(fraction: session.scoreFraction, text: "\(session.score)/\(session.askedCount)")
+                    .frame(width: 200, height: 200)
+                    .padding(.bottom, Theme.Space.s5)
+                Text(session.finishedTitle)
+                    .font(Theme.font(Theme.Size.xl, .bold))
+                    .kerning(-0.5)
+                Text(message)
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.text2)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, Theme.Space.s2)
+                    .padding(.bottom, Theme.Space.s4)
+                HStack(spacing: Theme.Space.s2) {
+                    Pill {
+                        Image(systemName: "flame.fill").foregroundStyle(Theme.warn)
+                        Text(session.streak == 1 ? "1 day streak" : "\(session.streak) day streak")
+                    }
+                    Pill {
+                        Text(session.roundText).monospacedDigit()
+                    }
                 }
-                Pill {
-                    Text(session.roundText).monospacedDigit()
-                }
+                .padding(.bottom, Theme.Space.s6)
             }
-            .padding(.bottom, Theme.Space.s6)
 
             Button(session.doneButtonTitle) { session.done() }
                 .buttonStyle(AppButtonStyle(kind: .primary, height: 44, fullWidth: true))
                 .keyboardShortcut(.defaultAction)
         }
         .padding(Theme.Space.s8)
-        .frame(maxWidth: 380)
+        .frame(maxWidth: session.isSpeedrun ? 420 : 380)
         .glass(radius: Theme.Radius.xl, strong: true)
         .padding(Theme.Space.s6)
+    }
+
+    private var speedrunFinish: some View {
+        VStack(spacing: Theme.Space.s3) {
+            Text(session.speedrunFinalTime)
+                .font(.system(size: 52, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(session.speedrunIsNewBest ? Theme.accent : Theme.text)
+            if session.speedrunIsNewBest {
+                Text("New best")
+                    .font(Theme.font(Theme.Size.sm, .bold))
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, Theme.Space.s3)
+                    .padding(.vertical, Theme.Space.s1)
+                    .background(Capsule().fill(Theme.accent.opacity(0.14)))
+            }
+            Text(SpeedrunKey.title(SpeedrunKey.make(subject: session.subject, style: session.speedrunStyle,
+                                                    scope: session.mapScope.map { StatsScopeKey.from(practiceScope: $0) } ?? .unknown)))
+                .font(Theme.font(Theme.Size.sm))
+                .foregroundStyle(Theme.text2)
+                .multilineTextAlignment(.center)
+            HStack(spacing: Theme.Space.s3) {
+                Label("\(session.score) right", systemImage: "checkmark")
+                    .foregroundStyle(Theme.good)
+                Label("\(session.speedrunMisses) wrong", systemImage: "xmark")
+                    .foregroundStyle(Theme.bad)
+            }
+            .font(Theme.font(Theme.Size.sm, .semibold))
+            HStack(spacing: Theme.Space.s2) {
+                Image(systemName: "timer").foregroundStyle(Theme.text2)
+                Text("Personal best")
+                    .foregroundStyle(Theme.text2)
+                Text(session.speedrunBestText)
+                    .font(Theme.font(Theme.Size.body, .semibold))
+                    .monospacedDigit()
+            }
+            .padding(.bottom, Theme.Space.s4)
+        }
     }
 
     private var message: String {
@@ -582,6 +682,38 @@ private struct FinishedView: View {
         }
         if session.score == total { return "You got all \(total) right. Nice work!" }
         return "You got \(session.score) of \(total) right. Missed ones will come back soon."
+    }
+}
+
+/// Non-interactive flash for multiple choice and typing. The next question stays tappable.
+private struct SpeedrunChoiceFlash: View {
+    let cue: SpeedrunCue
+    let reduceMotion: Bool
+
+    var body: some View {
+        VStack(spacing: Theme.Space.s2) {
+            Text(cue.chosenText)
+                .font(Theme.font(Theme.Size.body, .semibold))
+                .foregroundStyle(cue.right ? Theme.good : Theme.bad)
+                .padding(.horizontal, Theme.Space.s3)
+                .padding(.vertical, Theme.Space.s2)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                        .fill((cue.right ? Theme.good : Theme.bad).opacity(reduceMotion ? 0.22 : 0.18))
+                )
+            if !cue.right {
+                Text(cue.correctText)
+                    .font(Theme.font(Theme.Size.body, .bold))
+                    .foregroundStyle(Theme.text)
+                    .padding(.horizontal, Theme.Space.s3)
+                    .padding(.vertical, Theme.Space.s2)
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                            .strokeBorder(Theme.good, lineWidth: 2)
+                    )
+            }
+        }
+        .padding(.top, Theme.Space.s1)
     }
 }
 

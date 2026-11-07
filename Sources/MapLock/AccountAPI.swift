@@ -61,6 +61,8 @@ struct RaceTicket: Codable, Equatable {
     var code: String
     var region: String
     var seed: String
+    var subject: String
+    var style: String
     var webUrl: String
     var appUrl: String
 }
@@ -110,9 +112,11 @@ enum AccountClient {
         try await sendEmpty(path: "/v1/friends/\(userId)", method: "DELETE", token: token, json: nil)
     }
 
-    static func leaderboard(region: String, token: String) async throws -> LeaderboardResponse {
-        let encoded = region.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? region
-        return try await send(LeaderboardResponse.self, path: "/v1/leaderboard?region=\(encoded)",
+    static func leaderboard(key: String, token: String) async throws -> LeaderboardResponse {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "|")
+        let encoded = key.addingPercentEncoding(withAllowedCharacters: allowed) ?? key
+        return try await send(LeaderboardResponse.self, path: "/v1/leaderboard?key=\(encoded)",
                                method: "GET", token: token, json: nil)
     }
 
@@ -128,9 +132,9 @@ enum AccountClient {
                                json: try encode(payload)).stats
     }
 
-    static func createRace(region: String, token: String) async throws -> RaceTicket {
+    static func createRace(region: String, subject: String, style: String, token: String) async throws -> RaceTicket {
         try await send(RaceTicket.self, path: "/v1/races", method: "POST", token: token,
-                       json: try encode(["region": region]))
+                       json: try encode(["region": region, "subject": subject, "style": style]))
     }
 
     static func joinRace(code: String, token: String) async throws -> RaceTicket {

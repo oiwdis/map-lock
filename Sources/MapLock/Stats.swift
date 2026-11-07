@@ -213,7 +213,8 @@ struct StatsSnapshot: Equatable {
 
 /// Fastest speedrun for one place. `timeText` is "-" until a run is saved.
 struct SpeedrunBestRow: Identifiable, Equatable {
-    var id: String { scopeTitle }
+    var id: String { key }
+    let key: String
     let scopeTitle: String
     let timeText: String
 }
@@ -273,8 +274,26 @@ final class StatsStore {
         }
         if let data = defaults.data(forKey: Keys.speedrunBests),
            let decoded = try? JSONDecoder().decode([String: Double].self, from: data) {
-            speedrunBests = decoded
+            speedrunBests = Self.migratedBests(decoded)
         }
+        speedruns = speedruns.map { run in
+            var copy = run
+            copy.scopeRaw = SpeedrunKey.canonical(run.scopeRaw)
+            return copy
+        }
+    }
+
+    private static func migratedBests(_ raw: [String: Double]) -> [String: Double] {
+        var out: [String: Double] = [:]
+        for (key, value) in raw where value > 0 {
+            let canonical = SpeedrunKey.canonical(key)
+            if let current = out[canonical] {
+                out[canonical] = min(current, value)
+            } else {
+                out[canonical] = value
+            }
+        }
+        return out
     }
 
     private func saveStats() {
@@ -461,13 +480,13 @@ final class StatsStore {
 
     /// Saves a finished speedrun and that place's fastest time. Does not change practice or unlock stats.
     @discardableResult
-    func recordSpeedrun(scope: StatsScopeKey, duration: TimeInterval, misses: Int, countries: Int,
+    func recordSpeedrun(key rawKey: String, duration: TimeInterval, misses: Int, countries: Int,
                         now: Date = Date()) -> SpeedrunSaveResult {
-        let key = scope.rawValue
+        let key = SpeedrunKey.canonical(rawKey)
         let previous = speedrunBests[key]
         let isNew = SpeedrunRules.isNewBest(duration: duration, previous: previous)
         if isNew { speedrunBests[key] = duration }
-        if countries > 0, duration.isFinite, duration >= 0 {
+        if duration.isFinite, duration >= 0, countries + max(misses, 0) > 0 {
             let record = SpeedrunRecord(date: now, duration: duration, misses: max(misses, 0),
                                         countries: countries, scopeRaw: key)
             speedruns.insert(record, at: 0)
@@ -481,10 +500,9 @@ final class StatsStore {
     }
 
     private func speedrunBestRows() -> [SpeedrunBestRow] {
-        StatsScopeKey.speedrunOrder.map { scope in
-            let time = speedrunBests[scope.rawValue]
-            let text = (time != nil && (time ?? 0) > 0) ? SpeedrunClock.format(time ?? 0) : "-"
-            return SpeedrunBestRow(scopeTitle: scope.title, timeText: text)
+        speedrunBests.keys.sorted().compactMap { key in
+            guard let time = speedrunBests[key], time > 0 else { return nil }
+            return SpeedrunBestRow(key: key, scopeTitle: SpeedrunKey.title(key), timeText: SpeedrunClock.format(time))
         }
     }
 
@@ -494,7 +512,7 @@ final class StatsStore {
             return SpeedrunHistoryRow(
                 id: run.id,
                 date: run.date,
-                scopeTitle: run.scope.title,
+                scopeTitle: SpeedrunKey.title(run.scopeRaw),
                 timeText: SpeedrunClock.format(run.duration),
                 misses: run.misses,
                 accuracyText: String(format: "%.0f%%", pct * 100)
@@ -608,12 +626,16 @@ final class StatsStore {
         if quizzes.count > Self.maxQuizRecords { quizzes = Array(quizzes.prefix(Self.maxQuizRecords)) }
 
         var runsById: [UUID: SpeedrunRecord] = [:]
-        for record in payload.speedruns { runsById[record.id] = record }
+        for record in payload.speedruns {
+            var copy = record
+            copy.scopeRaw = SpeedrunKey.canonical(record.scopeRaw)
+            runsById[copy.id] = copy
+        }
         speedruns = runsById.values.sorted { $0.date > $1.date }
         if speedruns.count > Self.maxSpeedrunRecords {
             speedruns = Array(speedruns.prefix(Self.maxSpeedrunRecords))
         }
-        speedrunBests = payload.speedrunBests.filter { $0.value > 0 }
+        speedrunBests = Self.migratedBests(payload.speedrunBests)
         stats = payload.countries
         saveQuizzes()
         saveSpeedruns()
@@ -644,12 +666,13 @@ struct SyncPayload: Codable, Equatable {
         var runsById: [UUID: SpeedrunRecord] = [:]
         for record in speedruns + other.speedruns { runsById[record.id] = record }
 
-        var bests = speedrunBests
-        for (key, value) in other.speedrunBests where value > 0 {
-            if let current = bests[key] {
-                bests[key] = min(current, value)
+        var bests: [String: Double] = [:]
+        for (key, value) in speedrunBests.merging(other.speedrunBests, uniquingKeysWith: min) where value > 0 {
+            let canonical = SpeedrunKey.canonical(key)
+            if let current = bests[canonical] {
+                bests[canonical] = min(current, value)
             } else {
-                bests[key] = value
+                bests[canonical] = value
             }
         }
 

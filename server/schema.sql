@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS races (
   code TEXT PRIMARY KEY,
   host_id TEXT NOT NULL REFERENCES users(id),
   region TEXT NOT NULL,
+  subject TEXT NOT NULL DEFAULT 'countries',
+  style TEXT NOT NULL DEFAULT 'click',
   seed TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );

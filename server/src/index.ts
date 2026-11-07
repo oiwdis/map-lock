@@ -1,6 +1,6 @@
 import { verifyAppleIdentityToken } from "./apple";
 import { createSession, randomCode, randomSeed, userFromRequest, type SessionUser } from "./auth";
-import { emptyPayload, isRegion, mergePayload, parsePayload } from "./merge";
+import { canonicalBestKey, emptyPayload, isRegion, mergePayload, parsePayload } from "./merge";
 import { RaceRoom } from "./race";
 import { canonicalUsername, usernameProblem } from "./username";
 
@@ -192,8 +192,9 @@ async function removeFriend(env: Env, userId: string, otherId: string): Promise<
 }
 
 async function leaderboard(url: URL, env: Env, userId: string): Promise<Response> {
-  const region = url.searchParams.get("region") ?? "world";
-  if (!isRegion(region)) return json({ error: "Unknown region" }, 400);
+  const requested = url.searchParams.get("key") ?? url.searchParams.get("region") ?? "world";
+  const key = canonicalBestKey(requested);
+  if (!key) return json({ error: "Unknown speedrun" }, 400);
   const ids = await friendIds(env, userId);
   ids.push(userId);
   const rows = [];
@@ -201,7 +202,7 @@ async function leaderboard(url: URL, env: Env, userId: string): Promise<Response
     const person = await env.DB.prepare("SELECT id, username FROM users WHERE id = ?").bind(id).first<{ id: string; username: string | null }>();
     if (!person?.username) continue;
     const payload = await loadPayload(env, id);
-    const time = payload.speedrunBests[region];
+    const time = payload.speedrunBests[key];
     rows.push({
       userId: person.id,
       username: person.username,
@@ -215,7 +216,7 @@ async function leaderboard(url: URL, env: Env, userId: string): Promise<Response
     if (b.time === null) return -1;
     return a.time - b.time;
   });
-  return json({ region, rows });
+  return json({ region: key, rows });
 }
 
 async function friendSnapshot(env: Env, userId: string, username: string): Promise<Response> {
@@ -235,27 +236,31 @@ async function createRace(request: Request, env: Env, user: SessionUser): Promis
   if (!user.username) return json({ error: "Pick a username first" }, 400);
   const body = await readJson(request);
   const region = stringField(body, "region") ?? "";
+  const subject = stringField(body, "subject") ?? "countries";
+  const style = stringField(body, "style") ?? "click";
   if (!isRegion(region)) return json({ error: "Unknown region" }, 400);
+  if (!["countries", "capitals", "flags"].includes(subject)) return json({ error: "Unknown type" }, 400);
+  if (!["choice", "type", "click"].includes(style)) return json({ error: "Unknown answer method" }, 400);
   const code = randomCode();
   const seed = randomSeed();
   await env.DB.prepare(
-    "INSERT INTO races (code, host_id, region, seed, created_at) VALUES (?, ?, ?, ?, ?)",
-  ).bind(code, user.id, region, seed, Date.now()).run();
+    "INSERT INTO races (code, host_id, region, subject, style, seed, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).bind(code, user.id, region, subject, style, seed, Date.now()).run();
   const room = env.RACE.get(env.RACE.idFromName(code));
   await room.fetch("https://race/init", {
     method: "POST",
     body: JSON.stringify({ code, region, seed, hostId: user.id }),
   });
-  return json(raceLinks(env, code, region, seed));
+  return json(raceLinks(env, code, region, seed, subject, style));
 }
 
 async function joinRace(env: Env, user: SessionUser, code: string): Promise<Response> {
   if (!user.username) return json({ error: "Pick a username first" }, 400);
   const race = await env.DB.prepare(
-    "SELECT code, region, seed, host_id FROM races WHERE code = ?",
-  ).bind(code).first<{ code: string; region: string; seed: string; host_id: string }>();
+    "SELECT code, region, subject, style, seed, host_id FROM races WHERE code = ?",
+  ).bind(code).first<{ code: string; region: string; subject: string; style: string; seed: string; host_id: string }>();
   if (!race) return json({ error: "Unknown race" }, 404);
-  return json(raceLinks(env, race.code, race.region, race.seed));
+  return json(raceLinks(env, race.code, race.region, race.seed, race.subject, race.style));
 }
 
 async function raceSocket(request: Request, env: Env, code: string): Promise<Response> {
@@ -271,12 +276,14 @@ async function raceSocket(request: Request, env: Env, code: string): Promise<Res
   return stub.fetch(new Request(request.url, { method: request.method, headers }));
 }
 
-function raceLinks(env: Env, code: string, region: string, seed: string) {
+function raceLinks(env: Env, code: string, region: string, seed: string, subject = "countries", style = "click") {
   const origin = env.PUBLIC_ORIGIN.replace(/\/$/, "");
   return {
     code,
     region,
     seed,
+    subject,
+    style,
     webUrl: `${origin}/race/${code}`,
     appUrl: `maplock://race/${code}`,
   };

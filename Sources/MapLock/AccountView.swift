@@ -139,6 +139,20 @@ struct AccountPane: View {
             Text("Friends speedrun board")
                 .font(Theme.font(Theme.Size.sm, .semibold))
                 .foregroundStyle(Theme.text3)
+            Picker("Type", selection: $account.leaderboardSubject) {
+                ForEach(QuizSubject.allCases) { subject in
+                    Text(subject.practiceTitle).tag(subject)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: account.leaderboardSubject) { _, _ in account.loadLeaderboard() }
+            Picker("Method", selection: $account.leaderboardStyle) {
+                ForEach(PracticeAnswerStyle.allCases) { style in
+                    Text(style.title(for: account.leaderboardSubject)).tag(style)
+                }
+            }
+            .pickerStyle(.menu)
+            .onChange(of: account.leaderboardStyle) { _, _ in account.loadLeaderboard() }
             Picker("Region", selection: $account.leaderboardRegion) {
                 ForEach(PracticeChoice.allCases) { choice in
                     Text(choice.title).tag(choice)
@@ -173,6 +187,19 @@ struct AccountPane: View {
                 .font(Theme.font(Theme.Size.xs))
                 .foregroundStyle(Theme.text3)
                 .fixedSize(horizontal: false, vertical: true)
+            Picker("Race type", selection: $account.raceSubject) {
+                ForEach(QuizSubject.allCases) { subject in
+                    Text(subject.practiceTitle).tag(subject)
+                }
+            }
+            .pickerStyle(.segmented)
+            Picker("How to answer", selection: $account.raceStyle) {
+                ForEach(PracticeAnswerStyle.allCases) { style in
+                    Text(style.title(for: account.raceSubject)).tag(style)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: 280)
             Picker("Race region", selection: $account.raceRegion) {
                 ForEach(PracticeChoice.allCases) { choice in
                     Text(choice.title).tag(choice)

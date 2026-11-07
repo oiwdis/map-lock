@@ -28,9 +28,9 @@ test("merge unions history and keeps the faster best", () => {
   const merged = mergePayload(local, remote);
   assert.deepEqual(merged.quizzes.map((item) => item.id), ["q2", "q1"]);
   assert.deepEqual(merged.speedruns.map((item) => item.id), ["s2", "s1"]);
-  assert.equal(merged.speedrunBests.Europe, 30);
-  assert.equal(merged.speedrunBests.Asia, 15);
-  assert.equal(merged.speedrunBests.world, 100);
+  assert.equal(merged.speedrunBests["countries|click|Europe"], 30);
+  assert.equal(merged.speedrunBests["countries|click|Asia"], 15);
+  assert.equal(merged.speedrunBests["countries|click|world"], 100);
   assert.equal(merged.countries.France.seen, 3);
   assert.equal(merged.countries.France.correct, 3);
   assert.equal(merged.countries.France.wrong, 1);

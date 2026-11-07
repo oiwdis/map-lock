@@ -28,12 +28,12 @@ final class QuizSession: ObservableObject {
     private let mode: QuizMode
     private let quizType: QuizType
     private let allNames: [String]
-    private let onClose: () -> Void
+    var onClose: () -> Void
     private var closed = false
     private let requirePerfect: Bool
     private let unlockDeadline: Date?
     private let startedAt: Date
-    private let plannedCount: Int
+    private var plannedCount: Int
     /// Countries missed in this quiz that have not been answered right since.
     private var pendingRetry: [String] = []
 
@@ -60,6 +60,19 @@ final class QuizSession: ObservableObject {
     /// True when the time limit ended a require-perfect lock quiz.
     @Published private(set) var unlockedByTimeLimit = false
 
+    let isSpeedrun: Bool
+    let speedrunStyle: PracticeAnswerStyle
+    /// When false, a race countdown is up and answers are ignored.
+    @Published var speedrunAcceptsInput = true
+    var onSpeedrunProgress: ((Int, Int, Int, Bool) -> Void)?
+    @Published private(set) var speedrunClockStart: Date?
+    @Published private(set) var speedrunFrozenAt: Date?
+    @Published var speedrunCue: SpeedrunCue?
+    @Published private(set) var speedrunIsNewBest = false
+    @Published private(set) var speedrunBestText = "-"
+    @Published private(set) var speedrunFinalTime = "00:00.0"
+    private var cueToken = 0
+
     /// How long a click result stays on screen before the next question.
     static let rightClickPause: Double = 0.9
     static let wrongClickPause: Double = 2.2
@@ -71,6 +84,9 @@ final class QuizSession: ObservableObject {
          requirePerfect: Bool = false,
          timeLimit: TimeInterval? = nil,
          mapScope: PracticeScope? = nil,
+         speedrun: Bool = false,
+         speedrunStyle: PracticeAnswerStyle = .clickMap,
+         speedrunOrder: [String]? = nil,
          now: Date = Date(),
          onClose: @escaping () -> Void) {
         self.world = world
@@ -91,17 +107,45 @@ final class QuizSession: ObservableObject {
             self.unlockDeadline = nil
         }
         self.mapScope = mapScope
+        self.isSpeedrun = speedrun
+        self.speedrunStyle = speedrunStyle
         self.onClose = onClose
         self.byName = Dictionary(world.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         self.allNames = world.filter { $0.quizzable }.map { $0.name }
         self.streak = stats.currentStreak()
 
-        deck.sync(pool: pool)
-        if !addNextQuestion() { phase = .finished }
+        if speedrun {
+            let names = speedrunOrder ?? SpeedrunRules.shuffled(pool)
+            for name in names {
+                guard let target = byName[name] else { continue }
+                appendQuestion(for: target)
+            }
+            self.total = max(questions.count, 1)
+            self.plannedCount = self.total
+            if questions.isEmpty { phase = .finished }
+        } else {
+            deck.sync(pool: pool)
+            if !addNextQuestion() { phase = .finished }
+        }
         updateRound()
     }
 
+    var speedrunMisses: Int { max(results.count - score, 0) }
+
+    func noteSpeedrunVisible(now: Date = Date()) {
+        guard isSpeedrun, speedrunClockStart == nil, phase == .asking, speedrunAcceptsInput else { return }
+        speedrunClockStart = now
+    }
+
+    func speedrunTimeText(at now: Date) -> String {
+        guard let speedrunClockStart else { return SpeedrunClock.format(0) }
+        let end = speedrunFrozenAt ?? now
+        return SpeedrunClock.format(end.timeIntervalSince(speedrunClockStart))
+    }
+
     var locksScreen: Bool { kind == .lock }
+
+    var canAnswer: Bool { phase == .asking && (!isSpeedrun || speedrunAcceptsInput) }
 
     var secondsLeft: Int? {
         guard let unlockDeadline else { return nil }
@@ -186,14 +230,20 @@ final class QuizSession: ObservableObject {
 
     func choose(_ option: String) {
         guard phase == .asking, let q = current else { return }
+        if isSpeedrun {
+            guard speedrunAcceptsInput else { return }
+            speedrunResolve(right: option == q.answer, chosen: option, clicked: nil, question: q)
+            return
+        }
         chosen = option
         finishAnswer(right: option == q.answer, closeEnough: false)
     }
 
     /// Return key in the text field: check the answer, or go on if already checked.
     func submitTyped() {
-        if phase == .answered { next(); return }
+        if !isSpeedrun, phase == .answered { next(); return }
         guard phase == .asking, let q = current else { return }
+        if isSpeedrun, !speedrunAcceptsInput { return }
         if AnswerChecker.normalize(typed).isEmpty { return }
         let result: AnswerChecker.Result
         switch q.subject {
@@ -202,6 +252,10 @@ final class QuizSession: ObservableObject {
         case .capitals:
             result = AnswerChecker.checkCapital(typed, country: q.target.name)
         }
+        if isSpeedrun {
+            speedrunResolve(right: result != .wrong, chosen: typed, clicked: nil, question: q)
+            return
+        }
         finishAnswer(right: result != .wrong, closeEnough: result == .closeEnough)
     }
 
@@ -209,6 +263,11 @@ final class QuizSession: ObservableObject {
     /// already worked out by ClickMap. Clicks in the sea never get here.
     func click(_ name: String) {
         guard phase == .asking, let q = current, q.kind == .click else { return }
+        if isSpeedrun {
+            guard speedrunAcceptsInput else { return }
+            speedrunResolve(right: name == q.target.name, chosen: name, clicked: name, question: q)
+            return
+        }
         clicked = name
         let right = name == q.target.name
         finishAnswer(right: right, closeEnough: false)
@@ -307,7 +366,62 @@ final class QuizSession: ObservableObject {
         updateRound()
     }
 
+    private func speedrunResolve(right: Bool, chosen: String, clicked: String?, question: Question) {
+        noteSpeedrunVisible()
+        lastWasRight = right
+        if right { score += 1 }
+        results.append(right)
+        if right { pulseCount += 1 } else { shakeCount += 1 }
+        stats.record(question.target.name, correct: right)
+        cueToken += 1
+        let token = cueToken
+        speedrunCue = SpeedrunCue(
+            token: token,
+            right: right,
+            chosenText: chosen,
+            correctText: question.answer,
+            correctCountry: question.target.name,
+            wrongCountry: (right || clicked == nil || clicked == question.target.name) ? nil : clicked,
+            showsMap: question.kind == .click
+        )
+        let delay = right ? 0.4 : 0.6
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let self, self.cueToken == token else { return }
+            self.speedrunCue = nil
+        }
+        let answered = results.count
+        let done = answered >= questions.count
+        onSpeedrunProgress?(answered, max(questions.count, 1), speedrunMisses, done)
+        if done {
+            finishSession()
+        } else {
+            index += 1
+            typed = ""
+            self.chosen = nil
+            self.clicked = nil
+            feedback = ""
+            phase = .asking
+        }
+    }
+
     private func finishSession() {
+        if isSpeedrun {
+            let now = Date()
+            if speedrunClockStart == nil { speedrunClockStart = now }
+            speedrunFrozenAt = now
+            let duration = now.timeIntervalSince(speedrunClockStart ?? now)
+            speedrunFinalTime = SpeedrunClock.format(duration)
+            let scopeKey = mapScope.map { StatsScopeKey.from(practiceScope: $0) } ?? .unknown
+            let key = SpeedrunKey.make(subject: subject, style: speedrunStyle, scope: scopeKey)
+            let saved = stats.recordSpeedrun(key: key, duration: duration, misses: speedrunMisses,
+                                             countries: score, now: now)
+            speedrunIsNewBest = saved.isNewBest
+            speedrunBestText = saved.best > 0 ? SpeedrunClock.format(saved.best) : "-"
+            streak = stats.finishSession(now: now)
+            phase = .finished
+            return
+        }
         if requirePerfect, !pendingRetry.isEmpty, timeExpired {
             unlockedByTimeLimit = true
         }

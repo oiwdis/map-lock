@@ -20,6 +20,64 @@ extension PracticeScope {
     }
 }
 
+/// `countries|click|Europe` style key. Older region-only bests become Country / Click map.
+enum SpeedrunKey {
+    static func make(subject: QuizSubject, style: PracticeAnswerStyle, scope: StatsScopeKey) -> String {
+        "\(subject.rawValue)|\(style.rawValue)|\(scope.rawValue)"
+    }
+
+    static func canonical(_ key: String) -> String {
+        if key.contains("|") { return key }
+        if key == "world" {
+            return make(subject: .countries, style: .clickMap, scope: .world)
+        }
+        if let scope = StatsScopeKey(rawValue: key), scope != .several, scope != .unknown {
+            return make(subject: .countries, style: .clickMap, scope: scope)
+        }
+        return key
+    }
+
+    static func title(_ key: String) -> String {
+        let parts = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3,
+              let subject = QuizSubject(rawValue: parts[0]),
+              let style = PracticeAnswerStyle(rawValue: parts[1]) else {
+            return StatsScopeKey(rawValue: key)?.title ?? key
+        }
+        let scope = StatsScopeKey(rawValue: parts[2]) ?? .unknown
+        let method: String
+        switch style {
+        case .multipleChoice: method = "Multiple choice"
+        case .typeIt: method = "Type"
+        case .clickMap: method = "Click map"
+        }
+        return "\(subject.practiceTitle) / \(method) / \(scope.title)"
+    }
+}
+
+/// Instant feedback for one speedrun answer. It never blocks the next question.
+struct SpeedrunCue: Equatable {
+    var token: Int
+    var right: Bool
+    var chosenText: String
+    var correctText: String
+    var correctCountry: String
+    var wrongCountry: String?
+    var showsMap: Bool
+
+    var mapCue: SpeedrunMapCue {
+        SpeedrunMapCue(token: token, right: right, correctName: correctCountry, wrongName: wrongCountry)
+    }
+}
+
+/// A non-blocking map flash for the answer that just happened.
+struct SpeedrunMapCue: Equatable {
+    var token: Int
+    var right: Bool
+    var correctName: String
+    var wrongName: String?
+}
+
 enum SpeedrunPool {
     /// Quizzable countries in one continent, or every quizzable country for the whole world.
     static func names(world: [Country], scope: PracticeScope) -> [String] {

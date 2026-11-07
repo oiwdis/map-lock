@@ -61,66 +61,51 @@ struct RaceView: View {
 
     var body: some View {
         ZStack {
-            Theme.background.ignoresSafeArea()
-            if session.phase == "finished" {
-                RaceResultView(session: session)
-            } else if session.phase == "countdown" {
-                Text(session.countdown.map(String.init) ?? "1")
-                    .font(.system(size: 96, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-            } else if session.phase == "racing", let country = session.currentCountry {
-                RaceMapView(session: session, country: country)
-            } else {
-                VStack(spacing: Theme.Space.s3) {
+            QuizView(session: session.quiz)
+            if session.phase == "waiting" || session.phase == "countdown" {
+                Theme.background.opacity(0.94).ignoresSafeArea()
+                VStack(spacing: Theme.Space.s4) {
+                    if session.phase == "countdown" {
+                        Text(session.countdown.map(String.init) ?? "1")
+                            .font(.system(size: 96, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                    }
                     Text(session.status)
                         .font(Theme.font(Theme.Size.md, .semibold))
-                    Text("\(session.scope.title) · \(session.total) countries")
-                        .foregroundStyle(Theme.text2)
+                    Text(SpeedrunKey.title(SpeedrunKey.make(
+                        subject: QuizSubject(rawValue: session.ticket.subject) ?? .countries,
+                        style: PracticeAnswerStyle(rawValue: session.ticket.style) ?? .clickMap,
+                        scope: StatsScopeKey.from(practiceScope: session.scope)
+                    )))
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.text2)
+                    opponentBar
                 }
+                .padding(Theme.Space.s6)
+            }
+            if session.phase == "racing" {
+                VStack {
+                    opponentBar
+                        .padding(Theme.Space.s4)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+                        .padding(.top, Theme.Space.s3)
+                        .padding(.horizontal, Theme.Space.s4)
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+                VStack {
+                    Spacer()
+                    Button("Forfeit") { session.forfeit() }
+                        .buttonStyle(AppButtonStyle(kind: .danger))
+                        .padding(.bottom, Theme.Space.s4)
+                }
+            }
+            if session.phase == "finished" {
+                Theme.scrim.ignoresSafeArea()
+                RaceResultView(session: session)
             }
         }
         .foregroundStyle(Theme.text)
-    }
-}
-
-private struct RaceMapView: View {
-    @ObservedObject var session: RaceSession
-    let country: Country
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        VStack(spacing: Theme.Space.s3) {
-            HStack {
-                Text(session.progressText).monospacedDigit().foregroundStyle(Theme.text2)
-                Spacer()
-                TimelineView(.animation(minimumInterval: 0.1, paused: !session.clockRunning)) { timeline in
-                    Text(session.timeText(at: timeline.date))
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                }
-            }
-            opponentBar
-            ClickMapView(
-                world: session.world,
-                target: country,
-                state: session.flashCountry == nil ? .asking : .wrong,
-                clicked: session.flashCountry,
-                enabled: session.canClick,
-                mapScope: session.scope,
-                revealTarget: false
-            ) { name in
-                session.click(name)
-            }
-            .aspectRatio(session.scope.serverRegion == "world" ? 2 : MapViews.clickAspect(for: country, world: session.world), contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous))
-            Text(country.name)
-                .font(Theme.font(Theme.Size.xl, .bold))
-                .modifier(ShakeEffect(shakes: CGFloat(session.shakeCount)))
-                .animation(reduceMotion ? nil : .linear(duration: 0.4), value: session.shakeCount)
-            Button("Forfeit") { session.forfeit() }
-                .buttonStyle(AppButtonStyle(kind: .danger))
-        }
-        .padding(Theme.Space.s6)
     }
 
     private var opponentBar: some View {

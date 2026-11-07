@@ -213,7 +213,12 @@ final class AppSettings {
         static let practiceFlagStyle = "maplock.practice.style.flags"
         static let practiceCapitalStyle = "maplock.practice.style.capitals"
         static let practiceLength = "maplock.practice.length"
+        /// Old single switch. Read once so Country keeps that choice.
         static let practiceSpeedrun = "maplock.practice.speedrun"
+    }
+
+    private static func speedrunKey(_ subject: QuizSubject) -> String {
+        "maplock.practice.speedrun.\(subject.rawValue)"
     }
 
     static let defaultRegions: Set<Region> = [.africa, .asia]
@@ -303,10 +308,20 @@ final class AppSettings {
         set { defaults.set(newValue.rawValue, forKey: Keys.practiceLength) }
     }
 
-    /// Practice tab is showing Speedrun instead of Country / Flag / Capital.
-    var practiceSpeedrun: Bool {
-        get { defaults.bool(forKey: Keys.practiceSpeedrun) }
-        set { defaults.set(newValue, forKey: Keys.practiceSpeedrun) }
+    /// Speedrun switch for one practice type (Country, Capital, or Flag).
+    func practiceSpeedrun(for subject: QuizSubject) -> Bool {
+        let key = Self.speedrunKey(subject)
+        if defaults.object(forKey: key) != nil {
+            return defaults.bool(forKey: key)
+        }
+        if subject == .countries && defaults.bool(forKey: Keys.practiceSpeedrun) {
+            return true
+        }
+        return false
+    }
+
+    func setPracticeSpeedrun(_ on: Bool, for subject: QuizSubject) {
+        defaults.set(on, forKey: Self.speedrunKey(subject))
     }
 
     func practiceStyle(for subject: QuizSubject) -> PracticeAnswerStyle {

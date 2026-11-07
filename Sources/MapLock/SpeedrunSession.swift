@@ -137,7 +137,8 @@ final class SpeedrunSession: ObservableObject {
         frozenAt = now
         let duration = now.timeIntervalSince(clockStart ?? now)
         let saved = stats.recordSpeedrun(
-            scope: StatsScopeKey.from(practiceScope: scope),
+            key: SpeedrunKey.make(subject: .countries, style: .clickMap,
+                                  scope: StatsScopeKey.from(practiceScope: scope)),
             duration: duration,
             misses: misses,
             countries: total,

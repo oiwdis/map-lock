@@ -19,7 +19,11 @@ final class AccountModel: NSObject, ObservableObject, ASAuthorizationControllerD
     @Published var friendDraft = ""
     @Published var joinCode = ""
     @Published var raceRegion: PracticeChoice = .africa
+    @Published var raceSubject: QuizSubject = .countries
+    @Published var raceStyle: PracticeAnswerStyle = .clickMap
     @Published var leaderboardRegion: PracticeChoice = .world
+    @Published var leaderboardSubject: QuizSubject = .countries
+    @Published var leaderboardStyle: PracticeAnswerStyle = .clickMap
     @Published private(set) var friends = FriendLists(friends: [], incoming: [], outgoing: [])
     @Published private(set) var leaderboard: [LeaderboardRow] = []
     @Published private(set) var friendView: FriendStatsResponse?
@@ -116,10 +120,11 @@ final class AccountModel: NSObject, ObservableObject, ASAuthorizationControllerD
 
     func loadLeaderboard() {
         guard let token else { return }
-        let region = leaderboardRegion.scope.serverRegion
+        let key = SpeedrunKey.make(subject: leaderboardSubject, style: leaderboardStyle,
+                                   scope: StatsScopeKey.from(practiceScope: leaderboardRegion.scope))
         Task {
             await run("Could not load the leaderboard") {
-                leaderboard = try await AccountClient.leaderboard(region: region, token: token).rows
+                leaderboard = try await AccountClient.leaderboard(key: key, token: token).rows
             }
         }
     }
@@ -143,9 +148,11 @@ final class AccountModel: NSObject, ObservableObject, ASAuthorizationControllerD
     func createRace() {
         guard let token else { return }
         let region = raceRegion.scope.serverRegion
+        let subject = raceSubject.rawValue
+        let style = raceStyle.rawValue
         Task {
             await run("Could not create a race") {
-                let ticket = try await AccountClient.createRace(region: region, token: token)
+                let ticket = try await AccountClient.createRace(region: region, subject: subject, style: style, token: token)
                 lastRace = ticket
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(ticket.webUrl, forType: .string)
@@ -248,7 +255,9 @@ final class AccountModel: NSObject, ObservableObject, ASAuthorizationControllerD
         guard let token else { return }
         await sync(token: token)
         if let lists = try? await AccountClient.friends(token: token) { friends = lists }
-        if let board = try? await AccountClient.leaderboard(region: leaderboardRegion.scope.serverRegion, token: token) {
+        let key = SpeedrunKey.make(subject: leaderboardSubject, style: leaderboardStyle,
+                                   scope: StatsScopeKey.from(practiceScope: leaderboardRegion.scope))
+        if let board = try? await AccountClient.leaderboard(key: key, token: token) {
             leaderboard = board.rows
         }
     }

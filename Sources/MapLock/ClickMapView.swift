@@ -14,6 +14,8 @@ struct ClickMapView: View {
     var mapScope: PracticeScope? = nil
     /// When false, a wrong click only flashes the place that was hit. The real target stays hidden.
     var revealTarget: Bool = true
+    /// Speedrun feedback drawn over the live question. It does not take clicks.
+    var speedrunCue: SpeedrunMapCue? = nil
     let onClick: (String) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -37,6 +39,11 @@ struct ClickMapView: View {
                                      clicked: clicked, animate: !reduceMotion, zoom: zoom, size: geo.size,
                                      revealTarget: revealTarget)
                         .id(clicked ?? "-")
+                }
+                if let speedrunCue {
+                    SpeedrunCountryFlash(layout: layout, cue: speedrunCue, zoom: zoom, animate: !reduceMotion)
+                        .id(speedrunCue.token)
+                        .allowsHitTesting(false)
                 }
 
                 MapInteractionOverlay(
@@ -303,5 +310,51 @@ private struct ClickResultLayer: View {
         }
         .allowsHitTesting(false)
         .onAppear { start = Date() }
+    }
+}
+
+/// Green or red flash for the country that was just answered. Clicks pass through.
+private struct SpeedrunCountryFlash: View {
+    let layout: ClickLayout
+    let cue: SpeedrunMapCue
+    let zoom: MapZoomState
+    let animate: Bool
+    @State private var shown = false
+
+    var body: some View {
+        Canvas { context, size in
+            var ctx = context
+            ctx.beginMapZoom(zoom, size: size)
+            let inv = max(zoom.scale, 0.001)
+            let opacity = shown || !animate ? 0.72 : 0.2
+            if cue.right {
+                fill(cue.correctName, color: Theme.mapGood.opacity(opacity), outline: Theme.mapGoodOutline, in: &ctx, scale: inv)
+            } else {
+                if let wrong = cue.wrongName {
+                    fill(wrong, color: Theme.mapBad.opacity(opacity), outline: Theme.mapBadOutline, in: &ctx, scale: inv)
+                }
+                fill(cue.correctName, color: Theme.mapTarget.opacity(0.35), outline: Theme.mapTargetOutline, in: &ctx, scale: inv, dashed: true)
+            }
+        }
+        .allowsHitTesting(false)
+        .onAppear {
+            if animate {
+                withAnimation(.easeOut(duration: cue.right ? 0.4 : 0.6)) { shown = true }
+            } else {
+                shown = true
+            }
+        }
+    }
+
+    private func fill(_ name: String, color: Color, outline: Color, in context: inout GraphicsContext,
+                      scale: CGFloat, dashed: Bool = false) {
+        for part in layout.targets where part.name == name {
+            let path = ClickDots.path(for: part, scale: scale)
+            context.fill(path, with: .color(color), style: FillStyle(eoFill: true))
+            let style = dashed
+                ? StrokeStyle(lineWidth: 2.4 / scale, lineCap: .round, dash: [6 / scale, 4 / scale])
+                : StrokeStyle(lineWidth: 1.6 / scale, lineJoin: .round)
+            context.stroke(path, with: .color(outline), style: style)
+        }
     }
 }

@@ -220,19 +220,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             pool = world.filter { $0.quizzable }.map { $0.name }
         }
         guard !pool.isEmpty else { return }
-        let count = length.resolve(poolSize: pool.count)
+        let practiceQuiz = settings.practiceEngine
+        let speedrun = settings.practiceSpeedrun(for: practiceQuiz.subject)
+        let count = speedrun ? pool.count : length.resolve(poolSize: pool.count)
+        let order = speedrun ? SpeedrunRules.shuffled(pool) : nil
         // Own deck for this run so practice does not reshuffle the unlock progress.
         let suite = "maplock.practice.ephemeral"
         if let box = UserDefaults(suiteName: suite) {
             box.removePersistentDomain(forName: suite)
         }
         let practiceDeck = DeckStore(defaults: UserDefaults(suiteName: suite) ?? .standard)
-        let practiceQuiz = settings.practiceEngine
         let session = QuizSession(
             world: world, pool: pool, mode: practiceQuiz.mode,
             quizType: practiceQuiz.type, subject: practiceQuiz.subject,
             stats: stats, deck: practiceDeck, count: count, kind: .practice,
-            requirePerfect: false, mapScope: scope
+            requirePerfect: false, mapScope: scope,
+            speedrun: speedrun, speedrunStyle: settings.practiceStyle(for: practiceQuiz.subject),
+            speedrunOrder: order
         ) { [weak self] in
             self?.practice.close()
         }
@@ -242,22 +246,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if NSApp.isHidden { NSApp.unhide(nil) }
         practice.show(session: session)
-    }
-
-    /// Speedrun: every country in the place, once, click to find it. No screen lock.
-    func startSpeedrun(_ scope: PracticeScope) {
-        guard !overlay.isShowing, !practice.isShowing, !races.isShowing, !world.isEmpty else { return }
-        let names = SpeedrunPool.names(world: world, scope: scope)
-        guard !names.isEmpty else { return }
-        let session = SpeedrunSession(world: world, scope: scope, stats: stats) { [weak self] in
-            self?.practice.close()
-        }
-        practice.onClosed = { [weak self] in
-            self?.account?.syncNow()
-            self?.home?.model.reload()
-        }
-        if NSApp.isHidden { NSApp.unhide(nil) }
-        practice.show(speedrun: session)
     }
 
     private func quizClosed() {
@@ -419,9 +407,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         model.onPractice = { [weak self] scope, length in
             self?.startPractice(scope, length: length)
-        }
-        model.onSpeedrun = { [weak self] scope in
-            self?.startSpeedrun(scope)
         }
         home = HomeWindowController(model: model, account: account)
         account.restoreIfNeeded()

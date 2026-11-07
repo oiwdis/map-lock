@@ -57,8 +57,6 @@ final class HomeModel: ObservableObject {
     var onQuizNow: () -> Void = {}
     /// Practice test for one continent or the whole world (no lock).
     var onPractice: (PracticeScope, PracticeLength) -> Void = { _, _ in }
-    /// Speedrun for one continent or the whole world (no lock).
-    var onSpeedrun: (PracticeScope) -> Void = { _ in }
     var onShowStats: () -> Void = {}
 
     @Published var mode: QuizMode = .mixed {
@@ -127,7 +125,7 @@ final class HomeModel: ObservableObject {
         }
     }
     @Published var practiceSpeedrun = false {
-        didSet { if !loading { settings.practiceSpeedrun = practiceSpeedrun } }
+        didSet { if !loading { settings.setPracticeSpeedrun(practiceSpeedrun, for: practiceSubject) } }
     }
     @Published var homeTab: HomeTab = .practice
 
@@ -200,7 +198,7 @@ final class HomeModel: ObservableObject {
         practiceSubject = settings.practiceSubject
         practiceAnswerStyle = settings.practiceStyle(for: settings.practiceSubject)
         practiceLength = settings.practiceLength
-        practiceSpeedrun = settings.practiceSpeedrun
+        practiceSpeedrun = settings.practiceSpeedrun(for: settings.practiceSubject)
         scheduleKind = schedule.kind
         fixedSlots = schedule.times.map { TimeSlot(date: schedule.date(forMinute: $0)) }
         randomStart = schedule.date(forMinute: schedule.randomStart)
@@ -255,30 +253,19 @@ final class HomeModel: ObservableObject {
     }
 
     func startPracticeNow() {
-        if practiceSpeedrun {
-            onSpeedrun(practiceChoice.scope)
-        } else {
-            onPractice(practiceChoice.scope, practiceLength)
-        }
+        onPractice(practiceChoice.scope, practiceLength)
     }
 
-    /// Switching practice subject loads that subject's saved answer style.
+    /// Switching practice subject loads that subject's saved answer style and Speedrun switch.
     func selectPracticeSubject(_ subject: QuizSubject) {
-        let leavingSpeedrun = practiceSpeedrun
-        if practiceSubject == subject && !leavingSpeedrun { return }
+        if practiceSubject == subject { return }
         loading = true
-        practiceSpeedrun = false
         practiceSubject = subject
         practiceAnswerStyle = settings.practiceStyle(for: subject)
+        practiceSpeedrun = settings.practiceSpeedrun(for: subject)
         loading = false
         settings.practiceSubject = subject
-        settings.practiceSpeedrun = false
         onChange()
-    }
-
-    func selectSpeedrun() {
-        guard !practiceSpeedrun else { return }
-        practiceSpeedrun = true
     }
 
     func selectPracticeAnswerStyle(_ style: PracticeAnswerStyle) {
@@ -473,9 +460,7 @@ private struct PracticePane: View {
             Text("Practice")
                 .font(Theme.font(Theme.Size.xl, .bold))
                 .kerning(-0.4)
-            Text(model.practiceSpeedrun
-                 ? "Pick a place. Speedrun asks every country there, once."
-                 : "Pick what to practice, how to answer, then a place.")
+            Text("Pick what to practice, how to answer, then a place.")
                 .font(Theme.font(Theme.Size.body))
                 .foregroundStyle(Theme.text2)
             HStack(spacing: Theme.Space.s2) {
@@ -502,64 +487,49 @@ private struct PracticePane: View {
                     PracticeModeChip(
                         title: subject.practiceTitle,
                         symbol: subject.practiceSymbol,
-                        selected: !model.practiceSpeedrun && model.practiceSubject == subject
+                        selected: model.practiceSubject == subject
                     ) {
                         model.selectPracticeSubject(subject)
                     }
                 }
-                PracticeModeChip(
-                    title: "Speedrun",
-                    symbol: "timer",
-                    selected: model.practiceSpeedrun
-                ) {
-                    model.selectSpeedrun()
-                }
             }
-            if model.practiceSpeedrun {
-                Text("A name appears and you click that country. A wrong click flashes and counts a miss. You stay on that country until you find it. The timer starts when the first country is shown.")
+            VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                Text("How to answer")
+                    .font(Theme.font(Theme.Size.sm, .semibold))
+                    .foregroundStyle(Theme.text3)
+                ForEach(PracticeAnswerStyle.allCases) { style in
+                    PracticeAnswerRow(
+                        title: style.title(for: model.practiceSubject),
+                        selected: model.practiceAnswerStyle == style
+                    ) {
+                        model.selectPracticeAnswerStyle(style)
+                    }
+                }
+                Text(model.practiceHelpText)
                     .font(Theme.font(Theme.Size.xs))
                     .foregroundStyle(Theme.text3)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(Theme.Space.s3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                            .fill(Theme.card)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                            .strokeBorder(Theme.hairline2, lineWidth: 1)
-                    )
-            } else {
-                VStack(alignment: .leading, spacing: Theme.Space.s2) {
-                    Text("How to answer")
-                        .font(Theme.font(Theme.Size.sm, .semibold))
-                        .foregroundStyle(Theme.text3)
-                    ForEach(PracticeAnswerStyle.allCases) { style in
-                        PracticeAnswerRow(
-                            title: style.title(for: model.practiceSubject),
-                            selected: model.practiceAnswerStyle == style
-                        ) {
-                            model.selectPracticeAnswerStyle(style)
-                        }
-                    }
-                    Text(model.practiceHelpText)
-                        .font(Theme.font(Theme.Size.xs))
-                        .foregroundStyle(Theme.text3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, Theme.Space.s1)
-                }
-                .padding(Theme.Space.s3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                        .fill(Theme.card)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                        .strokeBorder(Theme.hairline2, lineWidth: 1)
-                )
+                    .padding(.top, Theme.Space.s1)
+                Divider()
+                    .padding(.top, Theme.Space.s2)
+                Toggle("Speedrun", isOn: $model.practiceSpeedrun)
+                    .toggleStyle(.switch)
+                    .font(Theme.font(Theme.Size.body, .medium))
+                Text("Timer on, no pause between questions.")
+                    .font(Theme.font(Theme.Size.xs))
+                    .foregroundStyle(Theme.text3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .padding(Theme.Space.s3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(Theme.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .strokeBorder(Theme.hairline2, lineWidth: 1)
+            )
         }
     }
 

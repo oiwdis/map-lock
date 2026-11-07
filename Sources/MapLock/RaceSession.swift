@@ -29,30 +29,22 @@ private struct RaceEnvelope: Decodable {
     var race: RaceWireState
 }
 
-/// One live race. The country order comes from the server seed, not a fresh shuffle.
+/// Live race socket plus the speedrun quiz both players share.
 @MainActor
 final class RaceSession: ObservableObject {
     let ticket: RaceTicket
     let world: [Country]
     let scope: PracticeScope
     private var seed: String
-    private(set) var order: [String]
-    private let byName: [String: Country]
+    private var order: [String]
     private let stats: StatsStore
     private let token: String
-    private var progress: SpeedrunProgress
     private var socket: URLSessionWebSocketTask?
-    private var myUserId: String?
-    private var recorded = false
-    private var flashTask: Task<Void, Never>?
-    private var flashToken = 0
+    private var myUserId: String
 
+    @Published private(set) var quiz: QuizSession
     @Published private(set) var phase = "waiting"
     @Published private(set) var countdown: Int?
-    @Published private(set) var index = 0
-    @Published private(set) var misses = 0
-    @Published private(set) var flashCountry: String?
-    @Published private(set) var shakeCount = 0
     @Published private(set) var opponentName = "Opponent"
     @Published private(set) var opponentFound = 0
     @Published private(set) var opponentTotal = 0
@@ -63,7 +55,6 @@ final class RaceSession: ObservableObject {
     @Published private(set) var opponentForfeited = false
     @Published private(set) var youWon: Bool?
     @Published private(set) var status = "Waiting for the other player"
-    @Published var clockStart: Date?
 
     var onClose: () -> Void = {}
 
@@ -75,26 +66,16 @@ final class RaceSession: ObservableObject {
         self.token = token
         self.myUserId = userId
         self.stats = stats
-        let names = SpeedrunPool.names(world: world, scope: scope).sorted()
-        var generator = SeededGenerator(seedHex: ticket.seed)
-        let shuffled = SpeedrunRules.shuffled(names, using: &generator)
-        self.order = shuffled
-        self.progress = SpeedrunProgress(order: shuffled)
-        self.byName = Dictionary(world.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
-        opponentTotal = shuffled.count
+        let built = Self.order(world: world, scope: scope, seed: ticket.seed)
+        self.order = built
+        self.opponentTotal = built.count
+        self.quiz = Self.makeQuiz(ticket: ticket, world: world, scope: scope, order: built, stats: stats, onClose: {})
+        self.quiz.onSpeedrunProgress = { [weak self] found, total, misses, finished in
+            self?.sendProgressValues(found: found, total: total, misses: misses, finished: finished)
+        }
+        self.quiz.onClose = { [weak self] in self?.close() }
+        self.quiz.speedrunAcceptsInput = false
     }
-
-    var total: Int { order.count }
-    var currentCountry: Country? {
-        guard let name = progress.current else { return nil }
-        return byName[name]
-    }
-    var progressText: String {
-        guard total > 0 else { return "0 of 0" }
-        return "\(min(index + 1, total)) of \(total)"
-    }
-    var canClick: Bool { phase == "racing" && progress.current != nil }
-    var clockRunning: Bool { phase == "racing" && clockStart != nil && youElapsed == nil }
 
     func connect() {
         var request = URLRequest(url: websocketURL(code: ticket.code))
@@ -103,28 +84,7 @@ final class RaceSession: ObservableObject {
         socket = task
         task.resume()
         listen()
-        sendJSON(("type", "ready"), ("total", total))
-    }
-
-    func click(_ name: String) {
-        guard canClick else { return }
-        switch progress.click(name) {
-        case .ignored:
-            return
-        case .miss:
-            misses = progress.misses
-            shakeCount += 1
-            flash(name)
-            sendProgress(finished: false)
-        case .advanced:
-            clearFlash()
-            index = progress.index
-            sendProgress(finished: false)
-        case .finished:
-            clearFlash()
-            index = progress.index
-            sendProgress(finished: true)
-        }
+        sendJSON(("type", "ready"), ("total", order.count))
     }
 
     func forfeit() {
@@ -140,11 +100,6 @@ final class RaceSession: ObservableObject {
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
         onClose()
-    }
-
-    func timeText(at now: Date) -> String {
-        guard let clockStart else { return SpeedrunClock.format(0) }
-        return SpeedrunClock.format(now.timeIntervalSince(clockStart))
     }
 
     private func listen() {
@@ -168,18 +123,23 @@ final class RaceSession: ObservableObject {
         let race = envelope.race
         if race.seed != seed {
             seed = race.seed
-            var generator = SeededGenerator(seedHex: seed)
-            order = SpeedrunRules.shuffled(SpeedrunPool.names(world: world, scope: scope).sorted(), using: &generator)
-            progress = SpeedrunProgress(order: order)
-            index = 0
-            misses = 0
-            clockStart = nil
-            recorded = false
+            order = Self.order(world: world, scope: scope, seed: seed)
+            opponentTotal = order.count
+            let next = Self.makeQuiz(ticket: ticket, world: world, scope: scope, order: order, stats: stats) { [weak self] in
+                self?.close()
+            }
+            next.onSpeedrunProgress = { [weak self] found, total, misses, finished in
+                self?.sendProgressValues(found: found, total: total, misses: misses, finished: finished)
+            }
+            next.speedrunAcceptsInput = false
+            quiz = next
             youElapsed = nil
             youWon = nil
             youForfeited = false
             opponentElapsed = nil
             opponentForfeited = false
+            opponentFound = 0
+            opponentMisses = 0
             sendJSON(("type", "ready"), ("total", order.count))
         }
         phase = race.phase
@@ -194,29 +154,34 @@ final class RaceSession: ObservableObject {
         if let other {
             opponentName = other.username
             opponentFound = other.found
-            opponentTotal = other.total > 0 ? other.total : total
+            opponentTotal = other.total > 0 ? other.total : order.count
             opponentMisses = other.misses
             opponentElapsed = other.elapsed
             opponentForfeited = other.forfeited
         }
-        if race.phase == "racing", clockStart == nil { clockStart = Date() }
-        if race.phase == "finished" {
-            if let winner = race.winnerId, let mine = myUserId {
-                youWon = winner == mine
+        if race.phase == "racing" {
+            quiz.speedrunAcceptsInput = true
+            quiz.noteSpeedrunVisible()
+            status = "Go"
+        } else if race.phase == "finished" {
+            quiz.speedrunAcceptsInput = false
+            if let winner = race.winnerId {
+                youWon = winner == myUserId
             }
             status = youForfeited ? "You forfeited." : (opponentForfeited ? "\(opponentName) forfeited." : "Race finished.")
-            recordLocalFinish()
         } else if race.phase == "countdown" {
+            quiz.speedrunAcceptsInput = false
             status = "Get ready"
-        } else if race.phase == "waiting" {
+        } else {
+            quiz.speedrunAcceptsInput = false
             status = race.players.count < 2 ? "Waiting for the other player" : "Waiting to start"
         }
     }
 
-    private func sendProgress(finished: Bool) {
+    private func sendProgressValues(found: Int, total: Int, misses: Int, finished: Bool) {
         sendJSON(
             ("type", "progress"),
-            ("found", index),
+            ("found", found),
             ("total", total),
             ("misses", misses),
             ("finished", finished)
@@ -231,36 +196,34 @@ final class RaceSession: ObservableObject {
         socket?.send(.string(text)) { _ in }
     }
 
-    private func recordLocalFinish() {
-        guard !recorded, !youForfeited, index >= total, total > 0, let duration = youElapsed, duration > 0 else { return }
-        recorded = true
-        stats.recordSpeedrun(scope: StatsScopeKey.from(practiceScope: scope), duration: duration,
-                             misses: misses, countries: total)
-    }
-
-    private func flash(_ name: String) {
-        flashToken += 1
-        let token = flashToken
-        flashCountry = name
-        flashTask?.cancel()
-        flashTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            guard !Task.isCancelled, let self, self.flashToken == token else { return }
-            self.flashCountry = nil
-        }
-    }
-
-    private func clearFlash() {
-        flashTask?.cancel()
-        flashToken += 1
-        flashCountry = nil
-    }
-
     private func websocketURL(code: String) -> URL {
         let http = MapLockAPI.url("/v1/races/\(code)/ws")
         var parts = URLComponents(url: http, resolvingAgainstBaseURL: true)
         if parts?.scheme == "https" { parts?.scheme = "wss" }
         if parts?.scheme == "http" { parts?.scheme = "ws" }
         return parts?.url ?? http
+    }
+
+    private static func order(world: [Country], scope: PracticeScope, seed: String) -> [String] {
+        var generator = SeededGenerator(seedHex: seed)
+        return SpeedrunRules.shuffled(SpeedrunPool.names(world: world, scope: scope).sorted(), using: &generator)
+    }
+
+    private static func makeQuiz(ticket: RaceTicket, world: [Country], scope: PracticeScope, order: [String],
+                                 stats: StatsStore, onClose: @escaping () -> Void) -> QuizSession {
+        let subject = QuizSubject(rawValue: ticket.subject) ?? .countries
+        let style = PracticeAnswerStyle(rawValue: ticket.style) ?? .clickMap
+        let pair = style.enginePair
+        let suite = "maplock.race.\(ticket.code).\(ticket.seed)"
+        if let box = UserDefaults(suiteName: suite) {
+            box.removePersistentDomain(forName: suite)
+        }
+        let deck = DeckStore(defaults: UserDefaults(suiteName: suite) ?? .standard)
+        return QuizSession(
+            world: world, pool: order, mode: pair.mode, quizType: pair.type, subject: subject,
+            stats: stats, deck: deck, count: max(order.count, 1), kind: .practice,
+            mapScope: scope, speedrun: true, speedrunStyle: style, speedrunOrder: order,
+            onClose: onClose
+        )
     }
 }
