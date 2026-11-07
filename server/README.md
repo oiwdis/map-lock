@@ -42,7 +42,7 @@ From this `server/` directory:
    `migrations/0001_initial.sql` is the original tables. Production already has them.
    `migrations/0002_password_accounts.sql` adds `password_hash` (null for Apple users), rebuilds `users` so `apple_sub` can be null, and creates `login_attempts`. Production already has that. Running it on a database created from the current `schema.sql` fails, because those columns are already there.
    `migrations/0003_race_subject_style.sql` adds `races.subject` and `races.style`. It is already applied on production. SQLite has no `ADD COLUMN IF NOT EXISTS`, so running 0003 again fails. Do not run it on prod.
-   `migrations/0004_race_status.sql` adds `races.status` (`open` by default). Apply it once on production before deploying the worker that cancels races. A second run fails on the `ALTER` and leaves existing rows alone.
+   `migrations/0004_race_status.sql` adds `races.status` (`open` by default). It is already applied on production. SQLite has no `ADD COLUMN IF NOT EXISTS`, so running it again fails. Do not run it on prod.
 
    Applying 0001, then 0002, then 0003, then 0004 builds the same database as `schema.sql`.
 
