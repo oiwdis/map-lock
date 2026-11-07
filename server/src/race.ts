@@ -31,7 +31,7 @@ export interface RaceState {
   region: string;
   seed: string;
   hostId: string;
-  phase: "waiting" | "countdown" | "racing" | "finished";
+  phase: "waiting" | "countdown" | "racing" | "finished" | "cancelled";
   countdown: number | null;
   startedAt: number | null;
   winnerId: string | null;
@@ -71,6 +71,26 @@ export class RaceRoom extends DurableObject<Env> {
       return Response.json({ ok: true });
     }
 
+    if (url.pathname === "/cancel" && request.method === "POST") {
+      const body = await request.json() as { hostId?: string };
+      const state = await this.load();
+      if (!state) return Response.json({ ok: true });
+      if (body.hostId && body.hostId !== state.hostId) {
+        return Response.json({ error: "Only the person who created this race can cancel it" }, { status: 403 });
+      }
+      const opponent = state.players.some((player) => player.userId !== state.hostId);
+      if (opponent || state.phase === "countdown" || state.phase === "racing" || state.phase === "finished") {
+        return Response.json({ error: "Someone has already joined" }, { status: 409 });
+      }
+      state.phase = "cancelled";
+      await this.save(state);
+      this.broadcast(state);
+      for (const socket of this.ctx.getWebSockets()) {
+        try { socket.close(1000, "cancelled"); } catch { /* already closed */ }
+      }
+      return Response.json({ ok: true });
+    }
+
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 });
     }
@@ -80,6 +100,7 @@ export class RaceRoom extends DurableObject<Env> {
 
     const state = await this.load();
     if (!state) return new Response("Unknown race", { status: 404 });
+    if (state.phase === "cancelled") return new Response("This race was cancelled", { status: 409 });
     if (!this.admit(state, userId, username)) {
       return new Response("This race already has two players", { status: 409 });
     }

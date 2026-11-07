@@ -42,8 +42,9 @@ From this `server/` directory:
    `migrations/0001_initial.sql` is the original tables. Production already has them.
    `migrations/0002_password_accounts.sql` adds `password_hash` (null for Apple users), rebuilds `users` so `apple_sub` can be null, and creates `login_attempts`. Production already has that. Running it on a database created from the current `schema.sql` fails, because those columns are already there.
    `migrations/0003_race_subject_style.sql` adds `races.subject` and `races.style`. It is already applied on production. SQLite has no `ADD COLUMN IF NOT EXISTS`, so running 0003 again fails. Do not run it on prod.
+   `migrations/0004_race_status.sql` adds `races.status` (`open` by default). Apply it once on production before deploying the worker that cancels races. A second run fails on the `ALTER` and leaves existing rows alone.
 
-   Applying 0001, then 0002, then 0003 builds the same database as `schema.sql`.
+   Applying 0001, then 0002, then 0003, then 0004 builds the same database as `schema.sql`.
 
 5. Check the project: `npm run check`
 6. Deploy: `npx wrangler deploy`
@@ -83,6 +84,7 @@ Session header: `Authorization: Bearer <token>`.
 - `GET /v1/users/:username/stats` for an accepted friend only.
 - `GET /v1/me/stats` and `PUT /v1/me/stats`. The body is `{ quizzes, speedruns, speedrunBests, countries }`. The worker unions history by id and keeps the faster best time for each region.
 - `POST /v1/races` with `{ "region" }`. Returns `code`, `seed`, `webUrl`, and `appUrl` (`maplock://race/<code>`).
+- `DELETE /v1/races/:code` cancels a race. Only the creator can do it, and only before someone else joins. Joining a cancelled code returns `This race was cancelled`.
 - `POST /v1/races/:code/join`
 - `GET /v1/races/:code/ws` upgrades to a WebSocket on the `RaceRoom` Durable Object.
 

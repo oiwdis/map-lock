@@ -43,6 +43,8 @@ final class RaceSession: ObservableObject {
     private let token: String
     private var socket: URLSessionWebSocketTask?
     private var myUserId: String
+    let isHost: Bool
+    private var ended = false
 
     @Published private(set) var quiz: QuizSession
     @Published private(set) var phase = "waiting"
@@ -60,16 +62,21 @@ final class RaceSession: ObservableObject {
     @Published private(set) var opponentForfeited = false
     @Published private(set) var youWon: Bool?
     @Published private(set) var status = "Waiting for your friend"
+    @Published private(set) var opponentJoined = false
 
     var onClose: () -> Void = {}
+    var onCancelled: () -> Void = {}
+    var canOfferCancel: Bool { isHost && phase == "waiting" && !opponentJoined }
 
-    init(ticket: RaceTicket, world: [Country], scope: PracticeScope, token: String, userId: String, stats: StatsStore) {
+    init(ticket: RaceTicket, world: [Country], scope: PracticeScope, token: String, userId: String,
+         isHost: Bool, stats: StatsStore) {
         self.ticket = ticket
         self.world = world
         self.scope = scope
         self.seed = ticket.seed
         self.token = token
         self.myUserId = userId
+        self.isHost = isHost
         self.stats = stats
         let built = Self.order(world: world, scope: scope, seed: ticket.seed)
         self.order = built
@@ -102,9 +109,31 @@ final class RaceSession: ObservableObject {
     }
 
     func close() {
+        dropSocket()
+        onClose()
+    }
+
+    func dropSocket() {
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
-        onClose()
+    }
+
+    func cancelAndClose() {
+        guard canOfferCancel, !ended else { return }
+        ended = true
+        Task {
+            do {
+                try await AccountClient.cancelRace(code: ticket.code, token: token)
+                onCancelled()
+                close()
+            } catch let error as APIFailure {
+                ended = false
+                status = error.message
+            } catch {
+                ended = false
+                status = "Could not cancel the race. Try again."
+            }
+        }
     }
 
     private func listen() {
@@ -113,7 +142,9 @@ final class RaceSession: ObservableObject {
                 guard let self else { return }
                 switch result {
                 case .failure:
-                    self.status = "Connection lost. If you were racing, reconnect by opening the link again."
+                    if !self.ended && self.phase != "cancelled" {
+                        self.status = "Connection lost. If you were racing, reconnect by opening the link again."
+                    }
                 case .success(let message):
                     if case .string(let text) = message { self.apply(text) }
                     self.listen()
@@ -158,6 +189,7 @@ final class RaceSession: ObservableObject {
             youRaw = mine.raw
             youForfeited = mine.forfeited
         }
+        opponentJoined = other != nil
         if let other {
             opponentName = other.username
             opponentFound = other.found
@@ -188,6 +220,10 @@ final class RaceSession: ObservableObject {
             } else {
                 status = "Race finished."
             }
+        } else if race.phase == "cancelled" {
+            ended = true
+            quiz.speedrunAcceptsInput = false
+            status = "This race was cancelled."
         } else if race.phase == "countdown" {
             quiz.speedrunAcceptsInput = false
             status = "Get ready"

@@ -4,12 +4,14 @@ import SwiftUI
 @MainActor
 final class RaceController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
+    private var session: RaceSession?
     private var closing = false
     var onClosed: (() -> Void)?
     var isShowing: Bool { window?.isVisible ?? false }
 
     func show(session: RaceSession) {
         closing = false
+        self.session = session
         let frame = PracticeFrame.fitted()
         if window == nil {
             let w = NSWindow(contentRect: frame, styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -34,14 +36,42 @@ final class RaceController: NSObject, NSWindowDelegate {
     func close() {
         guard !closing else { return }
         closing = true
+        session?.dropSocket()
+        session = nil
         window?.orderOut(nil)
         window?.contentView = nil
         onClosed?()
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if let session, session.canOfferCancel {
+            confirmLeave(session)
+            return false
+        }
         close()
         return false
+    }
+
+    private func confirmLeave(_ session: RaceSession) {
+        guard let window else {
+            close()
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Cancel this race?"
+        alert.informativeText = "The code will stop working."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel race")
+        alert.addButton(withTitle: "Keep it open")
+        alert.beginSheetModal(for: window) { response in
+            Task { @MainActor in
+                if response == .alertFirstButtonReturn {
+                    session.cancelAndClose()
+                } else {
+                    self.close()
+                }
+            }
+        }
     }
 }
 
@@ -229,6 +259,7 @@ enum PracticeFrame {
 struct RaceView: View {
     @ObservedObject var session: RaceSession
     @State private var copyToken = 0
+    @State private var confirmCancel = false
 
     var body: some View {
         ZStack {
@@ -258,6 +289,28 @@ struct RaceView: View {
                             CopyLinkButton(text: session.ticket.webUrl, height: 36, copyToken: $copyToken)
                             RaceShareButton(text: session.ticket.webUrl)
                                 .frame(width: 96, height: 36)
+                        }
+                        if session.canOfferCancel {
+                            HitButton { confirmCancel = true } label: {
+                                Text("Cancel race")
+                                    .font(Theme.font(Theme.Size.body, .semibold))
+                                    .foregroundStyle(Theme.bad)
+                                    .frame(height: 32)
+                                    .padding(.horizontal, Theme.Space.s3)
+                                    .contentShape(Rectangle())
+                            }
+                            .confirmationDialog("Cancel this race?", isPresented: $confirmCancel, titleVisibility: .visible) {
+                                Button("Cancel race", role: .destructive) { session.cancelAndClose() }
+                                Button("Keep it open", role: .cancel) {}
+                            } message: {
+                                Text("The code will stop working.")
+                            }
+                        }
+                        if session.status != "Waiting for your friend" {
+                            Text(session.status)
+                                .font(Theme.font(Theme.Size.sm))
+                                .foregroundStyle(Theme.bad)
+                                .multilineTextAlignment(.center)
                         }
                     }
                     Text(SpeedrunKey.title(SpeedrunKey.make(

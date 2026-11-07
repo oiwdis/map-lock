@@ -1,5 +1,6 @@
 import AppKit
 import Sparkle
+import UserNotifications
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -34,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let launchedBeforeKey = "maplock.launchedBefore"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = self
         NSApp.setActivationPolicy(.regular)
         settings.appearance.apply()
         // Before any window, overlay or quiz: offer to move to Applications.
@@ -73,7 +75,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        guard !overlay.isShowing, !practice.isShowing, !races.isShowing else { return }
+        if overlay.isShowing || practice.isShowing || races.isShowing {
+            account?.refreshFriendsFromBackground()
+            return
+        }
         account?.syncNow()
     }
 
@@ -346,6 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func didWake(_ note: Notification) {
         // If the Mac asks for a password, the lock notice comes too and the check waits for unlock.
+        account?.refreshFriendsFromBackground()
         checkScheduleSoon()
         maybeQuizOnWake()
     }
@@ -361,6 +367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             guard let self else { return }
             if !Self.screenIsLockedNow() { self.isLocked = false }
+            self.account?.refreshFriendsFromBackground()
             self.checkSchedule()
             self.maybeQuizOnWake()
         }
@@ -405,8 +412,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.home?.model.homeTab = .account
             self?.home?.show()
         }
-        account.onOpenRace = { [weak self] ticket in
-            self?.openRace(ticket)
+        account.onOpenRace = { [weak self] ticket, isHost in
+            self?.openRace(ticket, isHost: isHost)
+        }
+        account.onRaceCancelled = { [weak self] in
+            self?.races.close()
         }
         account.onStartSpeedrun = { [weak self] choice, subject, style in
             self?.home?.model.showSpeedrunSetup(choice: choice, subject: subject, style: style)
@@ -433,16 +443,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func openRace(_ ticket: RaceTicket) {
+    private func openRace(_ ticket: RaceTicket, isHost: Bool) {
         guard !overlay.isShowing, let scope = PracticeScope.fromServer(ticket.region),
               let token = account?.sessionToken, let userId = account?.user?.id else { return }
         let session = RaceSession(ticket: ticket, world: world, scope: scope, token: token,
-                                  userId: userId, stats: stats)
+                                  userId: userId, isHost: isHost, stats: stats)
+        session.onCancelled = { [weak self] in
+            self?.account?.noteRaceCancelled()
+        }
         races.onClosed = { [weak self] in
             self?.account?.syncNow()
             self?.home?.model.reload()
         }
         races.show(session: session)
+    }
+
+    private func showFriends() {
+        account?.page = .friends
+        home?.model.homeTab = .account
+        guard !overlay.isShowing else { return }
+        if NSApp.isHidden { NSApp.unhide(nil) }
+        NSApp.activate(ignoringOtherApps: true)
+        home?.show()
     }
 
     private func settingsChanged() {
@@ -774,5 +796,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func quit(_ sender: NSMenuItem) {
         // Goes through applicationShouldTerminate, which hides the app.
         NSApp.terminate(nil)
+    }
+}
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let openFriends = response.notification.request.content.userInfo["maplock"] as? String == "friends"
+        Task { @MainActor in
+            if openFriends { self.showFriends() }
+            completionHandler()
+        }
     }
 }

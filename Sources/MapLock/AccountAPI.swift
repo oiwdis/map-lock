@@ -44,6 +44,13 @@ struct FriendLists: Codable, Equatable {
     var outgoing: [FriendItem]
 }
 
+struct FriendRequestResponse: Codable {
+    var ok: Bool?
+    var id: String?
+    var status: String?
+    var username: String?
+}
+
 struct LeaderboardRow: Codable, Identifiable, Equatable {
     var userId: String
     var username: String
@@ -109,9 +116,9 @@ enum AccountClient {
         try await send(FriendLists.self, path: "/v1/friends", method: "GET", token: token, json: nil)
     }
 
-    static func requestFriend(_ username: String, token: String) async throws {
-        try await sendEmpty(path: "/v1/friends/requests", method: "POST", token: token,
-                            json: try encode(["username": username]))
+    static func requestFriend(_ username: String, token: String) async throws -> FriendRequestResponse {
+        try await send(FriendRequestResponse.self, path: "/v1/friends/requests", method: "POST", token: token,
+                       json: try encode(["username": username]))
     }
 
     static func accept(_ id: String, token: String) async throws {
@@ -156,6 +163,10 @@ enum AccountClient {
     static func joinRace(code: String, token: String) async throws -> RaceTicket {
         try await send(RaceTicket.self, path: "/v1/races/\(code)/join", method: "POST", token: token,
                        json: try encode([String: String]()))
+    }
+
+    static func cancelRace(code: String, token: String) async throws {
+        try await sendEmpty(path: "/v1/races/\(code)", method: "DELETE", token: token, json: nil)
     }
 
     static func sha256Hex(_ text: String) -> String {

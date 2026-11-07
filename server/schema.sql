@@ -69,5 +69,6 @@ CREATE TABLE IF NOT EXISTS races (
   seed TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   subject TEXT NOT NULL DEFAULT 'countries',
-  style TEXT NOT NULL DEFAULT 'click'
+  style TEXT NOT NULL DEFAULT 'click',
+  status TEXT NOT NULL DEFAULT 'open'
 );

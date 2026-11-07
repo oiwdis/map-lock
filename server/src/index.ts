@@ -3,6 +3,7 @@ import { createSession, randomCode, randomSeed, randomToken, sha256Hex, userFrom
 import { canonicalBestKey, emptyPayload, isRegion, mergePayload, parsePayload } from "./merge";
 import { RaceRoom } from "./race";
 import { clientIp, hashPassword, loginIsLimited, recordLoginFailure, verifyPassword } from "./password";
+import { planFriendRequest } from "./friends";
 import { canonicalUsername, usernameProblem } from "./username";
 
 export { RaceRoom };
@@ -60,6 +61,9 @@ async function route(request: Request, env: Env): Promise<Response> {
 
   const join = url.pathname.match(/^\/v1\/races\/([A-Za-z0-9]{4,16})\/join$/);
   if (request.method === "POST" && join) return joinRace(env, user, join[1]);
+
+  const cancel = url.pathname.match(/^\/v1\/races\/([A-Za-z0-9]{4,16})$/);
+  if (request.method === "DELETE" && cancel) return cancelRace(env, user, cancel[1]);
 
   return json({ error: "Not found" }, 404);
 }
@@ -320,19 +324,23 @@ async function requestFriend(request: Request, env: Env, user: SessionUser): Pro
     `SELECT id, status, requester_id FROM friendships
      WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)`,
   ).bind(user.id, other.id, other.id, user.id).first<{ id: string; status: string; requester_id: string }>();
-  if (existing?.status === "accepted") return json({ error: "You are already friends" }, 409);
-  if (existing?.status === "pending") return json({ error: "A request is already waiting" }, 409);
-  if (existing?.status === "declined") {
+  const plan = planFriendRequest(existing, user.id);
+  if (plan.action === "error") return json({ error: plan.error }, plan.status);
+  if (plan.action === "accept") {
+    await env.DB.prepare("UPDATE friendships SET status = 'accepted' WHERE id = ?").bind(plan.id).run();
+    return json({ ok: true, id: plan.id, status: "accepted", username: other.username });
+  }
+  if (plan.action === "reopen") {
     await env.DB.prepare(
       "UPDATE friendships SET requester_id = ?, addressee_id = ?, status = 'pending', created_at = ? WHERE id = ?",
-    ).bind(user.id, other.id, Date.now(), existing.id).run();
-    return json({ ok: true, id: existing.id });
+    ).bind(user.id, other.id, Date.now(), plan.id).run();
+    return json({ ok: true, id: plan.id, status: "pending", username: other.username });
   }
   const id = crypto.randomUUID();
   await env.DB.prepare(
     "INSERT INTO friendships (id, requester_id, addressee_id, status, created_at) VALUES (?, ?, ?, 'pending', ?)",
   ).bind(id, user.id, other.id, Date.now()).run();
-  return json({ ok: true, id });
+  return json({ ok: true, id, status: "pending", username: other.username });
 }
 
 async function decideFriend(env: Env, userId: string, requestId: string, accept: boolean): Promise<Response> {
@@ -418,18 +426,43 @@ async function createRace(request: Request, env: Env, user: SessionUser): Promis
 async function joinRace(env: Env, user: SessionUser, code: string): Promise<Response> {
   if (!user.username) return json({ error: "Pick a username first" }, 400);
   const race = await env.DB.prepare(
-    "SELECT code, region, subject, style, seed, host_id FROM races WHERE code = ?",
-  ).bind(code).first<{ code: string; region: string; subject: string; style: string; seed: string; host_id: string }>();
+    "SELECT code, region, subject, style, seed, host_id, status FROM races WHERE code = ?",
+  ).bind(code).first<{ code: string; region: string; subject: string; style: string; seed: string; host_id: string; status: string }>();
   if (!race) return json({ error: "Unknown race" }, 404);
+  if (race.status === "cancelled") return json({ error: "This race was cancelled" }, 409);
   return json(raceLinks(env, race.code, race.region, race.seed, race.subject, race.style));
+}
+
+async function cancelRace(env: Env, user: SessionUser, code: string): Promise<Response> {
+  const race = await env.DB.prepare(
+    "SELECT code, host_id, status FROM races WHERE code = ?",
+  ).bind(code).first<{ code: string; host_id: string; status: string }>();
+  if (!race) return json({ error: "Unknown race" }, 404);
+  if (race.host_id !== user.id) return json({ error: "Only the person who created this race can cancel it" }, 403);
+  if (race.status === "cancelled") return json({ error: "This race was cancelled" }, 409);
+  const room = env.RACE.get(env.RACE.idFromName(code));
+  const closed = await room.fetch("https://race/cancel", {
+    method: "POST",
+    body: JSON.stringify({ hostId: user.id }),
+  });
+  if (!closed.ok) {
+    const body = await closed.json().catch(() => ({ error: "Someone has already joined" }));
+    const message = typeof body === "object" && body && "error" in body && typeof body.error === "string"
+      ? body.error
+      : "Someone has already joined";
+    return json({ error: message }, closed.status === 409 ? 409 : 409);
+  }
+  await env.DB.prepare("UPDATE races SET status = 'cancelled' WHERE code = ?").bind(code).run();
+  return json({ ok: true });
 }
 
 async function raceSocket(request: Request, env: Env, code: string): Promise<Response> {
   if (request.headers.get("Upgrade") !== "websocket") return json({ error: "Expected WebSocket" }, 426);
   const user = await userFromRequest(request, env.DB);
   if (!user?.username) return json({ error: "Sign in required" }, 401);
-  const race = await env.DB.prepare("SELECT code FROM races WHERE code = ?").bind(code).first();
+  const race = await env.DB.prepare("SELECT code, status FROM races WHERE code = ?").bind(code).first<{ code: string; status: string }>();
   if (!race) return json({ error: "Unknown race" }, 404);
+  if (race.status === "cancelled") return json({ error: "This race was cancelled" }, 409);
   const headers = new Headers(request.headers);
   headers.set("x-user-id", user.id);
   headers.set("x-username", user.username);

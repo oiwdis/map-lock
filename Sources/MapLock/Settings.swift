@@ -206,6 +206,7 @@ final class AppSettings {
         static let quizOnWake = "maplock.quizOnWake"
         static let appearance = "maplock.appearance"
         static let answerSounds = "maplock.answerSounds"
+        static let friendRequestNotifications = "maplock.friendRequestNotifications"
         static let questionCount = "maplock.questionCount"
         static let requirePerfect = "maplock.requirePerfect"
         // Practice tab.
@@ -279,6 +280,12 @@ final class AppSettings {
     var answerSounds: Bool {
         get { defaults.object(forKey: Keys.answerSounds) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Keys.answerSounds) }
+    }
+
+    /// Banners for friend requests and acceptances. On unless the user turns them off.
+    var friendRequestNotifications: Bool {
+        get { defaults.object(forKey: Keys.friendRequestNotifications) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Keys.friendRequestNotifications) }
     }
 
     var quizOnUnlock: Bool {

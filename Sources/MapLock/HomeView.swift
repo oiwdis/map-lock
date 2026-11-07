@@ -95,6 +95,10 @@ final class HomeModel: ObservableObject {
         didSet { if !loading { settings.answerSounds = answerSounds; onChange() } }
     }
 
+    @Published var friendRequestNotifications = true {
+        didSet { if !loading { settings.friendRequestNotifications = friendRequestNotifications; onChange() } }
+    }
+
     @Published var questionCount: QuestionCount = .five {
         didSet { if !loading { settings.questionCount = questionCount; onChange() } }
     }
@@ -197,6 +201,7 @@ final class HomeModel: ObservableObject {
         quizOnUnlock = settings.quizOnUnlock
         quizOnWake = settings.quizOnWake
         answerSounds = settings.answerSounds
+        friendRequestNotifications = settings.friendRequestNotifications
         questionCount = settings.questionCount
         requirePerfect = settings.requirePerfect
         subject = settings.subject
@@ -445,11 +450,17 @@ struct HomeView: View {
             List(selection: $model.homeTab) {
                 Section {
                     ForEach(HomeTab.allCases) { tab in
-                        Label(tab.title, systemImage: tab.symbol)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                            .overlay(HitTarget { model.homeTab = tab })
-                            .tag(tab)
+                        HStack(spacing: Theme.Space.s2) {
+                            Label(tab.title, systemImage: tab.symbol)
+                            Spacer(minLength: 4)
+                            if tab == .account && account.incomingFriendCount > 0 {
+                                FriendCountBadge(count: account.incomingFriendCount)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .overlay(HitTarget { model.homeTab = tab })
+                        .tag(tab)
                     }
                 }
             }
@@ -1268,6 +1279,7 @@ private struct SettingsPane: View {
 
             Section {
                 Toggle("Answer sounds", isOn: $model.answerSounds)
+                Toggle("Friend request notifications", isOn: $model.friendRequestNotifications)
                 Toggle("Open at login", isOn: $model.openAtLogin)
                     .disabled(!model.canUseLoginItem)
                 if let message = model.loginMessage {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.1
+
+- Friend requests show up for the person who was asked, with a badge and a notification. Friends refreshes when you open it, when you sync, and while that tab is open.
+- If you each send a request, you become friends right away.
+- The Race a friend card uses region chips, and Options opens when you click the whole row.
+- The person who created a race can cancel it before anyone joins. The code stops working.
+
 ## 1.3.0
 
 - Map Lock can update itself. On the second launch it asks whether to check automatically. Check for Updates… is in the app menu, under About.

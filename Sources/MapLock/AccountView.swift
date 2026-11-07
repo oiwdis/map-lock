@@ -7,6 +7,9 @@ struct AccountPane: View {
     var toolbarOverlap: CGFloat = 0
     @State private var passwordBusy = false
     @State private var raceCopyToken = 0
+    @State private var raceOptionsOpen = false
+    @State private var confirmCancelLobby = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var focus: SignInField?
 
     var body: some View {
@@ -35,13 +38,18 @@ struct AccountPane: View {
         .onAppear {
             if !account.isSignedIn { focus = .username }
             Task { @MainActor in
-                account.restoreIfNeeded()
+                account.accountOpened()
                 account.seedRaceOptions(subject: home.practiceSubject, style: home.practiceAnswerStyle)
                 account.refreshClipboardOffer()
             }
         }
+        .onDisappear { account.setFriendsVisible(false) }
+        .onChange(of: account.page) { _, page in
+            account.setFriendsVisible(account.isSignedIn && !account.needsUsername && page == .friends)
+        }
         .onChange(of: account.isSignedIn) { _, signedIn in
             if !signedIn { focus = .username }
+            account.setFriendsVisible(signedIn && !account.needsUsername && account.page == .friends)
         }
         .onChange(of: account.busy) { _, busy in
             if !busy { passwordBusy = false }
@@ -222,7 +230,9 @@ struct AccountPane: View {
             }
             SegmentedChoice(
                 selection: $account.page,
-                choices: AccountPage.allCases.map { SegmentChoice(value: $0, title: $0.title) }
+                choices: AccountPage.allCases.map {
+                    SegmentChoice(value: $0, title: $0.title, badge: $0 == .friends ? account.incomingFriendCount : 0)
+                }
             )
             if let notice = bannerNotice {
                 Text(notice)
@@ -251,7 +261,8 @@ struct AccountPane: View {
     }
 
     private func noticeIsGood(_ text: String) -> Bool {
-        text.lowercased().contains("copied") || text.lowercased().contains("request sent")
+        let lower = text.lowercased()
+        return lower.contains("copied") || lower.contains("request sent") || lower.contains("now friends")
     }
 
     private var profileHeader: some View {
@@ -356,7 +367,7 @@ struct AccountPane: View {
     // MARK: Race
 
     private var racePage: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s4) {
+        VStack(alignment: .leading, spacing: Theme.Space.s3) {
             VStack(alignment: .leading, spacing: Theme.Space.s1) {
                 Text("Race a friend")
                     .font(Theme.font(Theme.Size.lg, .bold))
@@ -366,39 +377,76 @@ struct AccountPane: View {
                     .foregroundStyle(Theme.text2)
             }
 
-            labeledMenu("Where", selection: $account.raceRegion) {
-                ForEach(PracticeChoice.allCases) { choice in
-                    Text(choice.title).tag(choice)
-                }
-            }
-
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: Theme.Space.s3) {
-                    Text("Starts from your Practice settings.")
-                        .font(Theme.font(Theme.Size.xs))
-                        .foregroundStyle(Theme.text3)
-                    SegmentedChoice(
-                        selection: $account.raceSubject,
-                        choices: QuizSubject.allCases.map { SegmentChoice(value: $0, title: $0.practiceTitle) }
-                    )
-                    labeledMenu("How to answer", selection: $account.raceStyle) {
-                        ForEach(PracticeAnswerStyle.allCases) { style in
-                            Text(style.title(for: account.raceSubject)).tag(style)
+            VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                Text("Where")
+                    .font(Theme.font(Theme.Size.sm, .semibold))
+                    .foregroundStyle(Theme.text3)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: Theme.Space.s2)], spacing: Theme.Space.s2) {
+                    ForEach(PracticeChoice.allCases) { choice in
+                        RaceRegionChip(
+                            title: shortRegion(choice),
+                            symbol: regionSymbol(choice),
+                            selected: account.raceRegion == choice
+                        ) {
+                            account.raceRegion = choice
                         }
                     }
                 }
-                .padding(.top, Theme.Space.s2)
-            } label: {
-                Text("Options")
-                    .font(Theme.font(Theme.Size.body))
+            }
+
+            VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                HitButton {
+                    if reduceMotion {
+                        raceOptionsOpen.toggle()
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.18)) { raceOptionsOpen.toggle() }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .rotationEffect(.degrees(raceOptionsOpen ? 90 : 0))
+                            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: raceOptionsOpen)
+                        Text("Options")
+                            .font(Theme.font(Theme.Size.body, .semibold))
+                        Spacer(minLength: Theme.Space.s2)
+                        if !raceOptionsOpen {
+                            Text(raceOptionsSummary)
+                                .font(Theme.font(Theme.Size.sm))
+                                .foregroundStyle(Theme.text3)
+                                .lineLimit(1)
+                        }
+                    }
                     .foregroundStyle(Theme.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(minHeight: 32)
+                    .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Options")
+                .accessibilityValue(raceOptionsOpen ? "Expanded" : raceOptionsSummary)
+                if raceOptionsOpen {
+                    VStack(alignment: .leading, spacing: Theme.Space.s3) {
+                        Text("Starts from your Practice settings.")
+                            .font(Theme.font(Theme.Size.xs))
+                            .foregroundStyle(Theme.text3)
+                        SegmentedChoice(
+                            selection: $account.raceSubject,
+                            choices: QuizSubject.allCases.map { SegmentChoice(value: $0, title: $0.practiceTitle) }
+                        )
+                        labeledMenu("How to answer", selection: $account.raceStyle) {
+                            ForEach(PracticeAnswerStyle.allCases) { style in
+                                Text(style.title(for: account.raceSubject)).tag(style)
+                            }
+                        }
+                    }
+                }
             }
 
             Button { account.createRace() } label: {
                 Text("Create race")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(AppButtonStyle(kind: .primary, height: 36, fullWidth: true))
+            .buttonStyle(AppButtonStyle(kind: .primary, height: 32, fullWidth: true))
             .disabled(account.busy)
 
             if let race = account.lastRace {
@@ -428,17 +476,16 @@ struct AccountPane: View {
                 .padding(.horizontal, Theme.Space.s3)
                 .frame(height: 32)
                 .background(
-                    RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
+                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
                         .fill(Theme.background)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
+                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
                         .strokeBorder(Theme.hairline2, lineWidth: 1)
                 )
                 Button("Join") { account.joinDraft() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(account.busy || joinCodeIsEmpty)
+                    .buttonStyle(AppButtonStyle(kind: .primary, height: 32))
+                    .disabled(account.busy || !joinCodeLooksValid)
             }
             if let code = account.clipboardCode {
                 HitButton {
@@ -461,8 +508,36 @@ struct AccountPane: View {
         }
     }
 
-    private var joinCodeIsEmpty: Bool {
-        account.joinCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var joinCodeLooksValid: Bool {
+        RaceLink.code(in: account.joinCode) != nil
+    }
+
+    private var raceOptionsSummary: String {
+        let style: String
+        switch account.raceStyle {
+        case .multipleChoice: style = "Multiple choice"
+        case .typeIt: style = "Type"
+        case .clickMap: style = "Click map"
+        }
+        return "\(account.raceSubject.title) · \(style)"
+    }
+
+    private func shortRegion(_ choice: PracticeChoice) -> String {
+        switch choice {
+        case .northAmerica: return "N. America"
+        case .southAmerica: return "S. America"
+        case .world: return "World"
+        default: return choice.title
+        }
+    }
+
+    private func regionSymbol(_ choice: PracticeChoice) -> String {
+        switch choice {
+        case .africa, .europe: return "globe.europe.africa"
+        case .asia: return "globe.asia.australia"
+        case .northAmerica, .southAmerica: return "globe.americas"
+        case .world: return "globe"
+        }
     }
 
     private func labeledMenu<Selection: Hashable, Content: View>(
@@ -501,6 +576,19 @@ struct AccountPane: View {
                 CopyLinkButton(text: race.webUrl, height: 32, copyToken: $raceCopyToken)
                 RaceShareButton(text: race.webUrl)
                     .frame(width: 96, height: 32)
+            }
+            HitButton { confirmCancelLobby = true } label: {
+                Text("Cancel race")
+                    .font(Theme.font(Theme.Size.sm, .semibold))
+                    .foregroundStyle(Theme.bad)
+                    .frame(height: 28)
+                    .contentShape(Rectangle())
+            }
+            .confirmationDialog("Cancel this race?", isPresented: $confirmCancelLobby, titleVisibility: .visible) {
+                Button("Cancel race", role: .destructive) { account.cancelCurrentRace() }
+                Button("Keep it open", role: .cancel) {}
+            } message: {
+                Text("The code will stop working.")
             }
         }
         .padding(Theme.Space.s3)
@@ -629,13 +717,28 @@ struct AccountPane: View {
 
     private var friendsPage: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s4) {
-            VStack(alignment: .leading, spacing: Theme.Space.s1) {
-                Text("Friends")
-                    .font(Theme.font(Theme.Size.lg, .bold))
-                    .foregroundStyle(Theme.text)
-                Text("They have to accept before you can race.")
-                    .font(Theme.font(Theme.Size.sm))
-                    .foregroundStyle(Theme.text2)
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: Theme.Space.s1) {
+                    Text("Friends")
+                        .font(Theme.font(Theme.Size.lg, .bold))
+                        .foregroundStyle(Theme.text)
+                    Text("They have to accept before you can race.")
+                        .font(Theme.font(Theme.Size.sm))
+                        .foregroundStyle(Theme.text2)
+                }
+                Spacer(minLength: Theme.Space.s2)
+                HitButton(enabled: !account.busy) {
+                    account.refreshFriendsNow()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.text)
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(Theme.fill2))
+                        .contentShape(Rectangle())
+                }
+                .help("Refresh")
+                .opacity(account.busy ? 0.5 : 1)
             }
 
             HStack(alignment: .center, spacing: Theme.Space.s2) {
@@ -760,6 +863,50 @@ struct AccountPane: View {
         guard let row = account.leaderboard.first(where: { $0.username.lowercased() == name }),
               let time = row.time else { return nil }
         return SpeedrunClock.format(time)
+    }
+}
+
+struct FriendCountBadge: View {
+    var count: Int
+
+    var body: some View {
+        Text(count > 9 ? "9+" : "\(count)")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 5)
+            .frame(minWidth: 16, minHeight: 16)
+            .background(Capsule().fill(Color(red: 0.92, green: 0.22, blue: 0.21)))
+            .accessibilityLabel("\(count) friend requests")
+    }
+}
+
+private struct RaceRegionChip: View {
+    let title: String
+    let symbol: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HitButton(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(title)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .font(Theme.font(Theme.Size.sm, .semibold))
+            .foregroundStyle(selected ? Color.white : Theme.text)
+            .frame(maxWidth: .infinity)
+            .frame(height: 32)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(selected ? Theme.accentFill : Theme.fill2)
+            )
+            .contentShape(Rectangle())
+        }
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityLabel(title)
     }
 }
 

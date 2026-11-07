@@ -12,7 +12,8 @@ final class AccountModel: ObservableObject {
     private let webPresenter = AppleSignInPresenter()
     weak var presentationWindow: NSWindow?
 
-    var onOpenRace: (RaceTicket) -> Void = { _ in }
+    var onOpenRace: (RaceTicket, Bool) -> Void = { _, _ in }
+    var onRaceCancelled: () -> Void = {}
     var onShowAccount: () -> Void = {}
     var onStartSpeedrun: (PracticeChoice, QuizSubject, PracticeAnswerStyle) -> Void = { _, _, _ in }
 
@@ -66,6 +67,10 @@ final class AccountModel: ObservableObject {
     /// In-memory session. Keychain reads stay off the main thread.
     var sessionToken: String? { token }
     var needsUsername: Bool { user?.needsUsername == true }
+    var incomingFriendCount: Int { friends.incoming.count }
+
+    private var backgroundFriendPoll: Task<Void, Never>?
+    private var visibleFriendPoll: Task<Void, Never>?
 
     func restoreIfNeeded() {
         guard token != nil, user == nil else { return }
@@ -141,6 +146,7 @@ final class AccountModel: ObservableObject {
                 justJoined = making && !response.user.needsUsername
                 message = nil
                 if !response.user.needsUsername {
+                    await FriendAlerts.askIfNeeded()
                     await refresh()
                     joinPendingCode()
                 }
@@ -178,6 +184,8 @@ final class AccountModel: ObservableObject {
         clipboardCode = nil
         page = .race
         message = nil
+        stopFriendWatch()
+        NSApp.dockTile.badgeLabel = nil
     }
 
     func saveUsername() {
@@ -192,6 +200,7 @@ final class AccountModel: ObservableObject {
                 user = try await AccountClient.setUsername(draft, token: token)
                 usernameDraft = ""
                 message = "Username saved."
+                await FriendAlerts.askIfNeeded()
                 await refresh()
                 joinPendingCode()
             }
@@ -207,10 +216,15 @@ final class AccountModel: ObservableObject {
         }
         Task {
             await run("Could not send that request. Check your connection and try again.") {
-                try await AccountClient.requestFriend(name, token: token)
+                let result = try await AccountClient.requestFriend(name, token: token)
                 friendDraft = ""
-                message = "Request sent. They need to accept."
-                friends = try await AccountClient.friends(token: token)
+                if result.status == "accepted" {
+                    let shown = result.username ?? name
+                    message = "You're now friends with \(shown)."
+                } else {
+                    message = "Request sent. They need to accept."
+                }
+                await reloadFriends(reportErrors: true)
             }
         }
     }
@@ -223,7 +237,7 @@ final class AccountModel: ObservableObject {
         Task {
             await run("Could not remove that friend") {
                 try await AccountClient.removeFriend(item.userId, token: token)
-                friends = try await AccountClient.friends(token: token)
+                await reloadFriends(reportErrors: true)
             }
         }
     }
@@ -257,7 +271,62 @@ final class AccountModel: ObservableObject {
 
     func syncNow() {
         guard let token, user?.needsUsername == false else { return }
-        Task { await sync(token: token) }
+        Task {
+            await sync(token: token)
+            await reloadFriends(reportErrors: true)
+        }
+    }
+
+    /// Account was opened. Loads friends even when the session was already restored.
+    func accountOpened() {
+        restoreIfNeeded()
+        guard isSignedIn, !needsUsername else { return }
+        if page == .friends {
+            setFriendsVisible(true)
+        } else {
+            Task { await reloadFriends(reportErrors: false) }
+        }
+    }
+
+    /// Friends tab is on screen. Polls until it goes away.
+    func setFriendsVisible(_ visible: Bool) {
+        visibleFriendPoll?.cancel()
+        visibleFriendPoll = nil
+        guard visible, isSignedIn, !needsUsername else { return }
+        Task { await FriendAlerts.askIfNeeded() }
+        Task { await reloadFriends(reportErrors: true) }
+        visibleFriendPoll = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.reloadFriends(reportErrors: true)
+            }
+        }
+    }
+
+    func refreshFriendsNow() {
+        Task { await reloadFriends(reportErrors: true) }
+    }
+
+    /// Wake, activation, and the background timer. Errors stay quiet.
+    func refreshFriendsFromBackground() {
+        Task { await reloadFriends(reportErrors: false) }
+    }
+
+    func noteRaceCancelled() {
+        lastRace = nil
+        page = .race
+    }
+
+    func cancelCurrentRace() {
+        guard let ticket = lastRace, let token else { return }
+        Task {
+            await run("Could not cancel the race") {
+                try await AccountClient.cancelRace(code: ticket.code, token: token)
+                noteRaceCancelled()
+                onRaceCancelled()
+            }
+        }
     }
 
     func createRace(telling name: String? = nil) {
@@ -272,7 +341,7 @@ final class AccountModel: ObservableObject {
                 copyRaceLink(ticket)
                 message = name.map { "Link copied. Send it to \($0)." } ?? "Link copied."
                 page = .race
-                onOpenRace(ticket)
+                onOpenRace(ticket, true)
             }
         }
     }
@@ -363,6 +432,7 @@ final class AccountModel: ObservableObject {
                 message = response.user.needsUsername ? "Pick a username." : nil
                 justJoined = false
                 if !response.user.needsUsername {
+                    await FriendAlerts.askIfNeeded()
                     await refresh()
                     joinPendingCode()
                 }
@@ -381,7 +451,7 @@ final class AccountModel: ObservableObject {
                 } else {
                     try await AccountClient.decline(item.id, token: token)
                 }
-                friends = try await AccountClient.friends(token: token)
+                await reloadFriends(reportErrors: true)
             }
         }
     }
@@ -396,7 +466,7 @@ final class AccountModel: ObservableObject {
             await run("Could not join that race") {
                 let ticket = try await AccountClient.joinRace(code: code, token: token)
                 lastRace = ticket
-                onOpenRace(ticket)
+                onOpenRace(ticket, false)
             }
         }
     }
@@ -417,7 +487,7 @@ final class AccountModel: ObservableObject {
     private func refresh() async {
         guard let token else { return }
         await sync(token: token)
-        if let lists = try? await AccountClient.friends(token: token) { friends = lists }
+        await reloadFriends(reportErrors: false)
         let key = SpeedrunKey.make(subject: leaderboardSubject, style: leaderboardStyle,
                                    scope: StatsScopeKey.from(practiceScope: leaderboardRegion.scope))
         if let board = try? await AccountClient.leaderboard(key: key, token: token) {
@@ -480,7 +550,102 @@ final class AccountModel: ObservableObject {
         }
         if lower.contains("username is taken") { return "That username is taken. Try another." }
         if lower.contains("unknown race") { return "That code does not match a race. Check it and try again." }
+        if lower.contains("cancelled") { return "This race was cancelled." }
+        if lower.contains("already joined") { return "Someone has already joined, so this race stays open." }
         return raw
+    }
+
+    func reloadFriends(reportErrors: Bool) async {
+        guard let token, user?.needsUsername == false else { return }
+        startBackgroundFriendPoll()
+        let previousOutgoing = loadKnownOutgoing()
+        do {
+            let next = try await AccountClient.friends(token: token)
+            guard !Task.isCancelled, self.token != nil else { return }
+            friends = next
+            await announceFriendChanges(knownOutgoing: previousOutgoing, next: next)
+            NSApp.dockTile.badgeLabel = next.incoming.isEmpty ? nil : "\(next.incoming.count)"
+        } catch let error as APIFailure {
+            if reportErrors { message = Self.friendlier(error.message) }
+        } catch {
+            if reportErrors { message = "Could not load friends. Check your connection and try again." }
+        }
+    }
+
+    private func startBackgroundFriendPoll() {
+        guard backgroundFriendPoll == nil else { return }
+        backgroundFriendPoll = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.reloadFriends(reportErrors: false)
+            }
+        }
+    }
+
+    private func stopFriendWatch() {
+        backgroundFriendPoll?.cancel()
+        backgroundFriendPoll = nil
+        visibleFriendPoll?.cancel()
+        visibleFriendPoll = nil
+    }
+
+    private func announceFriendChanges(knownOutgoing: [FriendItem], next: FriendLists) async {
+        let allowed = await FriendAlerts.canPost()
+        let userId = user?.id ?? ""
+        if allowed {
+            var seen = loadSeenIncoming(userId: userId)
+            for item in next.incoming where !seen.contains(item.id) {
+                let name = item.username ?? "Someone"
+                await FriendAlerts.post(
+                    id: "friend-request-\(item.id)",
+                    title: "Friend request",
+                    body: "\(name) wants to be your friend on Map Lock"
+                )
+                seen.insert(item.id)
+            }
+            saveSeenIncoming(seen, userId: userId)
+            let stillOutgoing = Set(next.outgoing.map(\.userId))
+            let friendIds = Set(next.friends.map(\.userId))
+            for item in knownOutgoing where !stillOutgoing.contains(item.userId) && friendIds.contains(item.userId) {
+                let name = item.username ?? "Someone"
+                await FriendAlerts.post(
+                    id: "friend-accepted-\(item.userId)",
+                    title: "Friend request",
+                    body: "\(name) accepted your friend request"
+                )
+            }
+            saveKnownOutgoing(next.outgoing)
+        } else {
+            var keep = knownOutgoing
+            for item in next.outgoing where !keep.contains(where: { $0.userId == item.userId }) {
+                keep.append(item)
+            }
+            saveKnownOutgoing(keep)
+        }
+    }
+
+    private func seenKey(_ userId: String) -> String { "maplock.seenFriendRequestIds.\(userId)" }
+    private func outgoingKey(_ userId: String) -> String { "maplock.knownOutgoingFriends.\(userId)" }
+
+    private func loadSeenIncoming(userId: String) -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: seenKey(userId)) ?? [])
+    }
+
+    private func saveSeenIncoming(_ ids: Set<String>, userId: String) {
+        UserDefaults.standard.set(Array(ids), forKey: seenKey(userId))
+    }
+
+    private func loadKnownOutgoing() -> [FriendItem] {
+        guard let userId = user?.id,
+              let data = UserDefaults.standard.data(forKey: outgoingKey(userId)),
+              let items = try? JSONDecoder().decode([FriendItem].self, from: data) else { return [] }
+        return items
+    }
+
+    private func saveKnownOutgoing(_ items: [FriendItem]) {
+        guard let userId = user?.id, let data = try? JSONEncoder().encode(items) else { return }
+        UserDefaults.standard.set(data, forKey: outgoingKey(userId))
     }
 }
 

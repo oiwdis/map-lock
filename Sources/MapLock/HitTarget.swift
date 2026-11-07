@@ -56,6 +56,7 @@ final class HitTargetView: NSView {
 struct SegmentChoice<Value: Hashable>: Identifiable {
     let value: Value
     let title: String
+    var badge: Int = 0
     var id: Value { value }
 }
 
@@ -72,13 +73,18 @@ struct SegmentedChoice<Value: Hashable>: View {
                 HitButton {
                     selection = choice.value
                 } label: {
-                    Text(choice.title)
-                        .font(Theme.font(Theme.Size.sm, .semibold))
-                        .foregroundStyle(selected ? Color.white : Theme.text)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 32)
+                    HStack(spacing: 6) {
+                        Text(choice.title)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        if choice.badge > 0 {
+                            FriendCountBadge(count: choice.badge)
+                        }
+                    }
+                    .font(Theme.font(Theme.Size.sm, .semibold))
+                    .foregroundStyle(selected ? Color.white : Theme.text)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 32)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .fill(selected ? Theme.accentFill : Color.clear)
