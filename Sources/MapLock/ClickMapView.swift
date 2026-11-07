@@ -19,6 +19,8 @@ struct ClickMapView: View {
     var speedrunCue: SpeedrunMapCue? = nil
     /// Countries already found. They stay white for the rest of the quiz.
     var found: Set<String> = []
+    /// Fired once the layout exists, after a warm hit-test, so the clock can start.
+    var onReady: (() -> Void)? = nil
     let onClick: (String) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -108,8 +110,19 @@ struct ClickMapView: View {
             }
             .clipShape(Rectangle())
             .contentShape(Rectangle())
+            .onAppear {
+                let targets = layout.targets
+                Task { @MainActor in
+                    _ = ClickMap.hit(CGPoint(x: -10_000, y: -10_000), in: targets)
+                    onReady?()
+                }
+            }
             .onChange(of: found) { _, names in
-                spawnPins(for: names, layout: layout, size: geo.size)
+                let layout = layout
+                let size = geo.size
+                Task { @MainActor in
+                    spawnPins(for: names, layout: layout, size: size)
+                }
             }
         }
         .task(id: pins.count) {

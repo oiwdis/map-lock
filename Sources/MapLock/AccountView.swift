@@ -30,10 +30,12 @@ struct AccountPane: View {
             }
         }
         .onAppear {
-            account.restoreIfNeeded()
-            account.seedRaceOptions(subject: home.practiceSubject, style: home.practiceAnswerStyle)
-            account.refreshClipboardOffer()
             if !account.isSignedIn { focus = .username }
+            Task { @MainActor in
+                account.restoreIfNeeded()
+                account.seedRaceOptions(subject: home.practiceSubject, style: home.practiceAnswerStyle)
+                account.refreshClipboardOffer()
+            }
         }
         .onChange(of: account.isSignedIn) { _, signedIn in
             if !signedIn { focus = .username }
@@ -415,7 +417,9 @@ struct AccountPane: View {
                         .onSubmit { account.joinDraft() }
                         .onChange(of: account.joinCode) { _, value in
                             guard let code = RaceLink.code(in: value), code != value else { return }
-                            account.joinCode = code
+                            Task { @MainActor in
+                                if account.joinCode != code { account.joinCode = code }
+                            }
                         }
                 }
                 .padding(.horizontal, Theme.Space.s3)
@@ -449,7 +453,9 @@ struct AccountPane: View {
         .padding(Theme.Space.s4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accountCardChrome()
-        .onAppear { account.refreshClipboardOffer() }
+        .onAppear {
+            Task { @MainActor in account.refreshClipboardOffer() }
+        }
     }
 
     private var joinCodeIsEmpty: Bool {

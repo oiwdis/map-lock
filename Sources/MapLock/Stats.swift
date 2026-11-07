@@ -332,7 +332,13 @@ final class StatsStore {
             s.box = 0
         }
         stats[name] = s
-        saveStats()
+        let snapshot = stats
+        let store = defaults
+        DispatchQueue.global(qos: .utility).async {
+            if let data = try? JSONEncoder().encode(snapshot) {
+                store.set(data, forKey: Keys.stats)
+            }
+        }
     }
 
     /// Countries answered right at least 3 times in a row.

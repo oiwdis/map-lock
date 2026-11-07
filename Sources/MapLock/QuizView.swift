@@ -101,11 +101,15 @@ private struct QuestionView: View {
         }
         .onAppear {
             focusFieldSoon()
-            session.noteSpeedrunVisible()
+            if question.kind != .click {
+                Task { @MainActor in
+                    await Task.yield()
+                    session.noteSpeedrunVisible()
+                }
+            }
         }
         .onChange(of: session.index) { _, _ in
             focusFieldSoon()
-            session.noteSpeedrunVisible()
         }
     }
 
@@ -213,7 +217,8 @@ private struct QuestionView: View {
                     enabled: session.isSpeedrun ? session.speedrunAcceptsInput : session.phase == .asking,
                     mapScope: session.mapScope,
                     speedrunCue: session.speedrunCue?.showsMap == true ? session.speedrunCue?.mapCue : nil,
-                    found: session.foundCountries
+                    found: session.foundCountries,
+                    onReady: { session.noteSpeedrunVisible() }
                 ) { name in
                     session.click(name)
                 }

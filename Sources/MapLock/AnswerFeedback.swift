@@ -1,4 +1,5 @@
-import AppKit
+import AVFoundation
+import os
 import SwiftUI
 
 /// A short right-or-wrong note. It fades on its own and never takes clicks.
@@ -13,13 +14,94 @@ struct AnswerChip: Equatable {
     var title: String
 }
 
+enum MapLockTrace {
+    static let log = Logger(subsystem: "com.elliot.maplock", category: "speedrun")
+    static let signpost = OSSignposter(logger: log)
+}
+
+/// Long-lived engine. The first `NSSound.play` used to start Core Audio on the main thread
+/// and froze the app for seconds. This warms up on a background queue and skips if it is not ready.
 enum AnswerSound {
+    private static let queue = DispatchQueue(label: "com.elliot.maplock.audio", qos: .userInitiated)
+    private static let state = NSLock()
+    private static var engine: AVAudioEngine?
+    private static var rightNode: AVAudioPlayerNode?
+    private static var wrongNode: AVAudioPlayerNode?
+    private static var rightBuffer: AVAudioPCMBuffer?
+    private static var wrongBuffer: AVAudioPCMBuffer?
+    private static var isReady = false
+    private static var warming = false
+
+    /// Call once at launch. Safe to call again. Never touches the audio graph on the main thread.
+    static func warmUp() {
+        queue.async { warmUpOnQueue() }
+    }
+
     static func play(correct: Bool) {
         guard AppSettings().answerSounds else { return }
-        let name = correct ? "Tink" : "Basso"
-        guard let sound = NSSound(named: NSSound.Name(name)) else { return }
-        sound.volume = correct ? 0.5 : 0.22
-        sound.play()
+        state.lock()
+        let ready = isReady
+        state.unlock()
+        guard ready else { return }
+        queue.async {
+            let node = correct ? rightNode : wrongNode
+            let buffer = correct ? rightBuffer : wrongBuffer
+            guard let node, let buffer, engine?.isRunning == true else { return }
+            node.volume = correct ? 1 : 0.45
+            node.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+            if !node.isPlaying { node.play() }
+        }
+    }
+
+    private static func warmUpOnQueue() {
+        state.lock()
+        if isReady || warming {
+            state.unlock()
+            return
+        }
+        warming = true
+        state.unlock()
+        let engine = AVAudioEngine()
+        let rightNode = AVAudioPlayerNode()
+        let wrongNode = AVAudioPlayerNode()
+        guard let right = loadBuffer("Tink"), let wrong = loadBuffer("Basso") else { return }
+        engine.attach(rightNode)
+        engine.attach(wrongNode)
+        engine.connect(rightNode, to: engine.mainMixerNode, format: right.format)
+        engine.connect(wrongNode, to: engine.mainMixerNode, format: wrong.format)
+        do {
+            try engine.start()
+        } catch {
+            MapLockTrace.log.error("audio warmup failed")
+            return
+        }
+        if let silent = AVAudioPCMBuffer(pcmFormat: right.format, frameCapacity: 64) {
+            silent.frameLength = 64
+            rightNode.scheduleBuffer(silent, completionHandler: nil)
+            rightNode.play()
+        }
+        state.lock()
+        self.engine = engine
+        self.rightNode = rightNode
+        self.wrongNode = wrongNode
+        self.rightBuffer = right
+        self.wrongBuffer = wrong
+        self.isReady = true
+        state.unlock()
+        MapLockTrace.log.info("audio warmed")
+    }
+
+    private static func loadBuffer(_ name: String) -> AVAudioPCMBuffer? {
+        let url = URL(fileURLWithPath: "/System/Library/Sounds/\(name).aiff")
+        guard let file = try? AVAudioFile(forReading: url) else { return nil }
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
+                                            frameCapacity: AVAudioFrameCount(file.length)) else { return nil }
+        do {
+            try file.read(into: buffer)
+        } catch {
+            return nil
+        }
+        return buffer
     }
 }
 

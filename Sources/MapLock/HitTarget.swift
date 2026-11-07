@@ -37,8 +37,14 @@ final class HitTargetView: NSView {
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
-    override func mouseEntered(with event: NSEvent) { hover?(true) }
-    override func mouseExited(with event: NSEvent) { hover?(false) }
+    override func mouseEntered(with event: NSEvent) {
+        let hover = hover
+        DispatchQueue.main.async { hover?(true) }
+    }
+    override func mouseExited(with event: NSEvent) {
+        let hover = hover
+        DispatchQueue.main.async { hover?(false) }
+    }
 
     override func mouseDown(with event: NSEvent) {
         guard enabled else { return }

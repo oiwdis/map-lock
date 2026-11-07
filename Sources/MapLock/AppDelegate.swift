@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // Never let macOS close Map Lock by itself when it has no windows open.
         ProcessInfo.processInfo.disableAutomaticTermination("Map Lock waits for the next quiz")
+        AnswerSound.warmUp()
         loadWorld()
         setUpMainMenu()
         setUpStatusItem()
@@ -69,7 +70,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidBecomeActive(_ notification: Notification) {
         guard !overlay.isShowing, !practice.isShowing, !races.isShowing else { return }
         account?.syncNow()
-        account?.refreshClipboardOffer()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -420,7 +420,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.startPractice(scope, length: length)
         }
         home = HomeWindowController(model: model, account: account)
-        account.restoreIfNeeded()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -431,7 +430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func openRace(_ ticket: RaceTicket) {
         guard !overlay.isShowing, let scope = PracticeScope.fromServer(ticket.region),
-              let token = KeychainStore.loadSession(), let userId = account?.user?.id else { return }
+              let token = account?.sessionToken, let userId = account?.user?.id else { return }
         let session = RaceSession(ticket: ticket, world: world, scope: scope, token: token,
                                   userId: userId, stats: stats)
         races.onClosed = { [weak self] in

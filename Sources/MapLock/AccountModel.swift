@@ -47,7 +47,6 @@ final class AccountModel: ObservableObject {
 
     init(stats: StatsStore) {
         self.stats = stats
-        token = KeychainStore.loadSession()
         if let raw = UserDefaults.standard.string(forKey: Self.kindKey),
            let kind = AccountSignInKind(rawValue: raw) {
             signInKind = kind
@@ -57,9 +56,15 @@ final class AccountModel: ObservableObject {
             leaderboardStyle = pick.style
             leaderboardRegion = pick.region
         }
+        Task { @MainActor in
+            token = await KeychainStore.loadSession()
+            restoreIfNeeded()
+        }
     }
 
     var isSignedIn: Bool { user != nil && token != nil }
+    /// In-memory session. Keychain reads stay off the main thread.
+    var sessionToken: String? { token }
     var needsUsername: Bool { user?.needsUsername == true }
 
     func restoreIfNeeded() {

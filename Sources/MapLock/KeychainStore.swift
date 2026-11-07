@@ -2,11 +2,29 @@ import Foundation
 import Security
 
 /// The Map Lock session token. The worker stores only a hash of this value.
+/// Every Security call stays off the main thread. SecItemCopyMatching can block for seconds.
 enum KeychainStore {
     private static let service = "com.elliot.maplock.session"
     private static let account = "session"
+    private static let queue = DispatchQueue(label: "com.elliot.maplock.keychain", qos: .userInitiated)
 
     static func saveSession(_ token: String) {
+        queue.async { saveSync(token) }
+    }
+
+    static func loadSession() async -> String? {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: loadSync())
+            }
+        }
+    }
+
+    static func deleteSession() {
+        queue.async { deleteSync() }
+    }
+
+    private static func saveSync(_ token: String) {
         let data = Data(token.utf8)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -20,7 +38,7 @@ enum KeychainStore {
         SecItemAdd(add as CFDictionary, nil)
     }
 
-    static func loadSession() -> String? {
+    private static func loadSync() -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -36,7 +54,7 @@ enum KeychainStore {
         return token
     }
 
-    static func deleteSession() {
+    private static func deleteSync() {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

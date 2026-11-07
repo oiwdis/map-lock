@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 
 /// State for one quiz. Questions are picked one at a time from the deck,
@@ -67,6 +68,11 @@ final class QuizSession: ObservableObject {
     var onSpeedrunProgress: ((Int, Int, Int, Int, Bool) -> Void)?
     @Published private(set) var speedrunClockStart: Date?
     @Published private(set) var speedrunFrozenAt: Date?
+    private var clockUptime: TimeInterval?
+    private var frozenUptime: TimeInterval?
+    private var stallExcluded: TimeInterval = 0
+    private var lastStallSample: TimeInterval = 0
+    private var stallTimer: Timer?
     @Published var speedrunCue: SpeedrunCue?
     /// Countries clicked correctly in this quiz. They stay filled for the rest of the run.
     @Published private(set) var foundCountries: Set<String> = []
@@ -153,9 +159,9 @@ final class QuizSession: ObservableObject {
     }
 
     func speedrunRaw(at now: Date) -> TimeInterval {
-        guard let speedrunClockStart else { return 0 }
-        let end = speedrunFrozenAt ?? now
-        return max(0, end.timeIntervalSince(speedrunClockStart))
+        guard let origin = clockUptime else { return 0 }
+        let end = frozenUptime ?? ProcessInfo.processInfo.systemUptime
+        return max(0, end - origin - stallExcluded)
     }
 
     func speedrunElapsed(at now: Date) -> TimeInterval {
@@ -168,8 +174,29 @@ final class QuizSession: ObservableObject {
     }
 
     func noteSpeedrunVisible(now: Date = Date()) {
-        guard isSpeedrun, speedrunClockStart == nil, phase == .asking, speedrunAcceptsInput else { return }
+        guard isSpeedrun, clockUptime == nil, phase == .asking, speedrunAcceptsInput else { return }
+        let uptime = ProcessInfo.processInfo.systemUptime
+        clockUptime = uptime
+        lastStallSample = uptime
         speedrunClockStart = now
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.sampleStall() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        stallTimer = timer
+        MapLockTrace.log.info("speedrun clock started")
+    }
+
+    /// A gap longer than 250ms is a main-thread stall. Leave one frame, drop the rest.
+    private func sampleStall() {
+        let now = ProcessInfo.processInfo.systemUptime
+        let gap = now - lastStallSample
+        if gap > 0.25 {
+            let dropped = gap - 0.05
+            stallExcluded += dropped
+            MapLockTrace.log.error("main stall \(dropped, format: .fixed(precision: 3))s excluded")
+        }
+        lastStallSample = now
     }
 
     func speedrunTimeText(at now: Date) -> String {
@@ -338,6 +365,13 @@ final class QuizSession: ObservableObject {
     /// A click on the map for a "Click the country" question. `name` is the country hit,
     /// already worked out by ClickMap. Clicks in the sea never get here.
     func click(_ name: String) {
+        let started = ProcessInfo.processInfo.systemUptime
+        let interval = MapLockTrace.signpost.beginInterval("answer")
+        defer {
+            let ms = (ProcessInfo.processInfo.systemUptime - started) * 1000
+            MapLockTrace.log.info("answer \(name, privacy: .public) \(ms, format: .fixed(precision: 2))ms")
+            MapLockTrace.signpost.endInterval("answer", interval)
+        }
         guard phase == .asking, let q = current, q.kind == .click else { return }
         if foundCountries.contains(name) { return }
         if isSpeedrun {
@@ -524,7 +558,10 @@ final class QuizSession: ObservableObject {
     private func finishSession() {
         if isSpeedrun {
             let now = Date()
-            if speedrunClockStart == nil { speedrunClockStart = now }
+            if clockUptime == nil { noteSpeedrunVisible(now: now) }
+            frozenUptime = ProcessInfo.processInfo.systemUptime
+            stallTimer?.invalidate()
+            stallTimer = nil
             speedrunFrozenAt = now
             let raw = speedrunRaw(at: now)
             let final = raw + speedrunPenalty
