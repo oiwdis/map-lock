@@ -1,6 +1,6 @@
 import Foundation
 
-/// How well a single country is known.
+/// How well a single country is known (practice and unlock combined).
 struct CountryStat: Codable {
     var seen: Int = 0
     var correct: Int = 0
@@ -10,13 +10,58 @@ struct CountryStat: Codable {
     var lastSeen: Date? = nil
 }
 
-enum QuizRecordKind: String, Codable {
+enum QuizRecordKind: String, Codable, CaseIterable {
     case lock
     case practice
+
+    var title: String {
+        switch self {
+        case .lock: return "Unlock"
+        case .practice: return "Practice"
+        }
+    }
+}
+
+/// Where a quiz was scoped. Stored as a stable string for Codable history.
+enum StatsScopeKey: String, Codable, CaseIterable {
+    case world
+    case africa = "Africa"
+    case asia = "Asia"
+    case europe = "Europe"
+    case northAmerica = "North America"
+    case southAmerica = "South America"
+    case several
+    case unknown
+
+    var title: String {
+        switch self {
+        case .world: return "Whole world"
+        case .several: return "Several regions"
+        case .unknown: return "Unknown"
+        default: return rawValue
+        }
+    }
+
+    static func from(practiceScope: PracticeScope?) -> StatsScopeKey {
+        guard let practiceScope else { return .unknown }
+        switch practiceScope {
+        case .world: return .world
+        case .region(let r):
+            return StatsScopeKey(rawValue: r.rawValue) ?? .unknown
+        }
+    }
+
+    static func from(poolRegions: Set<Region>) -> StatsScopeKey {
+        if poolRegions.isEmpty { return .unknown }
+        if poolRegions.count == 1, let only = poolRegions.first {
+            return StatsScopeKey(rawValue: only.rawValue) ?? .unknown
+        }
+        return .several
+    }
 }
 
 /// One finished quiz, for the Stats page.
-struct QuizRecord: Codable, Identifiable {
+struct QuizRecord: Codable, Identifiable, Equatable {
     var id: UUID = UUID()
     var date: Date
     var score: Int
@@ -24,8 +69,125 @@ struct QuizRecord: Codable, Identifiable {
     var duration: TimeInterval
     var missed: [String]
     var kind: QuizRecordKind
+    /// QuizSubject.rawValue. Empty on very old records.
+    var subjectRaw: String = QuizSubject.countries.rawValue
+    var scopeRaw: String = StatsScopeKey.unknown.rawValue
 
     var percent: Double { total == 0 ? 0 : Double(score) / Double(total) }
+    var wrong: Int { max(total - score, 0) }
+
+    var subject: QuizSubject {
+        QuizSubject(rawValue: subjectRaw) ?? .countries
+    }
+
+    var scope: StatsScopeKey {
+        StatsScopeKey(rawValue: scopeRaw) ?? .unknown
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, date, score, total, duration, missed, kind, subjectRaw, scopeRaw
+    }
+
+    init(date: Date, score: Int, total: Int, duration: TimeInterval, missed: [String],
+         kind: QuizRecordKind, subject: QuizSubject, scope: StatsScopeKey,
+         id: UUID = UUID()) {
+        self.id = id
+        self.date = date
+        self.score = score
+        self.total = total
+        self.duration = duration
+        self.missed = missed
+        self.kind = kind
+        self.subjectRaw = subject.rawValue
+        self.scopeRaw = scope.rawValue
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        date = try c.decode(Date.self, forKey: .date)
+        score = try c.decode(Int.self, forKey: .score)
+        total = try c.decode(Int.self, forKey: .total)
+        duration = try c.decode(TimeInterval.self, forKey: .duration)
+        missed = try c.decodeIfPresent([String].self, forKey: .missed) ?? []
+        kind = try c.decode(QuizRecordKind.self, forKey: .kind)
+        subjectRaw = try c.decodeIfPresent(String.self, forKey: .subjectRaw)
+            ?? QuizSubject.countries.rawValue
+        scopeRaw = try c.decodeIfPresent(String.self, forKey: .scopeRaw)
+            ?? StatsScopeKey.unknown.rawValue
+    }
+}
+
+/// One row in a breakdown list (place or mode).
+struct StatsBreakdownRow: Identifiable, Equatable {
+    var id: String { label }
+    let label: String
+    let quizzes: Int
+    let correct: Int
+    let total: Int
+
+    var percent: Double { total == 0 ? 0 : Double(correct) / Double(total) }
+    var percentText: String {
+        guard total > 0 else { return "-" }
+        return String(format: "%.0f%%", percent * 100)
+    }
+    var detailText: String {
+        guard quizzes > 0 else { return "No quizzes yet" }
+        let q = quizzes == 1 ? "1 quiz" : "\(quizzes) quizzes"
+        return "\(q) · \(correct) of \(total)"
+    }
+}
+
+/// One most-missed country row.
+struct StatsMissRow: Identifiable, Equatable {
+    var id: String { name }
+    let name: String
+    let wrong: Int
+}
+
+/// One recent session line.
+struct StatsHistoryRow: Identifiable, Equatable {
+    let id: UUID
+    let date: Date
+    let kindTitle: String
+    let subjectTitle: String
+    let scopeTitle: String
+    let scoreText: String
+    let isPractice: Bool
+}
+
+/// Totals for Practice or Unlock.
+struct StatsKindSummary: Equatable {
+    var quizzes: Int = 0
+    var correct: Int = 0
+    var total: Int = 0
+    var byScope: [StatsBreakdownRow] = []
+    var bySubject: [StatsBreakdownRow] = []
+    var mostMissed: [StatsMissRow] = []
+
+    var percent: Double { total == 0 ? 0 : Double(correct) / Double(total) }
+    var percentText: String {
+        guard total > 0 else { return "-" }
+        return String(format: "%.0f%%", percent * 100)
+    }
+    var hasData: Bool { quizzes > 0 || total > 0 }
+}
+
+/// Snapshot the Stats tab reads. Built from StatsStore so the UI stays simple.
+struct StatsSnapshot: Equatable {
+    var overallAccuracyText: String = "-"
+    var totalQuestionsText: String = "0"
+    var currentStreakText: String = "0 days"
+    var bestStreakText: String = "0 days"
+    var bestPercentText: String = "-"
+    var bestTimeText: String = "-"
+    var roundText: String = "0 of 0"
+    var practice = StatsKindSummary()
+    var unlock = StatsKindSummary()
+    var history: [StatsHistoryRow] = []
+    var dayHistory: [StatsBreakdownRow] = []
+    var mostMissed: [StatsMissRow] = []
+    var hasAnyQuiz: Bool = false
 }
 
 /// Saves per-country results, the daily streak, and recent quiz scores in UserDefaults.
@@ -44,7 +206,7 @@ final class StatsStore {
         static let bestTime = "maplock.bestTimeSeconds"
     }
 
-    private static let maxQuizRecords = 50
+    private static let maxQuizRecords = 100
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -126,11 +288,21 @@ final class StatsStore {
         return quizzes.filter { $0.score == $0.total && $0.total > 0 }.map(\.duration).min()
     }
 
+    var totalSeen: Int { stats.values.reduce(0) { $0 + $1.seen } }
+    var totalCorrect: Int { stats.values.reduce(0) { $0 + $1.correct } }
+
+    var overallAccuracy: Double {
+        let seen = totalSeen
+        guard seen > 0 else { return 0 }
+        return Double(totalCorrect) / Double(seen)
+    }
+
     func recordQuiz(score: Int, total: Int, duration: TimeInterval, missed: [String],
-                    kind: QuizRecordKind, now: Date = Date()) {
+                    kind: QuizRecordKind, subject: QuizSubject, scope: StatsScopeKey,
+                    now: Date = Date()) {
         guard total > 0 else { return }
         let record = QuizRecord(date: now, score: score, total: total, duration: duration,
-                                missed: missed, kind: kind)
+                                missed: missed, kind: kind, subject: subject, scope: scope)
         quizzes.insert(record, at: 0)
         if quizzes.count > Self.maxQuizRecords {
             quizzes = Array(quizzes.prefix(Self.maxQuizRecords))
@@ -187,5 +359,127 @@ final class StatsStore {
         defaults.set(today, forKey: Keys.lastDay)
         if streak > bestStreak { defaults.set(streak, forKey: Keys.bestStreak) }
         return streak
+    }
+
+    // MARK: Snapshot for the Stats tab
+
+    func snapshot(roundText: String, now: Date = Date()) -> StatsSnapshot {
+        var snap = StatsSnapshot()
+        let seen = totalSeen
+                snap.overallAccuracyText = seen > 0
+            ? String(format: "%.0f%%", overallAccuracy * 100) : "-"
+        snap.totalQuestionsText = "\(seen)"
+        let streak = currentStreak(now: now)
+        snap.currentStreakText = streak == 1 ? "1 day" : "\(streak) days"
+        let best = bestStreak
+        snap.bestStreakText = best == 1 ? "1 day" : "\(best) days"
+        let pct = bestPercent
+        snap.bestPercentText = pct > 0 ? String(format: "%.0f%%", pct * 100) : "-"
+        if let t = bestTimeSeconds {
+            let sec = Int(t.rounded())
+            snap.bestTimeText = "\(sec / 60):" + String(format: "%02d", sec % 60)
+        } else {
+            snap.bestTimeText = "-"
+        }
+        snap.roundText = roundText
+        snap.mostMissed = mostMissed(limit: 10).map { StatsMissRow(name: $0.name, wrong: $0.wrong) }
+        snap.practice = summary(for: .practice)
+        snap.unlock = summary(for: .lock)
+        snap.history = recentHistory(limit: 12)
+        snap.dayHistory = recentDays(limit: 14, now: now)
+        snap.hasAnyQuiz = !quizzes.isEmpty || seen > 0
+        return snap
+    }
+
+    private func summary(for kind: QuizRecordKind) -> StatsKindSummary {
+        let rows = quizzes.filter { $0.kind == kind }
+        var s = StatsKindSummary()
+        s.quizzes = rows.count
+        s.correct = rows.reduce(0) { $0 + $1.score }
+        s.total = rows.reduce(0) { $0 + $1.total }
+        s.byScope = breakdownByScope(rows)
+        s.bySubject = breakdownBySubject(rows)
+        s.mostMissed = mostMissed(in: rows, limit: 8)
+        return s
+    }
+
+    private func breakdownByScope(_ rows: [QuizRecord]) -> [StatsBreakdownRow] {
+        let order: [StatsScopeKey] = [
+            .africa, .asia, .europe, .northAmerica, .southAmerica, .world, .several, .unknown,
+        ]
+        var map: [StatsScopeKey: (q: Int, c: Int, t: Int)] = [:]
+        for r in rows {
+            var cur = map[r.scope] ?? (0, 0, 0)
+            cur.q += 1
+            cur.c += r.score
+            cur.t += r.total
+            map[r.scope] = cur
+        }
+        return order.compactMap { key in
+            guard let v = map[key], v.q > 0 else { return nil }
+            return StatsBreakdownRow(label: key.title, quizzes: v.q, correct: v.c, total: v.t)
+        }
+    }
+
+    private func breakdownBySubject(_ rows: [QuizRecord]) -> [StatsBreakdownRow] {
+        QuizSubject.allCases.compactMap { subject in
+            let subset = rows.filter { $0.subject == subject }
+            guard !subset.isEmpty else { return nil }
+            let c = subset.reduce(0) { $0 + $1.score }
+            let t = subset.reduce(0) { $0 + $1.total }
+            return StatsBreakdownRow(label: subject.practiceTitle, quizzes: subset.count,
+                                     correct: c, total: t)
+        }
+    }
+
+    private func mostMissed(in rows: [QuizRecord], limit: Int) -> [StatsMissRow] {
+        var counts: [String: Int] = [:]
+        for r in rows {
+            for name in r.missed {
+                counts[name, default: 0] += 1
+            }
+        }
+        return counts
+            .map { StatsMissRow(name: $0.key, wrong: $0.value) }
+            .sorted {
+                if $0.wrong != $1.wrong { return $0.wrong > $1.wrong }
+                return $0.name < $1.name
+            }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    private func recentHistory(limit: Int) -> [StatsHistoryRow] {
+        quizzes.prefix(limit).map { r in
+            StatsHistoryRow(
+                id: r.id,
+                date: r.date,
+                kindTitle: r.kind.title,
+                subjectTitle: r.subject.practiceTitle,
+                scopeTitle: r.scope.title,
+                scoreText: "\(r.score)/\(r.total)",
+                isPractice: r.kind == .practice
+            )
+        }
+    }
+
+    private func recentDays(limit: Int, now: Date) -> [StatsBreakdownRow] {
+        let cal = Calendar.current
+        var rows: [StatsBreakdownRow] = []
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.setLocalizedDateFormatFromTemplate("MMMd")
+        for offset in 0..<limit {
+            guard let day = cal.date(byAdding: .day, value: -offset, to: now) else { continue }
+            let start = cal.startOfDay(for: day)
+            guard let end = cal.date(byAdding: .day, value: 1, to: start) else { continue }
+            let inDay = quizzes.filter { $0.date >= start && $0.date < end }
+            guard !inDay.isEmpty else { continue }
+            let c = inDay.reduce(0) { $0 + $1.score }
+            let t = inDay.reduce(0) { $0 + $1.total }
+            let label = offset == 0 ? "Today" : (offset == 1 ? "Yesterday" : formatter.string(from: day))
+            rows.append(StatsBreakdownRow(label: label, quizzes: inDay.count, correct: c, total: t))
+        }
+        return rows
     }
 }

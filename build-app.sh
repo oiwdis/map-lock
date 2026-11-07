@@ -5,7 +5,7 @@
 # Options (used by release.sh):
 #   NO_INSTALL=1   only build build/Map Lock.app, do not install or quit the running copy
 #   NO_SIGN=1      skip the ad hoc signature (release.sh signs with Developer ID instead)
-#   VERSION=1.2.0  version number shown in Finder (default 1.1.1)
+#   VERSION=1.2.0  version number shown in Finder (default 1.1.2)
 set -euo pipefail
 
 # Always work from the folder this script is in.
@@ -13,7 +13,7 @@ cd "$(dirname "$0")"
 ROOT="$(pwd)"
 
 APP_NAME="Map Lock"
-VERSION="${VERSION:-1.1.1}"
+VERSION="${VERSION:-1.1.2}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
 APP="$ROOT/build/$APP_NAME.app"
 ICON_PNG="$ROOT/Resources/AppIcon.png"

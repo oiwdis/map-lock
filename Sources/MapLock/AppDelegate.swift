@@ -50,21 +50,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.quizClosed()
         }
 
-        let firstLaunch = !UserDefaults.standard.bool(forKey: Self.launchedBeforeKey)
+        // First launch, Force Quit relaunch, and every cold start: open home.
+        // Do not treat app launch as an unlock. Unlock quizzes still run from
+        // screen unlock / wake settings, Quiz me now, and the menu.
         UserDefaults.standard.set(true, forKey: Self.launchedBeforeKey)
-        if firstLaunch || !settings.quizOnUnlock {
-            home?.show()
-        }
+        home?.show()
 
-        // Show one quiz right away when "Every unlock" is on (login counts as an unlock).
+        // A due scheduled quiz can still show after launch. Never auto-start
+        // an unlock quiz just because Map Lock started.
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 700_000_000)
-            guard let self else { return }
-            if self.settings.quizOnUnlock {
-                self.startQuiz()
-            } else {
-                self.checkSchedule()
-            }
+            self?.checkSchedule()
         }
     }
 
