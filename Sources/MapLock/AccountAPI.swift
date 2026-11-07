@@ -73,6 +73,16 @@ struct FriendStatsResponse: Codable {
 }
 
 enum AccountClient {
+    static func register(username: String, password: String) async throws -> AuthResponse {
+        try await send(AuthResponse.self, path: "/v1/auth/register", method: "POST", token: nil,
+                       json: try encode(["username": username, "password": password]))
+    }
+
+    static func login(username: String, password: String) async throws -> AuthResponse {
+        try await send(AuthResponse.self, path: "/v1/auth/login", method: "POST", token: nil,
+                       json: try encode(["username": username, "password": password]))
+    }
+
     static func exchange(code: String, state: String) async throws -> AuthResponse {
         try await send(AuthResponse.self, path: "/v1/auth/exchange", method: "POST", token: nil,
                        json: try encode(["code": code, "state": state]))

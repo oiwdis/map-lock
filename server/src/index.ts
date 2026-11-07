@@ -2,6 +2,7 @@ import { verifyAppleIdentityToken } from "./apple";
 import { createSession, randomCode, randomSeed, randomToken, sha256Hex, userFromRequest, type SessionUser } from "./auth";
 import { canonicalBestKey, emptyPayload, isRegion, mergePayload, parsePayload } from "./merge";
 import { RaceRoom } from "./race";
+import { clientIp, hashPassword, loginIsLimited, recordLoginFailure, verifyPassword } from "./password";
 import { canonicalUsername, usernameProblem } from "./username";
 
 export { RaceRoom };
@@ -33,6 +34,8 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === "POST" && url.pathname === "/v1/auth/apple/callback") return appleCallback(request, env);
   if (request.method === "POST" && url.pathname === "/v1/auth/exchange") return exchangeAuth(request, env);
   if (request.method === "POST" && url.pathname === "/v1/auth/apple") return authApple(request, env);
+  if (request.method === "POST" && url.pathname === "/v1/auth/register") return registerAccount(request, env);
+  if (request.method === "POST" && url.pathname === "/v1/auth/login") return loginAccount(request, env);
 
   const user = await userFromRequest(request, env.DB);
   if (!user) return json({ error: "Sign in required" }, 401);
@@ -183,6 +186,67 @@ function signInPage(message: string): Response {
   return new Response(`<!doctype html><html><body style="font:16px -apple-system,sans-serif;padding:2rem"><p>${safe}</p></body></html>`, {
     status: 400,
     headers: { "content-type": "text/html; charset=utf-8" },
+  });
+}
+
+const WRONG_PASSWORD = "Wrong username or password";
+
+async function registerAccount(request: Request, env: Env): Promise<Response> {
+  const body = await readJson(request);
+  const rawName = stringField(body, "username") ?? "";
+  const password = stringField(body, "password") ?? "";
+  const problem = usernameProblem(rawName);
+  if (problem) return json({ error: usernameMessage(problem) }, 400);
+  if (password.length < 8 || password.length > 200) {
+    return json({ error: "Passwords must be 8 to 200 characters" }, 400);
+  }
+  const username = canonicalUsername(rawName);
+  const lower = username.toLowerCase();
+  const taken = await env.DB.prepare(
+    "SELECT id FROM users WHERE username_lower = ?",
+  ).bind(lower).first();
+  if (taken) return json({ error: "That username is taken" }, 409);
+  const userId = crypto.randomUUID();
+  const passwordHash = await hashPassword(password);
+  try {
+    await env.DB.prepare(
+      "INSERT INTO users (id, apple_sub, username, username_lower, password_hash, created_at) VALUES (?, NULL, ?, ?, ?, ?)",
+    ).bind(userId, username, lower, passwordHash, Date.now()).run();
+  } catch (error) {
+    const text = error instanceof Error ? error.message : "";
+    if (text.toLowerCase().includes("unique")) return json({ error: "That username is taken" }, 409);
+    throw error;
+  }
+  const token = await createSession(env.DB, userId);
+  return json({
+    token,
+    user: { id: userId, username, needsUsername: false },
+  });
+}
+
+async function loginAccount(request: Request, env: Env): Promise<Response> {
+  const body = await readJson(request);
+  const rawName = stringField(body, "username") ?? "";
+  const password = stringField(body, "password") ?? "";
+  const lower = rawName.trim().toLowerCase().slice(0, 64);
+  const ip = clientIp(request);
+  const limited = await loginIsLimited(env.DB, lower, ip);
+  const person = lower
+    ? await env.DB.prepare(
+      "SELECT id, username, password_hash FROM users WHERE username_lower = ?",
+    ).bind(lower).first<{ id: string; username: string | null; password_hash: string | null }>()
+    : null;
+  const passwordOk = password.length >= 8 && password.length <= 200
+    ? await verifyPassword(password, person?.password_hash ?? null)
+    : await verifyPassword("invalid", null);
+  if (limited || !person?.password_hash || !passwordOk) {
+    await recordLoginFailure(env.DB, lower, ip);
+    return json({ error: WRONG_PASSWORD }, 401);
+  }
+  const token = await createSession(env.DB, person.id);
+  return json({
+    token,
+    user: { id: person.id, username: person.username, needsUsername: !person.username },
   });
 }
 

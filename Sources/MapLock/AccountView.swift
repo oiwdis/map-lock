@@ -38,7 +38,7 @@ struct AccountPane: View {
 
     private var signedOut: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s3) {
-            Text("Sign in with Apple to add friends, sync stats between Macs, and race live. Map Lock stores your Apple user id and username, not your email.")
+            Text("Sign in with Apple or a username and password to add friends, sync stats between Macs, and race live. Map Lock stores your Apple user id or username, not your email.")
                 .font(Theme.font(Theme.Size.sm))
                 .foregroundStyle(Theme.text2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -59,6 +59,42 @@ struct AccountPane: View {
             .buttonStyle(.plain)
             .disabled(account.busy)
             .opacity(account.busy ? 0.6 : 1)
+
+            HStack(spacing: Theme.Space.s3) {
+                Rectangle().fill(Theme.hairline2).frame(height: 1)
+                Text("or")
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.text3)
+                Rectangle().fill(Theme.hairline2).frame(height: 1)
+            }
+            .frame(maxWidth: 280)
+
+            TextField("Username", text: $account.loginUsername)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 280)
+                .onSubmit { account.submitPasswordAccount() }
+            SecureField("Password", text: $account.loginPassword)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 280)
+                .onSubmit { account.submitPasswordAccount() }
+            if account.creatingAccount {
+                SecureField("Confirm password", text: $account.confirmPassword)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 280)
+                    .onSubmit { account.submitPasswordAccount() }
+            }
+            Button(account.creatingAccount ? "Create Account" : "Sign In") {
+                account.submitPasswordAccount()
+            }
+            .buttonStyle(AppButtonStyle(kind: .primary, height: 36))
+            .disabled(account.busy)
+            Button(account.creatingAccount ? "Have an account? Sign in" : "Create account") {
+                account.toggleCreateAccount()
+            }
+            .buttonStyle(.plain)
+            .font(Theme.font(Theme.Size.sm))
+            .foregroundStyle(Theme.text2)
+            .disabled(account.busy)
         }
     }
 

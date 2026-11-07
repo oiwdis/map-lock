@@ -4,7 +4,7 @@ Cloudflare Worker for Map Lock accounts, friends, stat sync, and live races. It 
 
 The Mac app is `com.elliot.maplock`, signed with Developer ID and no extra entitlements. Sign in with Apple uses the web flow and the Services ID `com.elliot.maplock.web` (`APPLE_WEB_CLIENT_ID`). The worker checks Apple's identity token against `https://appleid.apple.com/auth/keys`. No client secret and no `.p8` key are used.
 
-The worker then issues its own session token. Only a SHA-256 hash of that token is stored. The app keeps the token in the Keychain. Stored profile data is the Apple user id (`sub`) and the chosen username. Email is never requested or stored.
+The worker then issues its own session token. Only a SHA-256 hash of that token is stored. The app keeps the token in the Keychain and never stores the password. A password account stores the username and a PBKDF2-SHA256 hash (`iterations$salt$hash`, 100,000 iterations, a random 16-byte salt). An Apple account stores the Apple user id (`sub`) and the chosen username, with no password hash. Email is never requested or stored.
 
 ## Sign in with Apple
 
@@ -31,11 +31,19 @@ From this `server/` directory:
 1. Install dependencies: `npm install`
 2. Create the database: `npx wrangler d1 create map-lock-api`
 3. Paste the printed database id into `database_id` in `wrangler.toml`.
-4. Apply the schema:
+4. Apply the schema on a new database:
 
    ```
    npx wrangler d1 execute map-lock-api --remote --file=schema.sql
    ```
+
+   If this database already exists, do not run `schema.sql` again. Apply the password migration once instead:
+
+   ```
+   npx wrangler d1 execute map-lock-api --remote --file=migrations/0002_password_accounts.sql
+   ```
+
+   That adds `password_hash` (null for Apple users), rebuilds `users` so `apple_sub` can be null, and creates `login_attempts`. Running it on a database created from the current `schema.sql` fails, because those columns are already there.
 
 5. Check the project: `npm run check`
 6. Deploy: `npx wrangler deploy`
@@ -66,6 +74,8 @@ Session header: `Authorization: Bearer <token>`.
 
 - `GET /v1/auth/apple/start?state=…&nonce=…` redirects to Apple. `POST /v1/auth/apple/callback` verifies the form `id_token` (`aud` is `APPLE_WEB_CLIENT_ID`) and redirects to `maplock://auth?code=…&state=…`. `POST /v1/auth/exchange` with `{ "code", "state" }` returns `{ token, user }`.
 - `POST /v1/auth/apple` with `{ "identityToken", "nonce" }` still accepts a native identity token (`aud` is `com.elliot.maplock`). The Mac app does not call it.
+- `POST /v1/auth/register` with `{ "username", "password" }` creates a password account. The username rules match `POST /v1/me/username`, and the username must be unique. The password is 8 to 200 characters. The response is `{ token, user }` and `needsUsername` is false.
+- `POST /v1/auth/login` with `{ "username", "password" }` returns the same session shape. A wrong username, a wrong password, an Apple-only account, and a rate limit all return `Wrong username or password`. Failed attempts are limited to 10 per username and 10 per IP in 15 minutes.
 - `POST /v1/me/username` with `{ "username" }`. 3 to 20 characters: letters, numbers, underscores. Rejects reserved names and a small profanity list.
 - `GET /v1/me`
 - `GET /v1/friends`, `POST /v1/friends/requests`, `POST /v1/friends/requests/:id/accept`, `POST /v1/friends/requests/:id/decline`, `DELETE /v1/friends/:userId`

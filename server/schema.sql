@@ -2,9 +2,10 @@
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  apple_sub TEXT NOT NULL UNIQUE,
+  apple_sub TEXT UNIQUE,
   username TEXT UNIQUE,
   username_lower TEXT UNIQUE,
+  password_hash TEXT,
   created_at INTEGER NOT NULL
 );
 
@@ -16,6 +17,15 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+
+-- Failed username/password logins. 10 per username and 10 per IP in 15 minutes.
+CREATE TABLE IF NOT EXISTS login_attempts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bucket TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS login_attempts_lookup ON login_attempts(bucket, created_at);
 
 -- Web Sign in with Apple: nonce for the authorize request, then a one-time app code.
 CREATE TABLE IF NOT EXISTS apple_logins (

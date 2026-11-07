@@ -16,6 +16,10 @@ final class AccountModel: NSObject, ObservableObject, ASWebAuthenticationSession
 
     @Published private(set) var user: AccountUser?
     @Published var usernameDraft = ""
+    @Published var loginUsername = ""
+    @Published var loginPassword = ""
+    @Published var confirmPassword = ""
+    @Published var creatingAccount = false
     @Published var friendDraft = ""
     @Published var joinCode = ""
     @Published var raceRegion: PracticeChoice = .africa
@@ -76,9 +80,57 @@ final class AccountModel: NSObject, ObservableObject, ASWebAuthenticationSession
         }
     }
 
+    func submitPasswordAccount() {
+        message = nil
+        let name = loginUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let problem = AccountName.problem(with: name) {
+            message = problem
+            return
+        }
+        if loginPassword.count < 8 || loginPassword.count > 200 {
+            message = "Passwords must be 8 to 200 characters."
+            return
+        }
+        if creatingAccount && loginPassword != confirmPassword {
+            message = "Those passwords don't match."
+            return
+        }
+        let password = loginPassword
+        let making = creatingAccount
+        loginPassword = ""
+        confirmPassword = ""
+        Task {
+            await run(making ? "Could not create the account." : "Wrong username or password.") {
+                let response: AuthResponse
+                if making {
+                    response = try await AccountClient.register(username: name, password: password)
+                } else {
+                    response = try await AccountClient.login(username: name, password: password)
+                }
+                token = response.token
+                user = response.user
+                KeychainStore.saveSession(response.token)
+                loginUsername = ""
+                creatingAccount = false
+                message = "Signed in."
+                if !response.user.needsUsername { await refresh() }
+            }
+        }
+    }
+
+    func toggleCreateAccount() {
+        creatingAccount.toggle()
+        confirmPassword = ""
+        message = nil
+    }
+
     func signOut() {
         token = nil
         user = nil
+        loginUsername = ""
+        loginPassword = ""
+        confirmPassword = ""
+        creatingAccount = false
         KeychainStore.deleteSession()
         friends = FriendLists(friends: [], incoming: [], outgoing: [])
         leaderboard = []
