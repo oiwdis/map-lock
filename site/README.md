@@ -29,7 +29,7 @@ Account `7c91f249b4af636a59808b9768fb46a7`. Script name `map-lock`.
 ```json
 {
   "main_module": "worker.js",
-  "compatibility_date": "2026-11-07",
+  "compatibility_date": "2026-11-01",
   "bindings": [
     { "type": "service", "name": "API", "service": "map-lock-api" }
   ]
