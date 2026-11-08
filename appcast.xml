@@ -6,6 +6,15 @@
     <description>Map Lock updates.</description>
     <language>en</language>
     <item>
+      <title>Version 1.3.7</title>
+      <pubDate>Sun, 08 Nov 2026 20:17:00 +0000</pubDate>
+      <sparkle:version>1.3.7</sparkle:version>
+      <sparkle:shortVersionString>1.3.7</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description>A Race tab, Friends and the leaderboard on Account, a solid race waiting card, Reset stats, and content that stays below the toolbar.</description>
+      <enclosure url="https://github.com/oiwdis/map-lock/releases/download/v1.3.7/MapLock.zip" sparkle:edSignature="ITm0Ukssg4fZOV1MyY23TnBone0/ii2wGA3SRUi0crHI+XypYs3Y5mEY1dk/Q19U3WYLsYmeDjbh7Sc4xqw3BA==" length="3889897" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.3.6</title>
       <pubDate>Sun, 08 Nov 2026 05:00:00 +0000</pubDate>
       <sparkle:version>1.3.6</sparkle:version>
