@@ -2,6 +2,8 @@
 
 ## 1.3.7
 
+- Home panes no longer scroll underneath the toolbar buttons. The scroll views start below that band.
+- The custom country picker can cancel and restore the previous set. Search results only open while you type, and the continent buttons and chips are no longer cut off.
 - The custom country picker keeps a fixed size. Search shows a flag, the continent, and a check when a country is already in the set. Chips wrap. Saved sets are a menu. Pick on map fades to the continent you choose.
 - Race challenges sit in a 320pt card at the bottom-right, with a countdown bar and equal Accept and Decline buttons. Esc or the close button declines.
 - Race waiting, declined, and results screens use the same card, type, and spacing.

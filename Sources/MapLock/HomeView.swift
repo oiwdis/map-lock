@@ -349,9 +349,36 @@ final class HomeModel: ObservableObject {
 // MARK: Window
 
 /// Height of the titlebar and toolbar that covers the top of the content view.
-/// NSHostingView does not report that band as a safe area, so the panes measure it here.
+/// The scroll views are placed below this band, so they cannot draw behind it.
 final class WindowChrome: ObservableObject {
     @Published var toolbarOverlap: CGFloat = 0
+}
+
+/// How far toolbar controls hang over a content view, in points.
+/// `contentLayoutRect` stops at the old titlebar. Liquid Glass capsules hang lower than that,
+/// so the band is the bottom of the lowest real toolbar control.
+enum ToolbarBand {
+    static func overlap(of view: NSView) -> CGFloat {
+        guard let window = view.window, let theme = window.contentView?.superview else { return 0 }
+        let hostTop = view.convert(view.bounds, to: theme).maxY
+        var lowest = theme.convert(window.contentLayoutRect, from: nil).maxY
+        func visit(_ candidate: NSView) {
+            if let content = window.contentView, candidate === content || candidate.isDescendant(of: content) {
+                return
+            }
+            let name = NSStringFromClass(type(of: candidate))
+            let frame = candidate.convert(candidate.bounds, to: theme)
+            let control = name.contains("Toolbar") || name.contains("Titlebar") || name.contains("Button")
+            if control, frame.width >= 12, frame.height >= 10, frame.height <= 140, frame.maxY >= hostTop - 12 {
+                lowest = min(lowest, frame.minY)
+            }
+            for sub in candidate.subviews {
+                visit(sub)
+            }
+        }
+        visit(theme)
+        return max(0, hostTop - lowest + 6)
+    }
 }
 
 /// Hosting view that keeps the home panes out of the transparent unified toolbar.
@@ -376,9 +403,10 @@ final class HomeHostingView: NSHostingView<HomeView> {
 
     /// Clicks in the toolbar band belong to the AppKit toolbar, not the pane underneath.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let window else { return super.hitTest(point) }
+        guard let window, let chrome else { return super.hitTest(point) }
         let inWindow = convert(point, to: nil)
-        if inWindow.y >= window.contentLayoutRect.maxY - 0.5 { return nil }
+        let top = convert(bounds, to: nil).maxY
+        if inWindow.y >= top - chrome.toolbarOverlap - 0.5 { return nil }
         return super.hitTest(point)
     }
 
@@ -388,15 +416,31 @@ final class HomeHostingView: NSHostingView<HomeView> {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.overlapUpdateScheduled = false
-            guard let window = self.window, let chrome = self.chrome else { return }
-            let inWindow = self.convert(self.bounds, to: nil)
-            let overlap = max(0, inWindow.maxY - window.contentLayoutRect.maxY)
-            // Our own hairline replaces the system one while content runs under the bar.
-            window.titlebarSeparatorStyle = overlap > 0.5 ? .none : .line
+            guard let chrome = self.chrome else { return }
+            let overlap = ToolbarBand.overlap(of: self)
             if abs(chrome.toolbarOverlap - overlap) > 0.5 {
                 chrome.toolbarOverlap = overlap
             }
         }
+    }
+}
+
+/// Quiz and speedrun windows use the same measurement so a glass titlebar cannot cover the question.
+final class TitlebarSafeHostingView<Content: View>: NSHostingView<Content> {
+    private var extraTop: CGFloat = 0
+
+    override var safeAreaInsets: NSEdgeInsets {
+        var insets = super.safeAreaInsets
+        insets.top = max(insets.top, extraTop)
+        return insets
+    }
+
+    override func layout() {
+        super.layout()
+        let next = ToolbarBand.overlap(of: self)
+        guard abs(next - extraTop) > 0.5 else { return }
+        extraTop = next
+        needsLayout = true
     }
 }
 
@@ -428,8 +472,9 @@ final class HomeWindowController: NSObject, NSWindowDelegate {
             w.isReleasedWhenClosed = false
             w.backgroundColor = Theme.windowBackground
             w.minSize = NSSize(width: 680, height: 460)
+            w.styleMask.remove(.fullSizeContentView)
             w.titlebarAppearsTransparent = false
-            w.titlebarSeparatorStyle = .line
+            w.titlebarSeparatorStyle = .automatic
             // Unified style lives on the window. windowToolbarStyle is a Scene modifier.
             w.toolbarStyle = .unified
             let hosting = HomeHostingView(rootView: HomeView(model: model, account: account, chrome: chrome))
@@ -472,106 +517,77 @@ struct HomeView: View {
     @ObservedObject var chrome: WindowChrome
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $model.homeTab) {
-                Section {
-                    ForEach(HomeTab.allCases) { tab in
-                        HStack(spacing: Theme.Space.s2) {
-                            Label(tab.title, systemImage: tab.symbol)
-                            Spacer(minLength: 4)
-                            if tab == .account && account.alertCount > 0 {
-                                FriendCountBadge(count: account.alertCount, noun: "alerts")
+        VStack(spacing: 0) {
+            // Not inside a scroll view. Pane content is clipped at this band's bottom edge,
+            // so it cannot draw behind the glass toolbar buttons.
+            Color(nsColor: .windowBackgroundColor)
+                .frame(height: chrome.toolbarOverlap)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+            NavigationSplitView {
+                List(selection: $model.homeTab) {
+                    Section {
+                        ForEach(HomeTab.allCases) { tab in
+                            HStack(spacing: Theme.Space.s2) {
+                                Label(tab.title, systemImage: tab.symbol)
+                                Spacer(minLength: 4)
+                                if tab == .account && account.alertCount > 0 {
+                                    FriendCountBadge(count: account.alertCount, noun: "alerts")
+                                }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .overlay(HitTarget { model.homeTab = tab })
+                            .tag(tab)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .overlay(HitTarget { model.homeTab = tab })
-                        .tag(tab)
                     }
                 }
+                .listStyle(.sidebar)
+                // Keep system label colors so the selected row gets white (or vibrancy) on the blue highlight.
+                .navigationSplitViewColumnWidth(min: 150, ideal: 168, max: 200)
+            } detail: {
+                detail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Theme.background)
+                    .foregroundStyle(Theme.text)
             }
-            .listStyle(.sidebar)
-            // Keep system label colors so the selected row gets white (or vibrancy) on the blue highlight.
-            .navigationSplitViewColumnWidth(min: 150, ideal: 168, max: 200)
-            .scrollBelowToolbar(chrome.toolbarOverlap)
-        } detail: {
-            detail
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.background)
-                .foregroundStyle(Theme.text)
-        }
-        .navigationSplitViewStyle(.balanced)
-        // Do not set foregroundStyle on the split view: it paints sidebar labels dark on the selection fill.
-        // No preferredColorScheme: NSApp.appearance drives Light / Dark / Match system.
-        .frame(minWidth: 680, minHeight: 460)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    model.onQuizNow()
-                } label: {
-                    Label("Quiz me now", systemImage: "play.fill")
+            .navigationSplitViewStyle(.balanced)
+            // Do not set foregroundStyle on the split view: it paints sidebar labels dark on the selection fill.
+            // No preferredColorScheme: NSApp.appearance drives Light / Dark / Match system.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        model.onQuizNow()
+                    } label: {
+                        Label("Quiz me now", systemImage: "play.fill")
+                    }
+                    .help("Start an unlock quiz with Unlock quiz settings")
                 }
-                .help("Start an unlock quiz with Unlock quiz settings")
             }
         }
-        .overlay(alignment: Alignment.top) {
-            WindowToolbarCover(height: chrome.toolbarOverlap)
-        }
+        .frame(minWidth: 680, minHeight: 460)
     }
 
     @ViewBuilder
     private var detail: some View {
         switch model.homeTab {
         case .practice:
-            PracticePane(model: model, toolbarOverlap: chrome.toolbarOverlap)
+            PracticePane(model: model)
         case .stats:
-            StatsPane(model: model, toolbarOverlap: chrome.toolbarOverlap)
+            StatsPane(model: model)
         case .account:
-            AccountPane(account: account, home: model, toolbarOverlap: chrome.toolbarOverlap)
+            AccountPane(account: account, home: model)
         case .settings:
-            SettingsPane(model: model, toolbarOverlap: chrome.toolbarOverlap)
+            SettingsPane(model: model)
         }
     }
 }
 
 // MARK: Practice
 
-/// Opaque stand-in for the unified toolbar. The AppKit bar is transparent when
-/// SwiftUI installs it on an NSHostingView, so pane content would show through.
-private struct WindowToolbarCover: View {
-    var height: CGFloat
-
-    var body: some View {
-        Theme.background
-            .frame(height: max(0, height))
-            .overlay(alignment: .bottom) {
-                if height > 1 {
-                    Rectangle()
-                        .fill(Theme.hairline)
-                        .frame(height: 1)
-                }
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-}
-
-extension View {
-    /// Keep scrolled pane content below the toolbar band.
-    /// contentMargins is macOS 14. Earlier systems pad the scroll view down instead.
-    @ViewBuilder
-    func scrollBelowToolbar(_ height: CGFloat) -> some View {
-        if #available(macOS 14, *) {
-            contentMargins(.top, height, for: .scrollContent)
-        } else {
-            padding(.top, height)
-        }
-    }
-}
-
 private struct PracticePane: View {
     @ObservedObject var model: HomeModel
-    var toolbarOverlap: CGFloat = 0
     @State private var editingCustom = false
 
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: Theme.Space.s2)]
@@ -618,7 +634,6 @@ private struct PracticePane: View {
             .frame(maxWidth: 720, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .scrollBelowToolbar(toolbarOverlap)
         .sheet(isPresented: $editingCustom) {
             CustomSetEditor {
                 model.customRevision += 1
@@ -860,7 +875,6 @@ private struct PracticePlaceCard: View {
 
 private struct StatsPane: View {
     @ObservedObject var model: HomeModel
-    var toolbarOverlap: CGFloat = 0
 
     private var snap: StatsSnapshot { model.statsSnapshot }
 
@@ -1047,7 +1061,6 @@ private struct StatsPane: View {
             }
         }
         .formStyle(.grouped)
-        .scrollBelowToolbar(toolbarOverlap)
     }
 
     @ViewBuilder
@@ -1248,7 +1261,6 @@ private struct StatTile: View {
 
 private struct SettingsPane: View {
     @ObservedObject var model: HomeModel
-    var toolbarOverlap: CGFloat = 0
     @State private var editingCustom = false
 
     var body: some View {
@@ -1385,7 +1397,6 @@ private struct SettingsPane: View {
             }
         }
         .formStyle(.grouped)
-        .scrollBelowToolbar(toolbarOverlap)
         .toggleStyle(.switch)
     }
 

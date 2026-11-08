@@ -44,7 +44,9 @@ final class PracticeController: NSObject, NSWindowDelegate {
         }
         guard let w = window else { return }
         w.title = title
-        w.contentView = NSHostingView(rootView: content)
+        w.styleMask.remove(.fullSizeContentView)
+        w.titlebarAppearsTransparent = false
+        w.contentView = TitlebarSafeHostingView(rootView: content)
         w.setFrame(frame, display: true)
         if NSApp.isHidden { NSApp.unhide(nil) }
         NSApp.activate(ignoringOtherApps: true)

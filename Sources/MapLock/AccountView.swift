@@ -4,7 +4,6 @@ import SwiftUI
 struct AccountPane: View {
     @ObservedObject var account: AccountModel
     @ObservedObject var home: HomeModel
-    var toolbarOverlap: CGFloat = 0
     @State private var passwordBusy = false
     @State private var raceCopyToken = 0
     @State private var raceOptionsOpen = false
@@ -31,10 +30,9 @@ struct AccountPane: View {
                 .padding(.vertical, Theme.Space.s5)
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: account.isSignedIn && !account.needsUsername ? CGFloat(0) : max(0, geo.size.height - toolbarOverlap - Theme.Space.s6),
+                .frame(minHeight: account.isSignedIn && !account.needsUsername ? CGFloat(0) : max(0, geo.size.height - Theme.Space.s6),
                        alignment: .center)
             }
-            .scrollBelowToolbar(toolbarOverlap)
         }
         .onAppear {
             if !account.isSignedIn { focus = .username }

@@ -80,6 +80,7 @@ struct CustomSetEditor: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var countries: [String] = CustomSets.countries()
+    @State private var original: [String] = CustomSets.countries()
     @State private var query = ""
     @State private var named: [NamedCustomSet] = CustomSets.namedSets()
     @State private var draftName = ""
@@ -97,6 +98,8 @@ struct CustomSetEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s4) {
             HStack(spacing: Theme.Space.s3) {
+                Button("Cancel") { cancel() }
+                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
                 VStack(alignment: .leading, spacing: Theme.Space.s1) {
                     Text("Custom set")
                         .font(Theme.font(Theme.Size.lg, .bold))
@@ -132,7 +135,7 @@ struct CustomSetEditor: View {
         .padding(Theme.Space.s6)
         .frame(width: 720, height: 680)
         .background(PickerKeySync(keys: keys, countries: $countries, highlight: $highlight,
-                                  mode: $pickMode, query: $query, suggestions: suggestions, close: finish))
+                                  mode: $pickMode, query: $query, suggestions: suggestions, close: cancel))
         .onAppear { installKeys() }
         .onDisappear { removeKeys() }
         .onChange(of: query) { _, _ in highlight = 0 }
@@ -215,38 +218,42 @@ struct CustomSetEditor: View {
             .frame(height: 36)
             .background(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous).fill(Theme.fill2))
 
-            ScrollView {
-                VStack(spacing: 0) {
-                    if suggestions.isEmpty {
-                        Text(query.isEmpty ? "Type to search." : "No matches.")
-                            .font(Theme.font(Theme.Size.sm))
-                            .foregroundStyle(Theme.text3)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(Theme.Space.s3)
-                    } else {
-                        ForEach(Array(suggestions.enumerated()), id: \.element) { index, name in
-                            suggestionRow(name, index: index)
+            if !query.isEmpty {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if suggestions.isEmpty {
+                            Text("No matches.")
+                                .font(Theme.font(Theme.Size.sm))
+                                .foregroundStyle(Theme.text3)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(Theme.Space.s3)
+                        } else {
+                            ForEach(Array(suggestions.enumerated()), id: \.element) { index, name in
+                                suggestionRow(name, index: index)
+                            }
                         }
                     }
                 }
+                .frame(height: min(240, CGFloat(max(suggestions.count, 1)) * 40))
+                .background(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous).fill(Theme.fill))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                        .strokeBorder(Theme.hairline, lineWidth: 1)
+                )
             }
-            .frame(maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous).fill(Theme.fill))
 
-            ScrollView(.horizontal) {
-                HStack(spacing: Theme.Space.s2) {
-                    ForEach(Region.allCases, id: \.self) { region in
-                        Button("Add all of \(region.title)") { addRegion(region) }
-                            .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
-                    }
-                    Button("Clear") {
-                        countries = []
-                        CustomSets.saveCountries([])
-                    }
-                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
-                    .disabled(countries.isEmpty)
+            Menu {
+                ForEach(Region.allCases, id: \.self) { region in
+                    Button(region.title) { addRegion(region) }
                 }
+            } label: {
+                Text("Add all of")
+                    .font(Theme.font(Theme.Size.sm, .semibold))
+                    .frame(height: 32)
+                    .padding(.horizontal, Theme.Space.s3)
             }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
         }
     }
 
@@ -323,31 +330,48 @@ struct CustomSetEditor: View {
     }
 
     private var selectedChips: some View {
-        ScrollView {
-            ChipFlow(spacing: Theme.Space.s2) {
-                ForEach(countries, id: \.self) { name in
-                    HStack(spacing: Theme.Space.s1) {
-                        Text(CountryFacts.flagEmoji(for: name) ?? "")
-                            .font(.system(size: 13))
-                        Text(name)
-                            .font(Theme.font(Theme.Size.sm))
-                            .lineLimit(1)
-                        Button { remove(name) } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 9, weight: .bold))
-                                .frame(width: 16, height: 16)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, Theme.Space.s2)
-                    .padding(.vertical, Theme.Space.s1)
-                    .background(Capsule().fill(Theme.fill2))
-                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
+        VStack(alignment: .leading, spacing: Theme.Space.s2) {
+            HStack(spacing: Theme.Space.s2) {
+                Text(countries.count == 1 ? "1 country" : "\(countries.count) countries")
+                    .font(Theme.font(Theme.Size.sm, .medium))
+                    .foregroundStyle(Theme.text2)
+                    .monospacedDigit()
+                Spacer()
+                Button("Clear all") {
+                    countries = []
+                    CustomSets.saveCountries([])
                 }
+                .buttonStyle(.plain)
+                .font(Theme.font(Theme.Size.sm, .semibold))
+                .foregroundStyle(countries.isEmpty ? Theme.text3 : Theme.accent)
+                .disabled(countries.isEmpty)
             }
-            .padding(1)
+            ScrollView {
+                ChipFlow(spacing: Theme.Space.s2) {
+                    ForEach(countries, id: \.self) { name in
+                        HStack(spacing: Theme.Space.s1) {
+                            Text(CountryFacts.flagEmoji(for: name) ?? "")
+                                .font(.system(size: 13))
+                            Text(name)
+                                .font(Theme.font(Theme.Size.sm))
+                                .lineLimit(1)
+                            Button { remove(name) } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .frame(width: 16, height: 16)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, Theme.Space.s2)
+                        .padding(.vertical, Theme.Space.s1)
+                        .background(Capsule().fill(Theme.fill2))
+                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    }
+                }
+                .padding(.bottom, Theme.Space.s2)
+            }
+            .frame(height: 120)
         }
-        .frame(height: 72)
         .animation(.easeOut(duration: 0.2), value: countries)
     }
 
@@ -495,6 +519,14 @@ struct CustomSetEditor: View {
 
     private func finish() {
         CustomSets.saveCountries(countries)
+        onDone()
+        dismiss()
+    }
+
+    /// Drops edits made in this sheet and puts the last saved set back.
+    private func cancel() {
+        countries = original
+        CustomSets.saveCountries(original)
         onDone()
         dismiss()
     }
