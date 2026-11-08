@@ -72,3 +72,16 @@ CREATE TABLE IF NOT EXISTS races (
   style TEXT NOT NULL DEFAULT 'click',
   status TEXT NOT NULL DEFAULT 'open'
 );
+
+-- Asks a friend to join an open race. status is pending until they join, decline, or it expires.
+CREATE TABLE IF NOT EXISTS race_invites (
+  id TEXT PRIMARY KEY,
+  race_code TEXT NOT NULL REFERENCES races(code),
+  from_user TEXT NOT NULL REFERENCES users(id),
+  to_user TEXT NOT NULL REFERENCES users(id),
+  created_at INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'expired'))
+);
+
+CREATE INDEX IF NOT EXISTS race_invites_to ON race_invites(to_user, status, created_at);
+CREATE INDEX IF NOT EXISTS race_invites_race ON race_invites(race_code, status);

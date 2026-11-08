@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
+        FriendAlerts.registerCategories()
         NSApp.setActivationPolicy(.regular)
         settings.appearance.apply()
         // Before any window, overlay or quiz: offer to move to Applications.
@@ -445,10 +446,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func openRace(_ ticket: RaceTicket, isHost: Bool) {
-        guard !overlay.isShowing, let scope = PracticeScope.fromServer(ticket.region),
+        guard let scope = PracticeScope.fromServer(ticket.region),
               let token = account?.sessionToken, let userId = account?.user?.id else { return }
         let session = RaceSession(ticket: ticket, world: world, scope: scope, token: token,
                                   userId: userId, isHost: isHost, stats: stats)
+        session.friendNames = account?.friends.friends.compactMap(\.username) ?? []
         session.onCancelled = { [weak self] in
             self?.account?.noteRaceCancelled()
         }
@@ -814,9 +816,20 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let openFriends = response.notification.request.content.userInfo["maplock"] as? String == "friends"
+        let info = response.notification.request.content.userInfo
+        let kind = info["maplock"] as? String
+        let action = response.actionIdentifier
+        let inviteId = info["inviteId"] as? String
         Task { @MainActor in
-            if openFriends { self.showFriends() }
+            if kind == "race-invite", let inviteId {
+                if action == FriendAlerts.declineAction {
+                    self.account?.declineInvite(id: inviteId)
+                } else if action != UNNotificationDismissActionIdentifier {
+                    self.account?.acceptInvite(id: inviteId)
+                }
+            } else if kind == "friends" {
+                self.showFriends()
+            }
             completionHandler()
         }
     }

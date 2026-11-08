@@ -458,8 +458,8 @@ struct HomeView: View {
                         HStack(spacing: Theme.Space.s2) {
                             Label(tab.title, systemImage: tab.symbol)
                             Spacer(minLength: 4)
-                            if tab == .account && account.incomingFriendCount > 0 {
-                                FriendCountBadge(count: account.incomingFriendCount)
+                            if tab == .account && account.alertCount > 0 {
+                                FriendCountBadge(count: account.alertCount, noun: "alerts")
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

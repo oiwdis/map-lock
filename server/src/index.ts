@@ -4,6 +4,7 @@ import { canonicalBestKey, emptyPayload, isRegion, mergePayload, parsePayload } 
 import { RaceRoom } from "./race";
 import { clientIp, hashPassword, loginIsLimited, recordLoginFailure, verifyPassword } from "./password";
 import { planFriendRequest } from "./friends";
+import { RACE_INVITE_TTL_MS, RACE_UNAVAILABLE, planInviteAccept } from "./invites";
 import { canonicalUsername, usernameProblem } from "./username";
 
 export { RaceRoom };
@@ -49,6 +50,17 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === "POST" && url.pathname === "/v1/friends/requests") return requestFriend(request, env, user);
   if (request.method === "GET" && url.pathname === "/v1/leaderboard") return leaderboard(url, env, user.id);
   if (request.method === "POST" && url.pathname === "/v1/races") return createRace(request, env, user);
+  if (request.method === "GET" && url.pathname === "/v1/race-invites") return listRaceInvites(env, user);
+
+  const inviteDecision = url.pathname.match(/^\/v1\/race-invites\/([^/]+)\/(accept|decline)$/);
+  if (request.method === "POST" && inviteDecision) {
+    return inviteDecision[2] === "accept"
+      ? acceptRaceInvite(env, user, inviteDecision[1])
+      : declineRaceInvite(env, user, inviteDecision[1]);
+  }
+
+  const inviteCreate = url.pathname.match(/^\/v1\/races\/([A-Za-z0-9]{4,16})\/invites$/);
+  if (request.method === "POST" && inviteCreate) return createRaceInvite(request, env, user, inviteCreate[1]);
 
   const decision = url.pathname.match(/^\/v1\/friends\/requests\/([^/]+)\/(accept|decline)$/);
   if (request.method === "POST" && decision) return decideFriend(env, user.id, decision[1], decision[2] === "accept");
@@ -430,6 +442,8 @@ async function joinRace(env: Env, user: SessionUser, code: string): Promise<Resp
   ).bind(code).first<{ code: string; region: string; subject: string; style: string; seed: string; host_id: string; status: string }>();
   if (!race) return json({ error: "Unknown race" }, 404);
   if (race.status === "cancelled") return json({ error: "This race was cancelled" }, 409);
+  if (race.status !== "open") return json({ error: RACE_UNAVAILABLE }, 409);
+  if (user.id !== race.host_id) await markRaceJoined(env, race.code, user.id);
   return json(raceLinks(env, race.code, race.region, race.seed, race.subject, race.style));
 }
 
@@ -453,6 +467,123 @@ async function cancelRace(env: Env, user: SessionUser, code: string): Promise<Re
     return json({ error: message }, closed.status === 409 ? 409 : 409);
   }
   await env.DB.prepare("UPDATE races SET status = 'cancelled' WHERE code = ?").bind(code).run();
+  await env.DB.prepare(
+    "UPDATE race_invites SET status = 'expired' WHERE race_code = ? AND status = 'pending'",
+  ).bind(code).run();
+  return json({ ok: true });
+}
+
+async function markRaceJoined(env: Env, code: string, userId: string): Promise<void> {
+  await env.DB.prepare("UPDATE races SET status = 'started' WHERE code = ? AND status = 'open'").bind(code).run();
+  await env.DB.prepare(
+    "UPDATE race_invites SET status = 'accepted' WHERE race_code = ? AND to_user = ? AND status = 'pending'",
+  ).bind(code, userId).run();
+  await env.DB.prepare(
+    "UPDATE race_invites SET status = 'expired' WHERE race_code = ? AND status = 'pending'",
+  ).bind(code).run();
+}
+
+async function createRaceInvite(request: Request, env: Env, user: SessionUser, code: string): Promise<Response> {
+  if (!user.username) return json({ error: "Pick a username first" }, 400);
+  const body = await readJson(request);
+  const wanted = (stringField(body, "username") ?? "").trim().toLowerCase();
+  if (!wanted) return json({ error: "Enter a username" }, 400);
+  const race = await env.DB.prepare(
+    "SELECT code, host_id, region, status, created_at FROM races WHERE code = ?",
+  ).bind(code).first<{ code: string; host_id: string; region: string; status: string; created_at: number }>();
+  if (!race) return json({ error: "Unknown race" }, 404);
+  if (race.host_id !== user.id) return json({ error: "Only the person who created this race can invite" }, 403);
+  if (race.status !== "open") return json({ error: RACE_UNAVAILABLE }, 409);
+  const other = await env.DB.prepare(
+    "SELECT id, username FROM users WHERE username_lower = ?",
+  ).bind(wanted).first<{ id: string; username: string }>();
+  if (!other) return json({ error: "No player with that username" }, 404);
+  if (other.id === user.id) return json({ error: "You cannot add yourself" }, 400);
+  const friends = await env.DB.prepare(
+    `SELECT id FROM friendships WHERE status = 'accepted'
+     AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))`,
+  ).bind(user.id, other.id, other.id, user.id).first();
+  if (!friends) return json({ error: "You can only invite a friend" }, 403);
+  const existing = await env.DB.prepare(
+    "SELECT id FROM race_invites WHERE race_code = ? AND to_user = ? AND status = 'pending'",
+  ).bind(code, other.id).first<{ id: string }>();
+  if (existing) return json({ ok: true, id: existing.id, username: other.username, region: race.region });
+  const id = crypto.randomUUID();
+  await env.DB.prepare(
+    "INSERT INTO race_invites (id, race_code, from_user, to_user, created_at, status) VALUES (?, ?, ?, ?, ?, 'pending')",
+  ).bind(id, code, user.id, other.id, Date.now()).run();
+  return json({ ok: true, id, username: other.username, region: race.region });
+}
+
+async function listRaceInvites(env: Env, user: SessionUser): Promise<Response> {
+  const cutoff = Date.now() - RACE_INVITE_TTL_MS;
+  await env.DB.prepare(
+    "UPDATE race_invites SET status = 'expired' WHERE to_user = ? AND status = 'pending' AND created_at < ?",
+  ).bind(user.id, cutoff).run();
+  await env.DB.prepare(
+    `UPDATE race_invites SET status = 'expired'
+     WHERE to_user = ? AND status = 'pending'
+       AND race_code IN (SELECT code FROM races WHERE status != 'open')`,
+  ).bind(user.id).run();
+  const rows = await env.DB.prepare(
+    `SELECT race_invites.id AS id, race_invites.race_code AS raceCode, race_invites.created_at AS createdAt,
+            users.id AS fromUserId, users.username AS fromUsername,
+            races.region AS region, races.subject AS subject, races.style AS style
+     FROM race_invites
+     JOIN users ON users.id = race_invites.from_user
+     JOIN races ON races.code = race_invites.race_code
+     WHERE race_invites.to_user = ? AND race_invites.status = 'pending' AND races.status = 'open'
+     ORDER BY race_invites.created_at DESC`,
+  ).bind(user.id).all<{
+    id: string;
+    raceCode: string;
+    createdAt: number;
+    fromUserId: string;
+    fromUsername: string | null;
+    region: string;
+    subject: string;
+    style: string;
+  }>();
+  const invites = (rows.results ?? []).filter((row) => row.fromUsername).map((row) => ({
+    id: row.id,
+    raceCode: row.raceCode,
+    createdAt: row.createdAt,
+    fromUserId: row.fromUserId,
+    fromUsername: row.fromUsername,
+    region: row.region,
+    subject: row.subject,
+    style: row.style,
+  }));
+  return json({ invites });
+}
+
+async function acceptRaceInvite(env: Env, user: SessionUser, id: string): Promise<Response> {
+  const invite = await env.DB.prepare(
+    `SELECT race_invites.status AS status, race_invites.created_at AS createdAt, race_invites.race_code AS raceCode,
+            races.status AS raceStatus
+     FROM race_invites
+     JOIN races ON races.code = race_invites.race_code
+     WHERE race_invites.id = ? AND race_invites.to_user = ?`,
+  ).bind(id, user.id).first<{ status: string; createdAt: number; raceCode: string; raceStatus: string }>();
+  const plan = planInviteAccept(invite, invite?.raceStatus ?? null, Date.now());
+  if (plan.action === "missing") return json({ error: "Unknown invite" }, 404);
+  if (plan.action === "unavailable") {
+    await env.DB.prepare(
+      "UPDATE race_invites SET status = 'expired' WHERE id = ? AND status = 'pending'",
+    ).bind(id).run();
+    return json({ error: RACE_UNAVAILABLE }, 409);
+  }
+  return joinRace(env, user, invite!.raceCode);
+}
+
+async function declineRaceInvite(env: Env, user: SessionUser, id: string): Promise<Response> {
+  const row = await env.DB.prepare(
+    "SELECT id FROM race_invites WHERE id = ? AND to_user = ?",
+  ).bind(id, user.id).first();
+  if (!row) return json({ error: "Unknown invite" }, 404);
+  await env.DB.prepare(
+    "UPDATE race_invites SET status = 'declined' WHERE id = ? AND status = 'pending'",
+  ).bind(id).run();
   return json({ ok: true });
 }
 

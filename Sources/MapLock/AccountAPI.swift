@@ -64,6 +64,21 @@ struct LeaderboardResponse: Codable {
     var rows: [LeaderboardRow]
 }
 
+struct RaceInvite: Codable, Identifiable, Equatable {
+    var id: String
+    var raceCode: String
+    var fromUserId: String
+    var fromUsername: String
+    var region: String
+    var subject: String
+    var style: String
+    var createdAt: Int
+
+    var placeName: String { region == "world" ? "Whole world" : region }
+
+    var sentence: String { "\(fromUsername) challenged you to a race (\(placeName))" }
+}
+
 struct RaceTicket: Codable, Equatable {
     var code: String
     var region: String
@@ -167,6 +182,28 @@ enum AccountClient {
 
     static func cancelRace(code: String, token: String) async throws {
         try await sendEmpty(path: "/v1/races/\(code)", method: "DELETE", token: token, json: nil)
+    }
+
+    static func inviteToRace(code: String, username: String, token: String) async throws {
+        try await sendEmpty(path: "/v1/races/\(code)/invites", method: "POST", token: token,
+                            json: try encode(["username": username]))
+    }
+
+    static func raceInvites(token: String) async throws -> [RaceInvite] {
+        struct Box: Codable { var invites: [RaceInvite] }
+        return try await send(Box.self, path: "/v1/race-invites", method: "GET", token: token, json: nil).invites
+    }
+
+    static func acceptRaceInvite(id: String, token: String) async throws -> RaceTicket {
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        return try await send(RaceTicket.self, path: "/v1/race-invites/\(encoded)/accept", method: "POST",
+                               token: token, json: try encode([String: String]()))
+    }
+
+    static func declineRaceInvite(id: String, token: String) async throws {
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        try await sendEmpty(path: "/v1/race-invites/\(encoded)/decline", method: "POST", token: token,
+                            json: try encode([String: String]()))
     }
 
     static func sha256Hex(_ text: String) -> String {

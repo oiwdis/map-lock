@@ -36,6 +36,7 @@ final class AccountModel: ObservableObject {
     @Published var leaderboardSubject: QuizSubject = .countries
     @Published var leaderboardStyle: PracticeAnswerStyle = .clickMap
     @Published private(set) var friends = FriendLists(friends: [], incoming: [], outgoing: [])
+    @Published private(set) var raceInvites: [RaceInvite] = []
     @Published private(set) var leaderboard: [LeaderboardRow] = []
     @Published private(set) var friendView: FriendStatsResponse?
     @Published private(set) var friendSnapshot = StatsSnapshot()
@@ -68,9 +69,12 @@ final class AccountModel: ObservableObject {
     var sessionToken: String? { token }
     var needsUsername: Bool { user?.needsUsername == true }
     var incomingFriendCount: Int { friends.incoming.count }
+    var alertCount: Int { incomingFriendCount + raceInvites.count }
 
     private var backgroundFriendPoll: Task<Void, Never>?
     private var visibleFriendPoll: Task<Void, Never>?
+    private var invitePoll: Task<Void, Never>?
+    private var askedRaceNotifications = false
 
     func restoreIfNeeded() {
         guard token != nil, user == nil else { return }
@@ -177,6 +181,7 @@ final class AccountModel: ObservableObject {
         clearKind()
         KeychainStore.deleteSession()
         friends = FriendLists(friends: [], incoming: [], outgoing: [])
+        raceInvites = []
         leaderboard = []
         friendView = nil
         lastRace = nil
@@ -329,7 +334,7 @@ final class AccountModel: ObservableObject {
         }
     }
 
-    func createRace(telling name: String? = nil) {
+    func createRace() {
         guard let token else { return }
         let region = raceRegion.scope.serverRegion
         let subject = raceSubject.rawValue
@@ -339,9 +344,68 @@ final class AccountModel: ObservableObject {
                 let ticket = try await AccountClient.createRace(region: region, subject: subject, style: style, token: token)
                 lastRace = ticket
                 copyRaceLink(ticket)
-                message = name.map { "Link copied. Send it to \($0)." } ?? "Link copied."
+                message = "Link copied."
                 page = .race
                 onOpenRace(ticket, true)
+            }
+        }
+    }
+
+    /// Creates a race with the current options and asks this friend to join.
+    func challenge(_ item: FriendItem) {
+        guard let token, let name = item.username else { return }
+        let region = raceRegion.scope.serverRegion
+        let subject = raceSubject.rawValue
+        let style = raceStyle.rawValue
+        Task {
+            await run("Could not create a race. Try again.") {
+                let ticket = try await AccountClient.createRace(region: region, subject: subject, style: style, token: token)
+                lastRace = ticket
+                copyRaceLink(ticket)
+                page = .race
+                onOpenRace(ticket, true)
+                do {
+                    try await AccountClient.inviteToRace(code: ticket.code, username: name, token: token)
+                    message = "Invited \(name)."
+                } catch let error as APIFailure {
+                    message = "\(Self.friendlier(error.message)) The code still works if you send it."
+                } catch {
+                    message = "Could not send the invite. The code still works if you send it."
+                }
+            }
+        }
+    }
+
+    func acceptInvite(id: String) {
+        guard let token else { return }
+        Task {
+            page = .race
+            onShowAccount()
+            await run("This race is no longer available") {
+                do {
+                    let ticket = try await AccountClient.acceptRaceInvite(id: id, token: token)
+                    raceInvites.removeAll { $0.id == id }
+                    refreshDockBadge()
+                    lastRace = ticket
+                    onOpenRace(ticket, false)
+                } catch let error as APIFailure {
+                    if error.message.lowercased().contains("no longer available") {
+                        raceInvites.removeAll { $0.id == id }
+                        refreshDockBadge()
+                    }
+                    throw error
+                }
+            }
+        }
+    }
+
+    func declineInvite(id: String) {
+        guard let token else { return }
+        Task {
+            await run("Could not decline that invite") {
+                try await AccountClient.declineRaceInvite(id: id, token: token)
+                raceInvites.removeAll { $0.id == id }
+                refreshDockBadge()
             }
         }
     }
@@ -550,7 +614,9 @@ final class AccountModel: ObservableObject {
         }
         if lower.contains("username is taken") { return "That username is taken. Try another." }
         if lower.contains("unknown race") { return "That code does not match a race. Check it and try again." }
+        if lower.contains("no longer available") { return "This race is no longer available" }
         if lower.contains("cancelled") { return "This race was cancelled." }
+        if lower.contains("only invite a friend") { return "You can only invite a friend." }
         if lower.contains("already joined") { return "Someone has already joined, so this race stays open." }
         return raw
     }
@@ -564,12 +630,75 @@ final class AccountModel: ObservableObject {
             guard !Task.isCancelled, self.token != nil else { return }
             friends = next
             await announceFriendChanges(knownOutgoing: previousOutgoing, next: next)
-            NSApp.dockTile.badgeLabel = next.incoming.isEmpty ? nil : "\(next.incoming.count)"
+            refreshDockBadge()
         } catch let error as APIFailure {
             if reportErrors { message = Self.friendlier(error.message) }
         } catch {
             if reportErrors { message = "Could not load friends. Check your connection and try again." }
         }
+        await reloadInvites(reportErrors: reportErrors)
+    }
+
+    func reloadInvites(reportErrors: Bool) async {
+        guard let token, user?.needsUsername == false else { return }
+        startInvitePoll()
+        if !askedRaceNotifications {
+            askedRaceNotifications = true
+            await FriendAlerts.askForRacesIfNeeded()
+        }
+        do {
+            let next = try await AccountClient.raceInvites(token: token)
+            guard !Task.isCancelled, self.token != nil else { return }
+            raceInvites = next
+            await announceInvites(next)
+            refreshDockBadge()
+        } catch let error as APIFailure {
+            if reportErrors { message = Self.friendlier(error.message) }
+        } catch {
+            if reportErrors { message = "Could not check race invites." }
+        }
+    }
+
+    private func startInvitePoll() {
+        guard invitePoll == nil else { return }
+        invitePoll = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.reloadInvites(reportErrors: false)
+            }
+        }
+    }
+
+    private func refreshDockBadge() {
+        let count = alertCount
+        NSApp.dockTile.badgeLabel = count == 0 ? nil : "\(count)"
+    }
+
+    private func announceInvites(_ next: [RaceInvite]) async {
+        guard let userId = user?.id else { return }
+        guard await FriendAlerts.canPostRace() else { return }
+        var seen = loadSeenInvites(userId: userId)
+        for invite in next where !seen.contains(invite.id) {
+            await FriendAlerts.postRace(
+                id: "race-invite-\(invite.id)",
+                title: "Race",
+                body: invite.sentence,
+                info: ["maplock": "race-invite", "inviteId": invite.id, "code": invite.raceCode]
+            )
+            seen.insert(invite.id)
+        }
+        saveSeenInvites(seen, userId: userId)
+    }
+
+    private func seenInviteKey(_ userId: String) -> String { "maplock.seenRaceInviteIds.\(userId)" }
+
+    private func loadSeenInvites(userId: String) -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: seenInviteKey(userId)) ?? [])
+    }
+
+    private func saveSeenInvites(_ ids: Set<String>, userId: String) {
+        UserDefaults.standard.set(Array(ids), forKey: seenInviteKey(userId))
     }
 
     private func startBackgroundFriendPoll() {
@@ -588,6 +717,8 @@ final class AccountModel: ObservableObject {
         backgroundFriendPoll = nil
         visibleFriendPoll?.cancel()
         visibleFriendPoll = nil
+        invitePoll?.cancel()
+        invitePoll = nil
     }
 
     private func announceFriendChanges(knownOutgoing: [FriendItem], next: FriendLists) async {

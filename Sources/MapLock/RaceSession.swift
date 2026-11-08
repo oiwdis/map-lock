@@ -62,11 +62,28 @@ final class RaceSession: ObservableObject {
     @Published private(set) var opponentForfeited = false
     @Published private(set) var youWon: Bool?
     @Published private(set) var status = "Waiting for your friend"
+    @Published private(set) var inviteNote: String?
     @Published private(set) var opponentJoined = false
 
     var onClose: () -> Void = {}
     var onCancelled: () -> Void = {}
+    /// Usernames the host can invite from the waiting screen.
+    var friendNames: [String] = []
     var canOfferCancel: Bool { isHost && phase == "waiting" && !opponentJoined }
+
+    func invite(username: String) {
+        guard isHost, phase == "waiting" else { return }
+        Task {
+            do {
+                try await AccountClient.inviteToRace(code: ticket.code, username: username, token: token)
+                inviteNote = "Invited \(username)."
+            } catch let error as APIFailure {
+                status = error.message
+            } catch {
+                status = "Could not send the invite."
+            }
+        }
+    }
 
     init(ticket: RaceTicket, world: [Country], scope: PracticeScope, token: String, userId: String,
          isHost: Bool, stats: StatsStore) {

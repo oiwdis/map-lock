@@ -57,6 +57,7 @@ struct SegmentChoice<Value: Hashable>: Identifiable {
     let value: Value
     let title: String
     var badge: Int = 0
+    var badgeNoun: String = "friend requests"
     var id: Value { value }
 }
 
@@ -78,7 +79,7 @@ struct SegmentedChoice<Value: Hashable>: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                         if choice.badge > 0 {
-                            FriendCountBadge(count: choice.badge)
+                            FriendCountBadge(count: choice.badge, noun: choice.badgeNoun)
                         }
                     }
                     .font(Theme.font(Theme.Size.sm, .semibold))

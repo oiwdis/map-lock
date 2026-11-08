@@ -231,7 +231,12 @@ struct AccountPane: View {
             SegmentedChoice(
                 selection: $account.page,
                 choices: AccountPage.allCases.map {
-                    SegmentChoice(value: $0, title: $0.title, badge: $0 == .friends ? account.incomingFriendCount : 0)
+                    SegmentChoice(
+                        value: $0,
+                        title: $0.title,
+                        badge: $0 == .friends ? account.incomingFriendCount : ($0 == .race ? account.raceInvites.count : 0),
+                        badgeNoun: $0 == .race ? "race invites" : "friend requests"
+                    )
                 }
             )
             if let notice = bannerNotice {
@@ -368,6 +373,25 @@ struct AccountPane: View {
 
     private var racePage: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s3) {
+            ForEach(account.raceInvites) { invite in
+                VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                    Text(invite.sentence)
+                        .font(Theme.font(Theme.Size.sm, .semibold))
+                        .foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: Theme.Space.s2) {
+                        Button("Join") { account.acceptInvite(id: invite.id) }
+                            .buttonStyle(AppButtonStyle(kind: .primary, height: 32))
+                            .disabled(account.busy)
+                        Button("Decline") { account.declineInvite(id: invite.id) }
+                            .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
+                            .disabled(account.busy)
+                    }
+                }
+                .padding(Theme.Space.s4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accountCardChrome()
+            }
             VStack(alignment: .leading, spacing: Theme.Space.s1) {
                 Text("Race a friend")
                     .font(Theme.font(Theme.Size.lg, .bold))
@@ -843,7 +867,7 @@ struct AccountPane: View {
                             }
                         }
                         Spacer()
-                        Button("Race") { account.createRace(telling: item.username) }
+                        Button("Race") { account.challenge(item) }
                             .buttonStyle(AppButtonStyle(kind: .primary, height: 32))
                             .disabled(account.busy)
                     }
@@ -868,6 +892,7 @@ struct AccountPane: View {
 
 struct FriendCountBadge: View {
     var count: Int
+    var noun: String = "friend requests"
 
     var body: some View {
         Text(count > 9 ? "9+" : "\(count)")
@@ -876,7 +901,7 @@ struct FriendCountBadge: View {
             .padding(.horizontal, 5)
             .frame(minWidth: 16, minHeight: 16)
             .background(Capsule().fill(Color(red: 0.92, green: 0.22, blue: 0.21)))
-            .accessibilityLabel("\(count) friend requests")
+            .accessibilityLabel("\(count) \(noun)")
     }
 }
 

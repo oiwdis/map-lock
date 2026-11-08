@@ -290,6 +290,24 @@ struct RaceView: View {
                             RaceShareButton(text: session.ticket.webUrl)
                                 .frame(width: 96, height: 36)
                         }
+                        if session.isHost, !session.friendNames.isEmpty {
+                            Menu {
+                                ForEach(session.friendNames, id: \.self) { name in
+                                    Button(name) { session.invite(username: name) }
+                                }
+                            } label: {
+                                Text("Invite a friend")
+                                    .font(Theme.font(Theme.Size.body, .semibold))
+                                    .foregroundStyle(Theme.accent)
+                            }
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
+                            if let note = session.inviteNote {
+                                Text(note)
+                                    .font(Theme.font(Theme.Size.sm))
+                                    .foregroundStyle(Theme.text2)
+                            }
+                        }
                         if session.canOfferCancel {
                             HitButton { confirmCancel = true } label: {
                                 Text("Cancel race")

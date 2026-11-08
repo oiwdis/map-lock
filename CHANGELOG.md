@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.5
+
+- Challenging a friend from the Friends list creates the race and invites them. They get a notification on their Mac, with Join and Decline, even if Map Lock is in the background.
+- The same invite shows at the top of the Race tab. You can also invite a friend from the waiting screen. The code still works if you want to send it yourself.
+
 ## 1.3.4
 
 - Microstate dots stay above neighboring countries. Highlighting Malaysia, marking it found, or the correct-answer glow no longer covers Singapore's dot. The label by the pointer and the rising name still sit above the dots.
