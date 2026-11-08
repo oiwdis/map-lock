@@ -237,19 +237,19 @@ final class AppSettings {
     var regions: Set<Region> {
         get {
             guard let raw = defaults.stringArray(forKey: Keys.regions) else { return Self.defaultRegions }
-            let set = Set(raw.compactMap { Region(rawValue: $0) })
-            return set.isEmpty ? Self.defaultRegions : set
+            return Set(raw.compactMap { Region(rawValue: $0) })
         }
         set {
             defaults.set(newValue.map { $0.rawValue }.sorted(), forKey: Keys.regions)
         }
     }
 
-    /// Turns a region on or off. The last region can't be turned off.
+    /// Turns a region on or off. The last region stays on unless a custom set can cover unlock.
     func toggle(_ region: Region) {
         var r = regions
         if r.contains(region) {
-            if r.count > 1 { r.remove(region) }
+            let customCovers = unlockUsesCustom && CustomSets.countries().count >= 2
+            if r.count > 1 || customCovers { r.remove(region) }
         } else {
             r.insert(region)
         }

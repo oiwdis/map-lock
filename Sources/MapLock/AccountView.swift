@@ -4,6 +4,8 @@ import SwiftUI
 struct AccountPane: View {
     @ObservedObject var account: AccountModel
     @ObservedObject var home: HomeModel
+    /// Race sidebar tab. Account keeps only sign-in and profile.
+    var showsRace = false
     @State private var passwordBusy = false
     @State private var raceCopyToken = 0
     @State private var raceOptionsOpen = false
@@ -16,14 +18,16 @@ struct AccountPane: View {
         GeometryReader { geo in
             ScrollView {
                 VStack(spacing: Theme.Space.s4) {
-                    if !account.isSignedIn {
+                    if showsRace {
+                        raceHub
+                    } else if !account.isSignedIn {
                         signedOut
                             .frame(maxWidth: 420)
                     } else if account.needsUsername {
                         usernameForm
                             .frame(maxWidth: 420)
                     } else {
-                        signedIn
+                        accountProfile
                     }
                 }
                 .padding(.horizontal, Theme.Space.s6)
@@ -212,12 +216,61 @@ struct AccountPane: View {
 
     // MARK: Signed in
 
-    private var signedIn: some View {
+    private var accountProfile: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s4) {
             profileHeader
             if account.justJoined {
                 welcomeCard
             }
+        }
+    }
+
+    private var raceHub: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s4) {
+            if !account.isSignedIn {
+                raceSignInPrompt
+            } else if account.needsUsername {
+                raceUsernamePrompt
+            } else {
+                raceSignedIn
+            }
+        }
+    }
+
+    private var raceSignInPrompt: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s3) {
+            Text("Race a friend")
+                .font(Theme.font(Theme.Size.lg, .bold))
+                .foregroundStyle(Theme.text)
+            Text("Sign in to challenge a friend, or to join with a code.")
+                .font(Theme.font(Theme.Size.sm))
+                .foregroundStyle(Theme.text2)
+            Button("Go to Account") { home.homeTab = .account }
+                .buttonStyle(AppButtonStyle(kind: .primary, height: 36))
+        }
+        .padding(Theme.Space.s4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accountCardChrome()
+    }
+
+    private var raceUsernamePrompt: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s3) {
+            Text("Pick a username first")
+                .font(Theme.font(Theme.Size.lg, .bold))
+                .foregroundStyle(Theme.text)
+            Text("Friends see this name when you race.")
+                .font(Theme.font(Theme.Size.sm))
+                .foregroundStyle(Theme.text2)
+            Button("Go to Account") { home.homeTab = .account }
+                .buttonStyle(AppButtonStyle(kind: .primary, height: 36))
+        }
+        .padding(Theme.Space.s4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accountCardChrome()
+    }
+
+    private var raceSignedIn: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s4) {
             if !account.friends.incoming.isEmpty && account.page != .friends {
                 HitButton { account.page = .friends } label: {
                     Text("You have a friend request")
@@ -354,11 +407,13 @@ struct AccountPane: View {
                 Button("Add a friend") {
                     account.page = .friends
                     account.dismissWelcome()
+                    home.homeTab = .race
                 }
                 .buttonStyle(AppButtonStyle(kind: .primary, height: 32))
                 Button("Race someone") {
                     account.page = .race
                     account.dismissWelcome()
+                    home.homeTab = .race
                 }
                 .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
             }

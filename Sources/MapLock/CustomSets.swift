@@ -121,19 +121,17 @@ struct CustomSetEditor: View {
                 ]
             )
 
-            Group {
-                if pickMode == .type {
-                    typePicker
-                } else {
-                    mapPicker
-                }
+            if pickMode == .type {
+                typePicker
+            } else {
+                mapPicker
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             selectedChips
         }
         .padding(Theme.Space.s6)
-        .frame(width: 720, height: 680)
+        .frame(width: 720)
+        .animation(.easeOut(duration: 0.22), value: pickMode)
         .background(PickerKeySync(keys: keys, countries: $countries, highlight: $highlight,
                                   mode: $pickMode, query: $query, suggestions: suggestions, close: cancel))
         .onAppear { installKeys() }
@@ -307,7 +305,7 @@ struct CustomSetEditor: View {
                 selected: Set(countries),
                 onToggle: toggle
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(height: 340)
             .id(mapFocus)
             .transition(.opacity)
             HStack(spacing: Theme.Space.s2) {
@@ -331,6 +329,39 @@ struct CustomSetEditor: View {
 
     private var selectedChips: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s2) {
+            if countries.isEmpty {
+                Text("Type a country or pick on the map.")
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.text3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, Theme.Space.s2)
+            } else {
+                ScrollView {
+                    ChipFlow(spacing: Theme.Space.s2) {
+                        ForEach(countries, id: \.self) { name in
+                            HStack(spacing: Theme.Space.s1) {
+                                Text(CountryFacts.flagEmoji(for: name) ?? "")
+                                    .font(.system(size: 13))
+                                Text(name)
+                                    .font(Theme.font(Theme.Size.sm))
+                                    .lineLimit(1)
+                                Button { remove(name) } label: {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .frame(width: 16, height: 16)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.horizontal, Theme.Space.s2)
+                            .padding(.vertical, Theme.Space.s1)
+                            .background(Capsule().fill(Theme.fill2))
+                            .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                        }
+                    }
+                    .padding(.bottom, Theme.Space.s2)
+                }
+                .frame(height: 120)
+            }
             HStack(spacing: Theme.Space.s2) {
                 Text(countries.count == 1 ? "1 country" : "\(countries.count) countries")
                     .font(Theme.font(Theme.Size.sm, .medium))
@@ -346,31 +377,6 @@ struct CustomSetEditor: View {
                 .foregroundStyle(countries.isEmpty ? Theme.text3 : Theme.accent)
                 .disabled(countries.isEmpty)
             }
-            ScrollView {
-                ChipFlow(spacing: Theme.Space.s2) {
-                    ForEach(countries, id: \.self) { name in
-                        HStack(spacing: Theme.Space.s1) {
-                            Text(CountryFacts.flagEmoji(for: name) ?? "")
-                                .font(.system(size: 13))
-                            Text(name)
-                                .font(Theme.font(Theme.Size.sm))
-                                .lineLimit(1)
-                            Button { remove(name) } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .frame(width: 16, height: 16)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.horizontal, Theme.Space.s2)
-                        .padding(.vertical, Theme.Space.s1)
-                        .background(Capsule().fill(Theme.fill2))
-                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
-                    }
-                }
-                .padding(.bottom, Theme.Space.s2)
-            }
-            .frame(height: 120)
         }
         .animation(.easeOut(duration: 0.2), value: countries)
     }

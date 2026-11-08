@@ -198,21 +198,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Countries that can be asked with the current region choices.
     private var pool: [String] {
-        let regions = settings.regions
-        return world.filter { $0.quizzable && regions.contains($0.region) }.map { $0.name }
+        let customNames = CustomSets.countries().filter { name in
+            world.contains { $0.quizzable && $0.name == name }
+        }
+        let useCustom = settings.unlockUsesCustom && customNames.count >= 2
+        let regional = world.filter { $0.quizzable && settings.regions.contains($0.region) }.map(\.name)
+        if useCustom {
+            return Array(Set(customNames).union(regional)).sorted()
+        }
+        return regional
     }
 
     // MARK: Quiz
 
     func startQuiz() {
         guard !overlay.isShowing, !practice.isShowing, !races.isShowing, !world.isEmpty else { return }
+        let pool = self.pool
+        guard !pool.isEmpty else { return }
         let customNames = CustomSets.countries().filter { name in
             world.contains { $0.quizzable && $0.name == name }
         }
         let useCustom = settings.unlockUsesCustom && customNames.count >= 2
-        let pool = useCustom ? customNames : self.pool
-        guard !pool.isEmpty else { return }
-        let mapScope: PracticeScope? = useCustom ? .custom(countries: customNames) : nil
+        let mapScope: PracticeScope? = useCustom ? .custom(countries: pool) : nil
         // Any quiz counts for a scheduled time that is due now.
         schedule.markDueAsFired()
         let count = settings.questionCount.resolve(poolSize: pool.count)
@@ -425,7 +432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let account = AccountModel(stats: stats)
         self.account = account
         account.onShowAccount = { [weak self] in
-            self?.home?.model.homeTab = .account
+            self?.home?.model.homeTab = .race
             self?.home?.show()
         }
         account.onOpenRace = { [weak self] ticket, isHost in
@@ -493,13 +500,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         session.onChangeRegion = { [weak self] in
             self?.races.close()
             self?.account?.page = .race
-            self?.home?.model.homeTab = .account
+            self?.home?.model.homeTab = .race
             self?.home?.show()
         }
         session.onGiveUp = { [weak self] in
             self?.account?.noteRaceCancelled()
             self?.account?.page = .race
-            self?.home?.model.homeTab = .account
+            self?.home?.model.homeTab = .race
             self?.home?.show()
         }
         races.onClosed = { [weak self] in
@@ -571,7 +578,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func showFriendsTab(_ page: AccountPage) {
         account?.page = page
-        home?.model.homeTab = .account
+        home?.model.homeTab = .race
         guard !overlay.isShowing else { return }
         if NSApp.isHidden { NSApp.unhide(nil) }
         NSApp.activate(ignoringOtherApps: true)

@@ -17,6 +17,7 @@ struct TimeSlot: Identifiable, Equatable {
 /// Sidebar pages in the home window (macOS HIG: sidebar navigation).
 enum HomeTab: String, CaseIterable, Identifiable, Hashable {
     case practice
+    case race
     case stats
     case account
     case settings
@@ -26,6 +27,7 @@ enum HomeTab: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .practice: return "Practice"
+        case .race: return "Race"
         case .stats: return "Stats"
         case .account: return "Account"
         case .settings: return "Settings"
@@ -35,6 +37,7 @@ enum HomeTab: String, CaseIterable, Identifiable, Hashable {
     var symbol: String {
         switch self {
         case .practice: return "map"
+        case .race: return "flag.checkered"
         case .stats: return "chart.bar"
         case .account: return "person.crop.circle"
         case .settings: return "gearshape"
@@ -73,7 +76,8 @@ final class HomeModel: ObservableObject {
         didSet {
             guard !loading else { return }
             let on = Set(regionFlags.filter { $0.on }.map { $0.region })
-            if on.isEmpty {
+            let customCovers = unlockUsesCustom && CustomSets.countries().count >= 2
+            if on.isEmpty && !customCovers {
                 regionFlags = oldValue
                 return
             }
@@ -112,7 +116,18 @@ final class HomeModel: ObservableObject {
     }
 
     @Published var unlockUsesCustom = false {
-        didSet { if !loading { settings.unlockUsesCustom = unlockUsesCustom; onChange() } }
+        didSet {
+            guard !loading else { return }
+            settings.unlockUsesCustom = unlockUsesCustom
+            let customCovers = unlockUsesCustom && CustomSets.countries().count >= 2
+            if !customCovers && settings.regions.isEmpty {
+                loading = true
+                regionFlags = Region.allCases.map { RegionFlag(region: $0, on: $0 == .africa) }
+                loading = false
+                settings.regions = [.africa]
+            }
+            onChange()
+        }
     }
 
     /// Bumps when the custom country set changes, so the start buttons refresh.
@@ -531,8 +546,8 @@ struct HomeView: View {
                             HStack(spacing: Theme.Space.s2) {
                                 Label(tab.title, systemImage: tab.symbol)
                                 Spacer(minLength: 4)
-                                if tab == .account && account.alertCount > 0 {
-                                    FriendCountBadge(count: account.alertCount, noun: "alerts")
+                                if tab == .race && account.alertCount > 0 {
+                                    FriendCountBadge(count: account.alertCount, noun: "race alerts")
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -574,6 +589,8 @@ struct HomeView: View {
         switch model.homeTab {
         case .practice:
             PracticePane(model: model)
+        case .race:
+            AccountPane(account: account, home: model, showsRace: true)
         case .stats:
             StatsPane(model: model)
         case .account:
@@ -1357,8 +1374,8 @@ private struct SettingsPane: View {
             } header: {
                 Text("Regions for unlock quizzes")
             } footer: {
-                Text(model.unlockUsesCustom
-                     ? "Unlock quizzes use the custom set. At least one region stays on for when you turn that off."
+                Text(model.unlockUsesCustom && CustomSets.countries().count >= 2
+                     ? "Unlock can use the custom set alone, or together with any continents you leave on."
                      : "At least one region stays on. Practice picks its own place.")
             }
             .sheet(isPresented: $editingCustom) {
