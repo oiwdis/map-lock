@@ -6,6 +6,15 @@
     <description>Map Lock updates.</description>
     <language>en</language>
     <item>
+      <title>Version 1.3.6</title>
+      <pubDate>Sun, 08 Nov 2026 05:00:00 +0000</pubDate>
+      <sparkle:version>1.3.6</sparkle:version>
+      <sparkle:shortVersionString>1.3.6</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description>Custom country sets (type or pick on map), a bottom-right challenge popup with Accept/Decline, and declining cancels the race.</description>
+      <enclosure url="https://github.com/oiwdis/map-lock/releases/download/v1.3.6/MapLock.zip" sparkle:edSignature="OnGurwaRHTTgpaipahbtFpOgFbZyF0Y9g8umyAScIOb7NXNpat5UICf0XT11vt/z/iVaWi7pGcbEU8FUipgGAg==" length="3766411" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.3.5</title>
       <pubDate>Sun, 08 Nov 2026 04:30:00 +0000</pubDate>
       <sparkle:version>1.3.5</sparkle:version>
