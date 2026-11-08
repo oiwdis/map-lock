@@ -39,15 +39,25 @@ enum AnswerSound {
 
     static func play(correct: Bool) {
         guard AppSettings().answerSounds else { return }
+        play(nodeIsRight: correct, volume: correct ? 1 : 0.45)
+    }
+
+    /// A quiet note for a race challenge. Skipped when answer sounds are off.
+    static func playSoft() {
+        guard AppSettings().answerSounds else { return }
+        play(nodeIsRight: true, volume: 0.22)
+    }
+
+    private static func play(nodeIsRight: Bool, volume: Float) {
         state.lock()
         let ready = isReady
         state.unlock()
         guard ready else { return }
         queue.async {
-            let node = correct ? rightNode : wrongNode
-            let buffer = correct ? rightBuffer : wrongBuffer
+            let node = nodeIsRight ? rightNode : wrongNode
+            let buffer = nodeIsRight ? rightBuffer : wrongBuffer
             guard let node, let buffer, engine?.isRunning == true else { return }
-            node.volume = correct ? 1 : 0.45
+            node.volume = volume
             node.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
             if !node.isPlaying { node.play() }
         }

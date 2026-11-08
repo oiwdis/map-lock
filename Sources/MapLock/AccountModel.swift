@@ -13,6 +13,7 @@ final class AccountModel: ObservableObject {
     weak var presentationWindow: NSWindow?
 
     var onOpenRace: (RaceTicket, Bool) -> Void = { _, _ in }
+    var onInviteHandled: (String) -> Void = { _ in }
     var onRaceCancelled: () -> Void = {}
     var onShowAccount: () -> Void = {}
     var onStartSpeedrun: (PracticeChoice, QuizSubject, PracticeAnswerStyle) -> Void = { _, _, _ in }
@@ -47,6 +48,7 @@ final class AccountModel: ObservableObject {
     @Published private(set) var signInKind: AccountSignInKind?
     @Published var message: String?
     @Published var lastRace: RaceTicket?
+    @Published private(set) var raceNotice: ChallengeEnd?
 
     init(stats: StatsStore) {
         self.stats = stats
@@ -188,6 +190,7 @@ final class AccountModel: ObservableObject {
         leaderboard = []
         friendView = nil
         lastRace = nil
+        raceNotice = nil
         justJoined = false
         clipboardCode = nil
         page = .race
@@ -325,6 +328,7 @@ final class AccountModel: ObservableObject {
 
     func noteRaceCancelled() {
         lastRace = nil
+        raceNotice = nil
         page = .race
     }
 
@@ -351,7 +355,7 @@ final class AccountModel: ObservableObject {
                     region: request.region, subject: request.subject, style: request.style,
                     countries: request.countries, token: token
                 )
-                lastRace = ticket
+                keepRace(ticket)
                 copyRaceLink(ticket)
                 message = "Link copied."
                 page = .race
@@ -373,7 +377,7 @@ final class AccountModel: ObservableObject {
                     region: request.region, subject: request.subject, style: request.style,
                     countries: request.countries, token: token
                 )
-                lastRace = ticket
+                keepRace(ticket)
                 copyRaceLink(ticket)
                 page = .race
                 onOpenRace(ticket, true)
@@ -391,6 +395,7 @@ final class AccountModel: ObservableObject {
 
     func acceptInvite(id: String) {
         guard let token else { return }
+        onInviteHandled(id)
         Task {
             page = .race
             onShowAccount()
@@ -399,7 +404,7 @@ final class AccountModel: ObservableObject {
                     let ticket = try await AccountClient.acceptRaceInvite(id: id, token: token)
                     raceInvites.removeAll { $0.id == id }
                     refreshDockBadge()
-                    lastRace = ticket
+                    keepRace(ticket)
                     onOpenRace(ticket, false)
                 } catch let error as APIFailure {
                     if error.message.lowercased().contains("no longer available") {
@@ -414,6 +419,7 @@ final class AccountModel: ObservableObject {
 
     func declineInvite(id: String) {
         guard let token else { return }
+        onInviteHandled(id)
         Task {
             await run("Could not decline that invite") {
                 try await AccountClient.declineRaceInvite(id: id, token: token)
@@ -542,7 +548,7 @@ final class AccountModel: ObservableObject {
         Task {
             await run("Could not join that race") {
                 let ticket = try await AccountClient.joinRace(code: code, token: token)
-                lastRace = ticket
+                keepRace(ticket)
                 onOpenRace(ticket, false)
             }
         }
@@ -702,7 +708,34 @@ final class AccountModel: ObservableObject {
     }
 
     func rememberRace(_ ticket: RaceTicket) {
+        keepRace(ticket)
+    }
+
+    private func keepRace(_ ticket: RaceTicket) {
+        if ticket.code != lastRace?.code { raceNotice = nil }
         lastRace = ticket
+    }
+
+    func challengeNoticeAgain() {
+        guard let notice = raceNotice, let previous = lastRace, let token else { return }
+        let name = notice.person
+        Task {
+            await run("Could not send another challenge.") {
+                let ticket = try await AccountClient.createRace(
+                    region: previous.region, subject: previous.subject, style: previous.style,
+                    countries: previous.countries, token: token
+                )
+                try await AccountClient.inviteToRace(code: ticket.code, username: name, token: token)
+                keepRace(ticket)
+                page = .race
+                onOpenRace(ticket, true)
+            }
+        }
+    }
+
+    func dismissRaceNotice() {
+        raceNotice = nil
+        noteRaceCancelled()
     }
 
     func noteLeftRace(_ code: String) {
@@ -768,11 +801,41 @@ final class AccountModel: ObservableObject {
 
     private func startInvitePoll() {
         guard invitePoll == nil else { return }
+        startHostWaitPoll()
         invitePoll = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 15_000_000_000)
                 guard !Task.isCancelled else { return }
                 await self?.reloadInvites(reportErrors: false)
+            }
+        }
+    }
+
+    private var hostWaitPoll: Task<Void, Never>?
+
+    private func startHostWaitPoll() {
+        guard hostWaitPoll == nil else { return }
+        hostWaitPoll = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                await self?.refreshHostRace()
+            }
+        }
+    }
+
+    private func refreshHostRace() async {
+        guard let token, let ticket = lastRace else {
+            raceNotice = nil
+            return
+        }
+        guard let note = try? await AccountClient.raceWait(code: ticket.code, token: token) else { return }
+        guard lastRace?.code == ticket.code else { return }
+        let person = note.noticeName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if note.phase == "cancelled", !person.isEmpty {
+            if note.notice == "declined" {
+                raceNotice = .declined(person)
+            } else if note.notice == "expired" {
+                raceNotice = .expired(person)
             }
         }
     }
@@ -786,14 +849,19 @@ final class AccountModel: ObservableObject {
         guard let userId = user?.id else { return }
         guard await FriendAlerts.canPostRace() else { return }
         var seen = loadSeenInvites(userId: userId)
+        let inFront = NSApp.isActive
         for invite in next where !seen.contains(invite.id) {
-            await FriendAlerts.postRace(
-                id: "race-invite-\(invite.id)",
-                title: "Race",
-                body: invite.sentence,
-                info: ["maplock": "race-invite", "inviteId": invite.id, "code": invite.raceCode]
-            )
             seen.insert(invite.id)
+            // The toast is the notice while Map Lock is in front. The system
+            // banner is only for when the app is in the background.
+            if !inFront {
+                await FriendAlerts.postRace(
+                    id: "race-invite-\(invite.id)",
+                    title: "Race",
+                    body: invite.sentence,
+                    info: ["maplock": "race-invite", "inviteId": invite.id, "code": invite.raceCode]
+                )
+            }
         }
         saveSeenInvites(seen, userId: userId)
     }

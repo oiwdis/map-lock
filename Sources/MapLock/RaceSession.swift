@@ -13,7 +13,27 @@ struct RaceWireState: Decodable {
     var tie: Bool?
     var winnerId: String?
     var reason: String?
+    var notice: String?
+    var noticeName: String?
     var players: [RaceWirePlayer]
+}
+
+enum ChallengeEnd: Equatable {
+    case declined(String)
+    case expired(String)
+
+    var person: String {
+        switch self {
+        case .declined(let name), .expired(let name): return name
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .declined(let name): return "\(name) declined your challenge"
+        case .expired(let name): return "\(name) didn't respond"
+        }
+    }
 }
 
 struct RaceWirePlayer: Decodable {
@@ -80,6 +100,7 @@ final class RaceSession: ObservableObject {
     @Published private(set) var isPersonalBest = false
     @Published private(set) var youWon: Bool?
     @Published private(set) var status = "Waiting for your friend"
+    @Published private(set) var challengeEnd: ChallengeEnd?
     @Published private(set) var inviteNote: String?
     @Published private(set) var opponentJoined = false
 
@@ -88,7 +109,9 @@ final class RaceSession: ObservableObject {
     var onLeft: (String) -> Void = { _ in }
     var onRematch: (RaceTicket) -> Void = { _ in }
     var onChangeRegion: () -> Void = {}
+    var onGiveUp: () -> Void = {}
     var onFinished: (String) -> Void = { _ in }
+    private var waitPoll: Task<Void, Never>?
     private var clockStart: Date?
     private var recordedTime = false
     private var notedFinish = false
@@ -139,6 +162,7 @@ final class RaceSession: ObservableObject {
         task.resume()
         listen()
         sendJSON(("type", "ready"), ("total", order.count))
+        startWaitPoll()
     }
 
     func forfeit() {
@@ -166,6 +190,28 @@ final class RaceSession: ObservableObject {
         onChangeRegion()
     }
 
+    func challengeAgain() {
+        guard let name = challengeEnd?.person, !name.isEmpty else { return }
+        Task {
+            do {
+                let created = try await AccountClient.createRace(
+                    region: ticket.region, subject: ticket.subject, style: ticket.style,
+                    countries: ticket.countries, token: token
+                )
+                try await AccountClient.inviteToRace(code: created.code, username: name, token: token)
+                onRematch(created)
+            } catch let error as APIFailure {
+                status = error.message
+            } catch {
+                status = "Could not send another challenge."
+            }
+        }
+    }
+
+    func giveUp() {
+        onGiveUp()
+    }
+
     func leaveWaiting() {
         sendJSON(("type", "leave"))
         onLeft(ticket.code)
@@ -186,6 +232,8 @@ final class RaceSession: ObservableObject {
     }
 
     func dropSocket() {
+        waitPoll?.cancel()
+        waitPoll = nil
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
     }
@@ -341,13 +389,47 @@ final class RaceSession: ObservableObject {
         } else if race.phase == "cancelled" {
             ended = true
             quiz.speedrunAcceptsInput = false
-            status = "This race was cancelled."
+            noteClosed(notice: race.notice, name: race.noticeName)
         } else if race.phase == "countdown" {
             quiz.speedrunAcceptsInput = false
             status = "Get ready"
         } else {
             quiz.speedrunAcceptsInput = false
             status = race.players.count < 2 ? "Waiting for your friend" : "Waiting to start"
+        }
+    }
+
+    private func startWaitPoll() {
+        guard isHost else { return }
+        waitPoll?.cancel()
+        waitPoll = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                guard let self, !Task.isCancelled, self.challengeEnd == nil, self.phase == "waiting" else { continue }
+                guard let note = try? await AccountClient.raceWait(code: self.ticket.code, token: self.token) else { continue }
+                self.applyWait(note)
+            }
+        }
+    }
+
+    private func applyWait(_ note: RaceWaitNote) {
+        guard note.phase == "cancelled", challengeEnd == nil else { return }
+        phase = "cancelled"
+        ended = true
+        quiz.speedrunAcceptsInput = false
+        noteClosed(notice: note.notice, name: note.noticeName)
+    }
+
+    private func noteClosed(notice: String?, name: String?) {
+        let person = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if notice == "declined", !person.isEmpty {
+            challengeEnd = .declined(person)
+            status = challengeEnd?.message ?? status
+        } else if notice == "expired", !person.isEmpty {
+            challengeEnd = .expired(person)
+            status = challengeEnd?.message ?? status
+        } else if challengeEnd == nil {
+            status = "This race was cancelled."
         }
     }
 

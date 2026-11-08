@@ -8,9 +8,13 @@ final class RaceController: NSObject, NSWindowDelegate {
     private var closing = false
     var onClosed: (() -> Void)?
     var isShowing: Bool { window?.isVisible ?? false }
+    var liveSession: RaceSession? { session }
 
     func show(session: RaceSession) {
         closing = false
+        if let existing = self.session, existing !== session {
+            existing.dropSocket()
+        }
         self.session = session
         let frame = PracticeFrame.fitted()
         if window == nil {
@@ -264,10 +268,26 @@ struct RaceView: View {
     var body: some View {
         ZStack {
             QuizView(session: session.quiz)
-            if session.phase == "waiting" || session.phase == "countdown" {
+            if session.phase == "waiting" || session.phase == "countdown" || session.challengeEnd != nil {
                 Theme.background.opacity(0.94).ignoresSafeArea()
                 VStack(spacing: Theme.Space.s4) {
-                    if session.phase == "countdown" {
+                    if let end = session.challengeEnd {
+                        Text(end.message)
+                            .font(Theme.font(Theme.Size.lg, .semibold))
+                            .multilineTextAlignment(.center)
+                        HStack(spacing: Theme.Space.s3) {
+                            Button("Challenge again") { session.challengeAgain() }
+                                .buttonStyle(AppButtonStyle(kind: .primary, height: 40))
+                            Button("Go back") { session.giveUp() }
+                                .buttonStyle(AppButtonStyle(kind: .ghost, height: 40))
+                        }
+                        if session.status != end.message {
+                            Text(session.status)
+                                .font(Theme.font(Theme.Size.sm))
+                                .foregroundStyle(Theme.bad)
+                                .multilineTextAlignment(.center)
+                        }
+                    } else if session.phase == "countdown" {
                         Text(session.countdown.map(String.init) ?? "1")
                             .font(.system(size: 96, weight: .bold, design: .rounded))
                             .monospacedDigit()

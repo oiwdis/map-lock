@@ -612,6 +612,17 @@ struct AccountPane: View {
 
     private func raceLobby(_ race: RaceTicket) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.s2) {
+            if let notice = account.raceNotice {
+                Text(notice.message)
+                    .font(Theme.font(Theme.Size.body, .semibold))
+                    .foregroundStyle(Theme.text)
+                HStack(spacing: Theme.Space.s2) {
+                    Button("Challenge again") { account.challengeNoticeAgain() }
+                        .buttonStyle(AppButtonStyle(kind: .primary, height: 32))
+                    Button("Go back") { account.dismissRaceNotice() }
+                        .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
+                }
+            } else {
             Text("Waiting for your friend")
                 .font(Theme.font(Theme.Size.sm, .semibold))
                 .foregroundStyle(Theme.text)
@@ -641,6 +652,7 @@ struct AccountPane: View {
                 Button("Keep it open", role: .cancel) {}
             } message: {
                 Text("The code will stop working.")
+            }
             }
         }
         .padding(Theme.Space.s3)

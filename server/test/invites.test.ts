@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RACE_INVITE_TTL_MS, planInviteAccept, raceInviteIsPending } from "../src/invites.ts";
+import { RACE_INVITE_TTL_MS, planChallengeSettle, planInviteAccept, raceInviteIsPending } from "../src/invites.ts";
 
 const now = 1_000_000_000_000;
 
@@ -30,4 +30,21 @@ test("accepted and declined invites are not pending", () => {
 
 test("a missing invite is not an expired race", () => {
   assert.deepEqual(planInviteAccept(null, "open", now), { action: "missing" });
+});
+
+test("a decline closes the race only when nobody else is still invited", () => {
+  const declined = { status: "declined", createdAt: now - 1_000 };
+  const fresh = { status: "pending", createdAt: now - 1_000 };
+  assert.equal(planChallengeSettle("open", [declined], now), "declined");
+  assert.equal(planChallengeSettle("open", [declined, fresh], now), null);
+  assert.equal(planChallengeSettle("started", [declined], now), null);
+  assert.equal(planChallengeSettle("open", [], now), null);
+});
+
+test("an unanswered invite closes as expired", () => {
+  const stale = { status: "pending", createdAt: now - RACE_INVITE_TTL_MS - 1 };
+  const already = { status: "expired", createdAt: now - RACE_INVITE_TTL_MS - 1 };
+  assert.equal(planChallengeSettle("open", [stale], now), "expired");
+  assert.equal(planChallengeSettle("open", [already], now), "expired");
+  assert.equal(planChallengeSettle("open", [stale, { status: "pending", createdAt: now }], now), null);
 });

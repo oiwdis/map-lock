@@ -15,6 +15,7 @@ final class OverlayController: NSObject {
     private var savedOptions: NSApplication.PresentationOptions = []
     private var previousApp: NSRunningApplication?
     var onClosed: (() -> Void)?
+    private(set) var session: QuizSession?
 
     var isShowing: Bool { window != nil }
 
@@ -32,6 +33,7 @@ final class OverlayController: NSObject {
         guard window == nil else { return }
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
 
+        self.session = session
         previousApp = NSWorkspace.shared.frontmostApplication
         if previousApp?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
             previousApp = nil
@@ -116,6 +118,7 @@ final class OverlayController: NSObject {
         for blank in blankWindows { blank.orderOut(nil) }
         blankWindows = []
         window = nil
+        session = nil
 
         if let app = previousApp {
             _ = app.activate(options: [])

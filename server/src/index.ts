@@ -4,7 +4,7 @@ import { canonicalBestKey, emptyPayload, isRegion, mergePayload, parsePayload } 
 import { RaceRoom } from "./race";
 import { clientIp, hashPassword, loginIsLimited, recordLoginFailure, verifyPassword } from "./password";
 import { planFriendRequest } from "./friends";
-import { RACE_INVITE_TTL_MS, RACE_UNAVAILABLE, planInviteAccept } from "./invites";
+import { RACE_INVITE_TTL_MS, RACE_UNAVAILABLE, planChallengeSettle, planInviteAccept } from "./invites.ts";
 import { normalizeCustomCountries } from "./customCountries.ts";
 import { canonicalUsername, usernameProblem } from "./username";
 
@@ -72,6 +72,9 @@ async function route(request: Request, env: Env): Promise<Response> {
 
   const friendStats = url.pathname.match(/^\/v1\/users\/([^/]+)\/stats$/);
   if (request.method === "GET" && friendStats) return friendSnapshot(env, user.id, decodeURIComponent(friendStats[1]));
+
+  const wait = url.pathname.match(/^\/v1\/races\/([A-Za-z0-9]{4,16})\/wait$/);
+  if (request.method === "GET" && wait) return raceWait(env, user, wait[1]);
 
   const join = url.pathname.match(/^\/v1\/races\/([A-Za-z0-9]{4,16})\/join$/);
   if (request.method === "POST" && join) return joinRace(env, user, join[1]);
@@ -560,9 +563,15 @@ async function listRaceResults(env: Env, user: SessionUser): Promise<Response> {
 
 async function listRaceInvites(env: Env, user: SessionUser): Promise<Response> {
   const cutoff = Date.now() - RACE_INVITE_TTL_MS;
+  const aging = await env.DB.prepare(
+    "SELECT DISTINCT race_code AS code FROM race_invites WHERE to_user = ? AND status = 'pending' AND created_at < ?",
+  ).bind(user.id, cutoff).all<{ code: string }>();
   await env.DB.prepare(
     "UPDATE race_invites SET status = 'expired' WHERE to_user = ? AND status = 'pending' AND created_at < ?",
   ).bind(user.id, cutoff).run();
+  for (const row of aging.results ?? []) {
+    await settleChallenge(env, row.code);
+  }
   await env.DB.prepare(
     `UPDATE race_invites SET status = 'expired'
      WHERE to_user = ? AND status = 'pending'
@@ -624,13 +633,76 @@ async function acceptRaceInvite(env: Env, user: SessionUser, id: string): Promis
 
 async function declineRaceInvite(env: Env, user: SessionUser, id: string): Promise<Response> {
   const row = await env.DB.prepare(
-    "SELECT id FROM race_invites WHERE id = ? AND to_user = ?",
-  ).bind(id, user.id).first();
+    `SELECT race_invites.id AS id, race_invites.race_code AS code, race_invites.status AS status,
+            races.status AS raceStatus
+     FROM race_invites
+     JOIN races ON races.code = race_invites.race_code
+     WHERE race_invites.id = ? AND race_invites.to_user = ?`,
+  ).bind(id, user.id).first<{ id: string; code: string; status: string; raceStatus: string }>();
   if (!row) return json({ error: "Unknown invite" }, 404);
-  await env.DB.prepare(
-    "UPDATE race_invites SET status = 'declined' WHERE id = ? AND status = 'pending'",
-  ).bind(id).run();
+  if (row.status === "pending") {
+    await env.DB.prepare(
+      "UPDATE race_invites SET status = 'declined' WHERE id = ? AND status = 'pending'",
+    ).bind(id).run();
+  }
+  if (row.raceStatus === "open") {
+    await settleChallenge(env, row.code, user.username);
+  }
   return json({ ok: true });
+}
+
+async function raceWait(env: Env, user: SessionUser, code: string): Promise<Response> {
+  const race = await env.DB.prepare(
+    "SELECT code, host_id, status FROM races WHERE code = ?",
+  ).bind(code).first<{ code: string; host_id: string; status: string }>();
+  if (!race) return json({ error: "Unknown race" }, 404);
+  if (race.host_id !== user.id) return json({ error: "Only the person who created this race can check it" }, 403);
+  if (race.status === "open") await settleChallenge(env, code);
+  const room = env.RACE.get(env.RACE.idFromName(code));
+  const status = await room.fetch("https://race/status");
+  const body = await status.json().catch(() => ({ phase: race.status, notice: null, noticeName: null }));
+  return json(body);
+}
+
+async function settleChallenge(env: Env, code: string, declinedName?: string | null): Promise<void> {
+  const race = await env.DB.prepare(
+    "SELECT status FROM races WHERE code = ?",
+  ).bind(code).first<{ status: string }>();
+  if (!race || race.status !== "open") return;
+  const cutoff = Date.now() - RACE_INVITE_TTL_MS;
+  await env.DB.prepare(
+    "UPDATE race_invites SET status = 'expired' WHERE race_code = ? AND status = 'pending' AND created_at < ?",
+  ).bind(code, cutoff).run();
+  const rows = await env.DB.prepare(
+    `SELECT race_invites.status AS status, race_invites.created_at AS createdAt, users.username AS username
+     FROM race_invites
+     LEFT JOIN users ON users.id = race_invites.to_user
+     WHERE race_invites.race_code = ?
+     ORDER BY race_invites.created_at DESC`,
+  ).bind(code).all<{ status: string; createdAt: number; username: string | null }>();
+  const invites = rows.results ?? [];
+  const planned = planChallengeSettle("open", invites, Date.now());
+  if (!planned) return;
+  const notice = declinedName ? "declined" : planned;
+  const named = notice === "declined"
+    ? (declinedName || invites.find((row) => row.status === "declined")?.username || "They")
+    : (invites.find((row) => row.status === "expired")?.username || "They");
+  await endChallenge(env, code, notice, named);
+}
+
+async function endChallenge(env: Env, code: string, notice: "declined" | "expired", username: string): Promise<void> {
+  const room = env.RACE.get(env.RACE.idFromName(code));
+  const closed = await room.fetch("https://race/challenge-end", {
+    method: "POST",
+    body: JSON.stringify({ notice, username }),
+  });
+  if (!closed.ok) return;
+  await env.DB.prepare(
+    "UPDATE races SET status = 'cancelled' WHERE code = ? AND status = 'open'",
+  ).bind(code).run();
+  await env.DB.prepare(
+    "UPDATE race_invites SET status = 'expired' WHERE race_code = ? AND status = 'pending'",
+  ).bind(code).run();
 }
 
 async function raceSocket(request: Request, env: Env, code: string): Promise<Response> {

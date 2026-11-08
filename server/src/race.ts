@@ -44,6 +44,9 @@ export interface RaceState {
   tie: boolean;
   winnerId: string | null;
   reason: RaceReason | null;
+  /** Why a waiting race closed before anyone joined. */
+  notice: "declined" | "expired" | null;
+  noticeName: string | null;
   /** Written to D1 once, when the race closes. */
   stored: boolean;
   players: RacePlayer[];
@@ -85,6 +88,8 @@ export class RaceRoom extends DurableObject<Env> {
           tie: false,
           winnerId: null,
           reason: null,
+          notice: null,
+          noticeName: null,
           stored: false,
           players: [],
         });
@@ -110,6 +115,33 @@ export class RaceRoom extends DurableObject<Env> {
         try { socket.close(1000, "cancelled"); } catch { /* already closed */ }
       }
       return Response.json({ ok: true });
+    }
+
+    if (url.pathname === "/challenge-end" && request.method === "POST") {
+      const body = await request.json() as { notice?: string; username?: string };
+      const state = await this.load();
+      if (!state) return Response.json({ ok: true, missing: true });
+      if (state.phase === "cancelled") return Response.json({ ok: true });
+      const opponent = state.players.some((player) => player.userId !== state.hostId);
+      if (opponent || state.phase !== "waiting") {
+        return Response.json({ error: "Someone has already joined" }, { status: 409 });
+      }
+      state.phase = "cancelled";
+      state.notice = body.notice === "expired" ? "expired" : "declined";
+      state.noticeName = (body.username ?? "").trim() || null;
+      await this.save(state);
+      this.broadcast(state);
+      return Response.json({ ok: true });
+    }
+
+    if (url.pathname === "/status" && request.method === "GET") {
+      const state = await this.load();
+      if (!state) return Response.json({ phase: "missing", notice: null, noticeName: null });
+      return Response.json({
+        phase: state.phase,
+        notice: state.notice,
+        noticeName: state.noticeName,
+      });
     }
 
     if (request.headers.get("Upgrade") !== "websocket") {
@@ -326,6 +358,8 @@ export class RaceRoom extends DurableObject<Env> {
     state.tie = false;
     state.winnerId = null;
     state.reason = null;
+    state.notice = null;
+    state.noticeName = null;
     state.stored = false;
     for (const player of state.players) {
       player.ready = false;
@@ -386,6 +420,8 @@ export class RaceRoom extends DurableObject<Env> {
     state.decided = state.decided ?? false;
     state.tie = state.tie ?? false;
     state.reason = state.reason ?? null;
+    state.notice = state.notice ?? null;
+    state.noticeName = state.noticeName ?? null;
     state.stored = state.stored ?? false;
     for (const player of state.players) {
       player.dnf = player.dnf ?? false;
@@ -417,6 +453,8 @@ function publicState(state: RaceState) {
     tie: state.tie,
     winnerId: state.winnerId,
     reason: state.reason,
+    notice: state.notice,
+    noticeName: state.noticeName,
     players: state.players.map((player) => ({
       userId: player.userId,
       username: player.username,

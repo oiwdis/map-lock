@@ -87,6 +87,12 @@ struct RaceInvite: Codable, Identifiable, Equatable {
     }
 
     var sentence: String { "\(fromUsername) challenged you to a race (\(placeName))" }
+
+    /// "Europe · Countries", or the custom set name plus the subject.
+    var challengeLine: String {
+        let kind = QuizSubject(rawValue: subject)?.title ?? "Countries"
+        return "\(placeName) · \(kind)"
+    }
 }
 
 struct RaceHistoryPlayer: Codable {
@@ -130,6 +136,12 @@ struct RaceHistoryItem: Codable, Identifiable {
         }
         return region == "world" ? "Whole world" : region
     }
+}
+
+struct RaceWaitNote: Decodable {
+    var phase: String
+    var notice: String?
+    var noticeName: String?
 }
 
 struct RaceTicket: Codable, Equatable {
@@ -242,6 +254,10 @@ enum AccountClient {
     static func createRace(region: String, subject: String, style: String, countries: [String]? = nil, token: String) async throws -> RaceTicket {
         try await send(RaceTicket.self, path: "/v1/races", method: "POST", token: token,
                        json: try encode(RaceCreateBody(region: region, subject: subject, style: style, countries: countries)))
+    }
+
+    static func raceWait(code: String, token: String) async throws -> RaceWaitNote {
+        try await send(RaceWaitNote.self, path: "/v1/races/\(code)/wait", method: "GET", token: token, json: nil)
     }
 
     static func joinRace(code: String, token: String) async throws -> RaceTicket {

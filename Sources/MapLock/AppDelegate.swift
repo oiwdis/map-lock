@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Sparkle
 import UserNotifications
 
@@ -16,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var world: [Country] = []
     private var loadError: String? = nil
     private var home: HomeWindowController?
+    private let toasts = ChallengeToastController()
+    private var toastWatch: AnyCancellable?
     private var scheduleTimer: Timer?
     /// True while the screen is locked, asleep, or another user is active.
     private var isLocked = false
@@ -428,6 +431,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         account.onOpenRace = { [weak self] ticket, isHost in
             self?.openRace(ticket, isHost: isHost)
         }
+        account.onInviteHandled = { [weak self] id in
+            self?.toasts.noteHandled(id)
+        }
+        toasts.onAccept = { [weak self] invite in
+            self?.acceptChallenge(invite)
+        }
+        toasts.onDecline = { [weak self] invite in
+            self?.account?.declineInvite(id: invite.id)
+        }
+        toastWatch = account.$raceInvites.sink { [weak self] invites in
+            self?.toasts.sync(invites, live: self?.account?.isSignedIn == true)
+        }
         account.onRaceCancelled = { [weak self] in
             self?.races.close()
         }
@@ -481,11 +496,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.home?.model.homeTab = .account
             self?.home?.show()
         }
+        session.onGiveUp = { [weak self] in
+            self?.account?.noteRaceCancelled()
+            self?.account?.page = .race
+            self?.home?.model.homeTab = .account
+            self?.home?.show()
+        }
         races.onClosed = { [weak self] in
             self?.account?.syncNow()
             self?.home?.model.reload()
         }
         races.show(session: session)
+    }
+
+    private func acceptChallenge(_ invite: RaceInvite) {
+        if speedrunInProgress() {
+            let alert = NSAlert()
+            alert.messageText = "Leave this speedrun?"
+            alert.informativeText = "Your time will not be saved."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Leave and join")
+            alert.addButton(withTitle: "Stay")
+            let window = self.toasts.anchorWindow() ?? NSApp.keyWindow
+            let leave = { [weak self] in
+                self?.toasts.noteHandled(invite.id)
+                self?.leaveForChallenge(invite)
+            }
+            if let window {
+                alert.beginSheetModal(for: window) { response in
+                    if response == .alertFirstButtonReturn {
+                        Task { @MainActor in leave() }
+                    }
+                }
+            } else if alert.runModal() == .alertFirstButtonReturn {
+                leave()
+            }
+            return
+        }
+        toasts.noteHandled(invite.id)
+        leaveForChallenge(invite)
+    }
+
+    private func speedrunInProgress() -> Bool {
+        if let quiz = overlay.session, quiz.isSpeedrun, quiz.phase == .asking { return true }
+        if let quiz = practice.quizInProgress, quiz.isSpeedrun, quiz.phase == .asking { return true }
+        if let speedrun = practice.speedrunInProgress, speedrun.phase == .asking { return true }
+        if let race = races.liveSession, race.phase == "racing" || race.phase == "countdown" { return true }
+        return false
+    }
+
+    private func leaveForChallenge(_ invite: RaceInvite) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let race = self.races.liveSession {
+                if race.phase == "racing" || race.phase == "countdown" {
+                    race.forfeit()
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                } else if race.canOfferCancel {
+                    if let token = self.account?.sessionToken {
+                        try? await AccountClient.cancelRace(code: race.ticket.code, token: token)
+                    }
+                }
+            }
+            self.overlay.close()
+            self.practice.close()
+            self.account?.noteRaceCancelled()
+            self.account?.acceptInvite(id: invite.id)
+        }
     }
 
     private func showFriends() {
@@ -839,6 +916,11 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        let info = notification.request.content.userInfo
+        if (info["maplock"] as? String) == "race-invite" {
+            completionHandler([])
+            return
+        }
         completionHandler([.banner, .list, .sound])
     }
 

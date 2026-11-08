@@ -6,15 +6,23 @@ import SwiftUI
 final class PracticeController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var closing = false
+    private var quiz: QuizSession?
+    private var speedrun: SpeedrunSession?
     var onClosed: (() -> Void)?
 
     var isShowing: Bool { window?.isVisible ?? false }
+    var quizInProgress: QuizSession? { quiz }
+    var speedrunInProgress: SpeedrunSession? { speedrun }
 
     func show(session: QuizSession) {
+        speedrun = nil
+        quiz = session
         present(title: "Practice", content: QuizView(session: session))
     }
 
     func show(speedrun: SpeedrunSession) {
+        quiz = nil
+        self.speedrun = speedrun
         present(title: "Speedrun", content: SpeedrunView(session: speedrun))
     }
 
@@ -58,6 +66,8 @@ final class PracticeController: NSObject, NSWindowDelegate {
     func close() {
         guard !closing else { return }
         closing = true
+        quiz = nil
+        speedrun = nil
         window?.orderOut(nil)
         window?.contentView = nil
         onClosed?()
