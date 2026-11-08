@@ -36,7 +36,7 @@ struct ClickMapView: View {
     @State private var pinnedNames: Set<String> = []
     @State private var pointer: CGPoint?
     @State private var panning = false
-    @State private var promptSize = CGSize(width: 180, height: 36)
+    @State private var promptSize = CGSize(width: 120, height: 22)
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -133,6 +133,7 @@ struct ClickMapView: View {
                             }
                         )
                         .position(promptCenter(pointer: pointer, map: geo.size))
+                        .transaction { $0.animation = nil }
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
@@ -246,32 +247,32 @@ struct MapCursorPromptPill: View {
     var prompt: MapCursorPrompt
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 3) {
             if let note = prompt.note {
                 Text(note)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(prompt.noteIsGood
                                      ? Color(red: 0.09, green: 0.45, blue: 0.18)
                                      : Color(red: 0.78, green: 0.16, blue: 0.14))
             }
             Text(prompt.lead)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 10, weight: .medium))
             if let emphasis = prompt.emphasis, !emphasis.isEmpty {
                 Text(emphasis)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
             }
             if let flag = prompt.flag, !flag.isEmpty {
                 Text(flag)
-                    .font(.system(size: 16))
+                    .font(.system(size: 12))
             }
         }
         .foregroundStyle(Color(white: 0.12))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(Color.white.opacity(0.92))
-                .shadow(color: Color.black.opacity(0.12), radius: 6, y: 2)
+                .shadow(color: Color.black.opacity(0.10), radius: 4, y: 1)
         )
         .fixedSize()
     }

@@ -6,6 +6,7 @@
 - The same invite shows at the top of the Race tab. You can also invite a friend from the waiting screen. The code still works if you want to send it yourself.
 - A 1v1 race keeps going after the first person finishes. They see their time and the other player's progress. If you leave, the result shows up later under Recent races.
 - The results card shows both times, the margin, and a rematch that invites the same friend.
+- The "Click on" label next to the pointer is smaller and sits just to the right of the cursor.
 
 ## 1.3.4
 

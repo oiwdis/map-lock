@@ -79,22 +79,22 @@ struct MapZoomState: Equatable {
         offset.height = min(max(offset.height, -maxY), maxY)
     }
 
-    /// Top-left of the cursor prompt. Screen points, not map points, so zoom does not change its size.
-    /// Sits 24pt right and 18pt below the pointer, and flips toward the open side near an edge.
+    /// Top-left of the cursor prompt, in the map view (top-left origin, y down).
+    /// These are view points from the flipped map overlay, the same space as SwiftUI `.position`.
+    /// Zoom and the window toolbar are not applied: the pointer is already in this view.
+    /// The pill is vertically centered on the hotspot, 11pt to the right, and flips left near the right edge.
     static func cursorPromptOrigin(pointer: CGPoint, map: CGSize, pill: CGSize) -> CGPoint {
-        let gapX: CGFloat = 24
-        let gapY: CGFloat = 18
-        let margin: CGFloat = 8
-        var x = pointer.x + gapX
-        var y = pointer.y + gapY
-        if pill.width > 0, x + pill.width > map.width - margin {
-            x = pointer.x - gapX - pill.width
+        let gap: CGFloat = 11
+        let margin: CGFloat = 6
+        let width = max(pill.width, 0)
+        let height = max(pill.height, 0)
+        var x = pointer.x + gap
+        var y = pointer.y - height / 2
+        if width > 0, x + width > map.width - margin {
+            x = pointer.x - gap - width
         }
-        if pill.height > 0, y + pill.height > map.height - margin {
-            y = pointer.y - gapY - pill.height
-        }
-        let maxX = max(margin, map.width - max(pill.width, 0) - margin)
-        let maxY = max(margin, map.height - max(pill.height, 0) - margin)
+        let maxX = max(margin, map.width - width - margin)
+        let maxY = max(margin, map.height - height - margin)
         x = min(max(x, margin), maxX)
         y = min(max(y, margin), maxY)
         return CGPoint(x: x, y: y)
@@ -214,6 +214,8 @@ final class MapInteractionView: NSView {
         tracking = area
     }
 
+    /// Hotspot in this map view. The view is flipped, so y grows downward and matches SwiftUI.
+    /// `convert` already subtracts the view's window origin, including any toolbar above the map.
     private func viewPoint(from event: NSEvent) -> CGPoint {
         convert(event.locationInWindow, from: nil)
     }
