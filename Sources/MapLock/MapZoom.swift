@@ -274,9 +274,10 @@ final class MapInteractionView: NSView {
         let dx = p.x - c.mouseDownPoint.x
         let dy = p.y - c.mouseDownPoint.y
         if !c.isDragging, hypot(dx, dy) < 4 { return }
-        guard parent.zoom.isZoomed else { return }
+        // A drag is not a click, even when the map is not zoomed and cannot pan.
         if !c.isDragging { parent.onPointer?(p, true) }
         c.isDragging = true
+        guard parent.zoom.isZoomed else { return }
         mutateZoom { zoom, size in
             zoom.offset = CGSize(width: c.dragStartOffset.width + dx,
                                  height: c.dragStartOffset.height + dy)

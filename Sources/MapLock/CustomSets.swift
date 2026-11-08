@@ -84,6 +84,9 @@ struct CustomSetEditor: View {
     @State private var named: [NamedCustomSet] = CustomSets.namedSets()
     @State private var draftName = ""
     @State private var editingId: UUID?
+    @State private var pickMode: CustomPickMode = .type
+    @State private var mapFocus: CustomMapFocus = .world
+    @State private var hoveredCountry: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s3) {
@@ -98,60 +101,21 @@ struct CustomSetEditor: View {
                 .font(Theme.font(Theme.Size.sm))
                 .foregroundStyle(Theme.text2)
 
-            HStack(spacing: Theme.Space.s2) {
-                TextField("Type a country", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { addFirst() }
-                Button("Add") { addFirst() }
-                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
-                    .disabled(suggestions.isEmpty)
-            }
-            if !suggestions.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(suggestions, id: \.self) { name in
-                        Button(name) { add(name) }
-                            .buttonStyle(.plain)
-                            .font(Theme.font(Theme.Size.body))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
+            SegmentedChoice(
+                selection: $pickMode,
+                choices: [
+                    SegmentChoice(value: CustomPickMode.type, title: "Type"),
+                    SegmentChoice(value: CustomPickMode.map, title: "Pick on map"),
+                ]
+            )
+
+            if pickMode == .type {
+                typePicker
+            } else {
+                mapPicker
             }
 
-            ScrollView(.horizontal) {
-                HStack(spacing: Theme.Space.s2) {
-                    ForEach(countries, id: \.self) { name in
-                        HStack(spacing: 4) {
-                            Text(name)
-                                .font(Theme.font(Theme.Size.sm))
-                                .lineLimit(1)
-                            Button { remove(name) } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 9, weight: .bold))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(Theme.fill2))
-                    }
-                }
-            }
-            .frame(minHeight: 28)
-
-            ScrollView(.horizontal) {
-                HStack(spacing: Theme.Space.s2) {
-                    ForEach(Region.allCases, id: \.self) { region in
-                        Button("Add all of \(region.title)") { addRegion(region) }
-                            .buttonStyle(AppButtonStyle(kind: .ghost, height: 28))
-                    }
-                    Button("Clear") {
-                        countries = []
-                        CustomSets.saveCountries([])
-                    }
-                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 28))
-                    .disabled(countries.isEmpty)
-                }
-            }
+            selectedChips
 
             Divider()
             Text("Saved sets")
@@ -180,7 +144,135 @@ struct CustomSetEditor: View {
             }
         }
         .padding(Theme.Space.s5)
-        .frame(minWidth: 480, minHeight: 420)
+        .frame(minWidth: 720, minHeight: pickMode == .map ? 640 : 420)
+    }
+
+    private var typePicker: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s3) {
+            HStack(spacing: Theme.Space.s2) {
+                TextField("Type a country", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { addFirst() }
+                Button("Add") { addFirst() }
+                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
+                    .disabled(suggestions.isEmpty)
+            }
+            if !suggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(suggestions, id: \.self) { name in
+                        Button(name) { add(name) }
+                            .buttonStyle(.plain)
+                            .font(Theme.font(Theme.Size.body))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            ScrollView(.horizontal) {
+                HStack(spacing: Theme.Space.s2) {
+                    ForEach(Region.allCases, id: \.self) { region in
+                        Button("Add all of \(region.title)") { addRegion(region) }
+                            .buttonStyle(AppButtonStyle(kind: .ghost, height: 28))
+                    }
+                    Button("Clear") {
+                        countries = []
+                        CustomSets.saveCountries([])
+                    }
+                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 28))
+                    .disabled(countries.isEmpty)
+                }
+            }
+        }
+    }
+
+    private var mapPicker: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s2) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Theme.Space.s2) {
+                    mapChip(.world)
+                    ForEach(Region.allCases, id: \.self) { region in
+                        mapChip(.region(region))
+                    }
+                }
+            }
+            CustomPickMap(
+                world: CountryCatalog.all,
+                focus: mapFocus,
+                selected: Set(countries),
+                onToggle: toggle,
+                onHover: { hoveredCountry = $0 }
+            )
+            .frame(height: 300)
+            HStack(spacing: Theme.Space.s2) {
+                Text(mapStatusLine)
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.text2)
+                    .lineLimit(1)
+                Spacer(minLength: Theme.Space.s2)
+                Button(mapFocus.selectTitle) { selectFocus() }
+                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 28))
+                Button(mapFocus.clearTitle) { clearFocus() }
+                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 28))
+                    .disabled(focusSelectionCount == 0)
+            }
+        }
+    }
+
+    private var selectedChips: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: Theme.Space.s2) {
+                ForEach(countries, id: \.self) { name in
+                    HStack(spacing: 4) {
+                        Text(name)
+                            .font(Theme.font(Theme.Size.sm))
+                            .lineLimit(1)
+                        Button { remove(name) } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Theme.fill2))
+                }
+            }
+        }
+        .frame(minHeight: 28)
+    }
+
+    private func mapChip(_ focus: CustomMapFocus) -> some View {
+        let selected = mapFocus == focus
+        return Button {
+            mapFocus = focus
+        } label: {
+            Text(focus.chipTitle)
+                .font(Theme.font(Theme.Size.sm, .semibold))
+                .foregroundStyle(selected ? Color.white : Theme.text)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(selected ? Theme.accentFill : Theme.fill2))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var mapStatusLine: String {
+        if let hoveredCountry { return hoveredCountry }
+        let count = countries.count
+        return count == 1 ? "1 selected" : "\(count) selected"
+    }
+
+    private var focusNames: Set<String> {
+        let world = CountryCatalog.all
+        switch mapFocus {
+        case .world:
+            return Set(world.filter(\.quizzable).map(\.name))
+        case .region(let region):
+            return Set(world.filter { $0.quizzable && $0.region == region }.map(\.name))
+        }
+    }
+
+    private var focusSelectionCount: Int {
+        countries.reduce(0) { $0 + (focusNames.contains($1) ? 1 : 0) }
     }
 
     private var suggestions: [String] {
@@ -202,6 +294,24 @@ struct CustomSetEditor: View {
 
     private func remove(_ name: String) {
         countries.removeAll { $0 == name }
+        CustomSets.saveCountries(countries)
+    }
+
+    private func toggle(_ name: String) {
+        if countries.contains(name) {
+            remove(name)
+        } else {
+            add(name)
+        }
+    }
+
+    private func selectFocus() {
+        countries = Array(Set(countries).union(focusNames)).sorted()
+        CustomSets.saveCountries(countries)
+    }
+
+    private func clearFocus() {
+        countries.removeAll { focusNames.contains($0) }
         CustomSets.saveCountries(countries)
     }
 
@@ -269,4 +379,229 @@ struct CustomSetSummary: View {
 /// Filled when the map loads, so the custom picker can search without the window owning the world.
 enum CountryCatalog {
     static var all: [Country] = []
+}
+
+enum CustomPickMode: Hashable {
+    case type
+    case map
+}
+
+enum CustomMapFocus: Hashable {
+    case world
+    case region(Region)
+
+    var chipTitle: String {
+        switch self {
+        case .world: return "World"
+        case .region(let region): return region.title
+        }
+    }
+
+    var selectTitle: String {
+        switch self {
+        case .world: return "Select all of the world"
+        case .region(let region): return "Select all of \(region.title)"
+        }
+    }
+
+    var clearTitle: String {
+        switch self {
+        case .world: return "Clear the world"
+        case .region(let region): return "Clear \(region.title)"
+        }
+    }
+
+    var scope: PracticeScope {
+        switch self {
+        case .world: return .world
+        case .region(let region): return .region(region)
+        }
+    }
+}
+
+/// Flat Miller map for choosing countries. A click toggles. A drag pans and does not toggle.
+struct CustomPickMap: View {
+    let world: [Country]
+    let focus: CustomMapFocus
+    let selected: Set<String>
+    var onToggle: (String) -> Void
+    var onHover: (String?) -> Void
+
+    @State private var zoom = MapZoomState()
+    @State private var cache = ClickLayoutCache()
+    @State private var hovered: String?
+    @State private var pointer: CGPoint?
+    @State private var panning = false
+
+    var body: some View {
+        GeometryReader { geo in
+            if let sample = sampleCountry {
+                let layout = cache.layout(for: sample, world: world, size: geo.size, scope: focus.scope)
+                ZStack {
+                    pickBase(layout: layout, zoom: zoom)
+                    selectedFill(layout: layout, zoom: zoom)
+                    if let hovered, !panning {
+                        hoverFill(layout: layout, name: hovered, zoom: zoom, selected: selected.contains(hovered))
+                    }
+                    MapInteractionOverlay(
+                        size: geo.size,
+                        zoom: zoom,
+                        clicksEnabled: true,
+                        onZoomChange: { zoom = $0 },
+                        onClick: { viewPoint in
+                            let mapPt = zoom.mapPoint(from: viewPoint, in: geo.size)
+                            guard let name = ClickMap.hit(mapPt, in: layout.targets), !name.isEmpty else { return }
+                            onToggle(name)
+                        },
+                        onHover: { viewPoint in
+                            guard let viewPoint else {
+                                setHover(nil)
+                                return
+                            }
+                            let mapPt = zoom.mapPoint(from: viewPoint, in: geo.size)
+                            let name = ClickMap.hit(mapPt, in: layout.targets)
+                            if let name, !name.isEmpty {
+                                NSCursor.pointingHand.set()
+                                setHover(name)
+                            } else {
+                                NSCursor.arrow.set()
+                                setHover(nil)
+                            }
+                        },
+                        onPointer: { point, dragging in
+                            panning = dragging
+                            pointer = dragging ? nil : point
+                            if dragging { setHover(nil) }
+                        }
+                    )
+                    pickDots(layout: layout, zoom: zoom)
+                    if let hovered, !panning, let pointer {
+                        Text(hovered)
+                            .font(Theme.font(Theme.Size.sm, .semibold))
+                            .foregroundStyle(Color.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color.black.opacity(0.82))
+                            )
+                            .position(tooltipPoint(pointer, in: geo.size))
+                            .allowsHitTesting(false)
+                    }
+                    VStack {
+                        HStack {
+                            Spacer()
+                            MapZoomControls(zoom: $zoom, size: geo.size)
+                        }
+                        Spacer()
+                    }
+                    .padding(8)
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+            } else {
+                Text("The map is still loading.")
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.text3)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .background(Theme.ocean)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Theme.hairline2, lineWidth: 1)
+        )
+        .onChange(of: focus) { _, _ in
+            zoom.reset()
+            setHover(nil)
+        }
+    }
+
+    private var sampleCountry: Country? {
+        switch focus {
+        case .world:
+            return world.first { $0.quizzable }
+        case .region(let region):
+            return world.first { $0.quizzable && $0.region == region }
+        }
+    }
+
+    private func setHover(_ name: String?) {
+        if hovered != name {
+            hovered = name
+            onHover(name)
+        }
+    }
+
+    private func tooltipPoint(_ pointer: CGPoint, in size: CGSize) -> CGPoint {
+        let x = min(max(pointer.x, 56), max(56, size.width - 56))
+        let y = min(max(pointer.y - 28, 16), max(16, size.height - 16))
+        return CGPoint(x: x, y: y)
+    }
+
+    private func pickBase(layout: ClickLayout, zoom: MapZoomState) -> some View {
+        Canvas { context, size in
+            var mapContext = context
+            mapContext.beginMapZoom(zoom, size: size)
+            let inv = max(zoom.scale, 0.001)
+            let visible = CGRect(origin: .zero, size: size).insetBy(dx: -40 / inv, dy: -40 / inv)
+            for country in world where layout.drawsAllRegions || country.region == layout.region {
+                let path = MapDrawing.makePath(layout.map.viewPolygons(for: country))
+                guard path.boundingRect.intersects(visible) else { continue }
+                let land = country.quizzable ? Theme.land : Theme.land.opacity(0.32)
+                let border = country.quizzable ? Theme.border : Theme.border.opacity(0.35)
+                mapContext.fill(path, with: .color(land), style: FillStyle(eoFill: true))
+                mapContext.stroke(path, with: .color(border),
+                                  style: StrokeStyle(lineWidth: 0.6 / inv, lineJoin: .round))
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func selectedFill(layout: ClickLayout, zoom: MapZoomState) -> some View {
+        let names = selected
+        return Canvas { context, size in
+            var mapContext = context
+            mapContext.beginMapZoom(zoom, size: size)
+            for target in layout.targets where names.contains(target.name) {
+                mapContext.fill(MapDrawing.makePath(target.polygons), with: .color(Theme.accentFill.opacity(0.72)),
+                                style: FillStyle(eoFill: true))
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func hoverFill(layout: ClickLayout, name: String, zoom: MapZoomState, selected: Bool) -> some View {
+        let color = selected ? Theme.hover : Theme.accentFill.opacity(0.45)
+        return Canvas { context, size in
+            var mapContext = context
+            mapContext.beginMapZoom(zoom, size: size)
+            for target in layout.targets where target.name == name {
+                mapContext.fill(MapDrawing.makePath(target.polygons), with: .color(color),
+                                style: FillStyle(eoFill: true))
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func pickDots(layout: ClickLayout, zoom: MapZoomState) -> some View {
+        let names = selected
+        return Canvas { context, size in
+            var mapContext = context
+            mapContext.beginMapZoom(zoom, size: size)
+            let inv = max(zoom.scale, 0.001)
+            for target in layout.targets {
+                guard target.needsLeader, let anchor = target.anchor, let dot = target.dot else { continue }
+                ClickDots.leader(from: anchor, to: dot, in: &mapContext, color: Theme.leader, scale: inv)
+            }
+            for target in layout.targets {
+                guard let dot = target.dot else { continue }
+                let circle = Path(ellipseIn: ClickDots.rect(at: dot, scale: inv))
+                let fill = names.contains(target.name) ? Theme.accentFill : Theme.dotFill
+                mapContext.fill(circle, with: .color(fill))
+                mapContext.stroke(circle, with: .color(Theme.dotStroke), lineWidth: 1.5 / inv)
+            }
+        }
+        .allowsHitTesting(false)
+    }
 }

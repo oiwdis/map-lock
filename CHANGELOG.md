@@ -4,6 +4,7 @@
 
 - Custom place: pick individual countries, or add a whole continent, and save named sets. Practice, speedrun, unlock, and races can use that list. The map fits those countries and dims the rest.
 - A race challenge slides in at the bottom-right of whichever window is in front, including during a quiz. Accept joins. Decline cancels the race for the sender when nobody else has joined.
+- The custom country picker can also pick on the map: click a country to add or remove it, and fit the map to a continent.
 
 ## 1.3.5
 
