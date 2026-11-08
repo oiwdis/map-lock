@@ -7,6 +7,8 @@ export interface SyncPayload {
   speedruns: JsonObject[];
   speedrunBests: Record<string, number>;
   countries: Record<string, JsonObject>;
+  /** Unix seconds. A newer stamp wins, so a reset is not undone by an older upload. */
+  clearedAt: number;
 }
 
 const REGIONS = ["Africa", "Asia", "Europe", "North America", "South America", "world"] as const;
@@ -29,7 +31,7 @@ export function canonicalBestKey(key: string): string | null {
 }
 
 export function emptyPayload(): SyncPayload {
-  return { quizzes: [], speedruns: [], speedrunBests: {}, countries: {} };
+  return { quizzes: [], speedruns: [], speedrunBests: {}, countries: {}, clearedAt: 0 };
 }
 
 export function parsePayload(raw: unknown): SyncPayload {
@@ -39,17 +41,28 @@ export function parsePayload(raw: unknown): SyncPayload {
     speedruns: asObjects(body.speedruns).slice(0, 500),
     speedrunBests: asBests(body.speedrunBests),
     countries: asCountryMap(body.countries),
+    clearedAt: stamp(body.clearedAt),
   };
 }
 
-/** Union of history by id. Fastest positive time wins for each region. Country rows keep the higher counts. */
+/** Union of history by id. Fastest positive time wins for each region. Country rows keep the higher counts.
+ *  A newer `clearedAt` drops everything from before that reset. An older upload is ignored. */
 export function mergePayload(local: SyncPayload, remote: SyncPayload): SyncPayload {
+  if (remote.clearedAt < local.clearedAt) return local;
+  if (remote.clearedAt > local.clearedAt) {
+    return { ...remote, clearedAt: remote.clearedAt };
+  }
   return {
     quizzes: unionById(local.quizzes, remote.quizzes),
     speedruns: unionById(local.speedruns, remote.speedruns),
     speedrunBests: mergeBests(local.speedrunBests, remote.speedrunBests),
     countries: mergeCountries(local.countries, remote.countries),
+    clearedAt: local.clearedAt,
   };
+}
+
+function stamp(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 function asObjects(value: unknown): JsonObject[] {

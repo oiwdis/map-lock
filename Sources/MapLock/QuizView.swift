@@ -310,7 +310,7 @@ private struct QuestionView: View {
     }
 
     private var cursorPrompt: MapCursorPrompt? {
-        guard question.kind == .click, AppSettings().cursorPrompt else { return nil }
+        guard !session.hideCursorPrompt, question.kind == .click, AppSettings().cursorPrompt else { return nil }
         let note: String?
         let good: Bool
         if let chip = session.answerChip {

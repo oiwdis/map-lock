@@ -333,6 +333,7 @@ final class StatsStore {
         static let bestTime = "maplock.bestTimeSeconds"
         static let speedruns = "maplock.speedrunRecords"
         static let speedrunBests = "maplock.speedrunBests"
+        static let clearedAt = "maplock.statsClearedAt"
     }
 
     private static let maxQuizRecords = 100
@@ -779,12 +780,40 @@ final class StatsStore {
 
     // MARK: Account sync
 
+    /// Wipes practice and unlock history on this Mac. Race results and friends live elsewhere.
+    func reset() {
+        stats = [:]
+        quizzes = []
+        speedruns = []
+        speedrunBests = [:]
+        defaults.removeObject(forKey: Keys.stats)
+        defaults.removeObject(forKey: Keys.quizzes)
+        defaults.removeObject(forKey: Keys.speedruns)
+        defaults.removeObject(forKey: Keys.speedrunBests)
+        defaults.removeObject(forKey: Keys.streak)
+        defaults.removeObject(forKey: Keys.bestStreak)
+        defaults.removeObject(forKey: Keys.lastDay)
+        defaults.removeObject(forKey: Keys.bestPercent)
+        defaults.removeObject(forKey: Keys.bestTime)
+        defaults.set(Date().timeIntervalSince1970, forKey: Keys.clearedAt)
+    }
+
+    var clearedAt: Double {
+        defaults.double(forKey: Keys.clearedAt)
+    }
+
     func exportPayload() -> SyncPayload {
-        SyncPayload(quizzes: quizzes, speedruns: speedruns, speedrunBests: speedrunBests, countries: stats)
+        var payload = SyncPayload(quizzes: quizzes, speedruns: speedruns, speedrunBests: speedrunBests, countries: stats)
+        let stamp = clearedAt
+        if stamp > 0 { payload.clearedAt = stamp }
+        return payload
     }
 
     /// Replaces local history and bests with a merged payload. Streak and the unlock deck stay as they are.
     func replace(with payload: SyncPayload) {
+        if let stamp = payload.clearedAt, stamp > clearedAt {
+            defaults.set(stamp, forKey: Keys.clearedAt)
+        }
         var quizzesById: [UUID: QuizRecord] = [:]
         for record in payload.quizzes { quizzesById[record.id] = record }
         quizzes = quizzesById.values.sorted { $0.date > $1.date }
@@ -870,6 +899,8 @@ struct SyncPayload: Codable, Equatable {
     var speedruns: [SpeedrunRecord] = []
     var speedrunBests: [String: Double] = [:]
     var countries: [String: CountryStat] = [:]
+    /// Unix seconds. Set when stats are reset so an older upload cannot restore them.
+    var clearedAt: Double? = nil
 
     /// Union of history, fastest time per region, higher country counts.
     func merged(with other: SyncPayload) -> SyncPayload {
@@ -896,11 +927,13 @@ struct SyncPayload: Codable, Equatable {
                 countries[name] = remote
             }
         }
+        let stamp = max(clearedAt ?? 0, other.clearedAt ?? 0)
         return SyncPayload(
             quizzes: quizzesById.values.sorted { $0.date > $1.date },
             speedruns: runsById.values.sorted { $0.date > $1.date },
             speedrunBests: bests,
-            countries: countries
+            countries: countries,
+            clearedAt: stamp > 0 ? stamp : nil
         )
     }
 }

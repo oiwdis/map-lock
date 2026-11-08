@@ -46,7 +46,14 @@ final class AccountModel: ObservableObject {
     @Published private(set) var syncing = false
     @Published private(set) var lastSyncedAt: Date?
     @Published private(set) var signInKind: AccountSignInKind?
-    @Published var message: String?
+    @Published var message: String? {
+        didSet { armMessageDismissal() }
+    }
+    private var messageDismiss: Task<Void, Never>?
+    /// Set when a page change and a new note happen together, so the note is not cleared.
+    private var keepStatusNote = false
+    private var statsEpoch = 0
+    private static let statsResetKey = "maplock.statsResetPending"
     @Published var lastRace: RaceTicket?
     @Published private(set) var raceNotice: ChallengeEnd?
 
@@ -290,6 +297,16 @@ final class AccountModel: ObservableObject {
         }
     }
 
+    /// The next sync replaces this account's stats instead of merging the old copy back.
+    func markStatsReset() {
+        statsEpoch += 1
+        UserDefaults.standard.set(true, forKey: Self.statsResetKey)
+    }
+
+    func retainStatusNote() {
+        keepStatusNote = true
+    }
+
     /// Account was opened. Loads friends even when the session was already restored.
     func accountOpened() {
         restoreIfNeeded()
@@ -358,6 +375,7 @@ final class AccountModel: ObservableObject {
                 keepRace(ticket)
                 copyRaceLink(ticket)
                 message = "Link copied."
+                if page != .race { retainStatusNote() }
                 page = .race
                 onOpenRace(ticket, true)
             }
@@ -379,6 +397,7 @@ final class AccountModel: ObservableObject {
                 )
                 keepRace(ticket)
                 copyRaceLink(ticket)
+                if page != .race { retainStatusNote() }
                 page = .race
                 onOpenRace(ticket, true)
                 do {
@@ -397,6 +416,7 @@ final class AccountModel: ObservableObject {
         guard let token else { return }
         onInviteHandled(id)
         Task {
+            if page != .race { retainStatusNote() }
             page = .race
             onShowAccount()
             await run("This race is no longer available") {
@@ -606,11 +626,83 @@ final class AccountModel: ObservableObject {
         }
     }
 
+    func clearMessage() {
+        messageDismiss?.cancel()
+        message = nil
+    }
+
+    /// Drops a fading status line. The username prompt stays until they pick one.
+    func clearStatusNote() {
+        if keepStatusNote {
+            keepStatusNote = false
+            return
+        }
+        guard message != "Pick a username." else { return }
+        clearMessage()
+    }
+
+    /// True when the note is a problem. Success and info are not.
+    static func noteIsError(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        if lower.contains("could not") || lower.contains("couldn't") || lower.contains("failed") { return true }
+        if lower.contains("wrong") || lower.contains("don't match") || lower.contains("does not match") { return true }
+        if lower.contains("no one uses") || lower.contains("reserved") || lower.contains("taken") { return true }
+        if lower.contains("no longer available") || lower.contains("try again") { return true }
+        if lower.contains("check your connection") || lower.contains("pick at least") { return true }
+        if lower.contains("type a username") || lower.contains("those passwords") { return true }
+        let fine = ["invited ", "copied", "saved", "now friends", "request sent", "sign in was cancelled", "sign in to join"]
+        if fine.contains(where: { lower.contains($0) }) { return false }
+        return true
+    }
+
+    private func armMessageDismissal() {
+        messageDismiss?.cancel()
+        guard let text = message, !text.isEmpty, text != "Pick a username." else { return }
+        let wait: UInt64 = Self.noteIsError(text) ? 6_000_000_000 : 3_000_000_000
+        messageDismiss = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: wait)
+            guard !Task.isCancelled, self?.message == text else { return }
+            self?.message = nil
+        }
+    }
+
+    /// Replaces this account's stats document with an empty one. Friends and races stay.
+    func forgetSyncedStats() async {
+        markStatsReset()
+        var spins = 0
+        while syncing, spins < 100 {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            spins += 1
+        }
+        guard let token else { return }
+        await pushEmptyStats(token: token)
+    }
+
+    private func pushEmptyStats(token: String) async {
+        do {
+            let stamp = stats.clearedAt > 0 ? stats.clearedAt : Date().timeIntervalSince1970
+            try await AccountClient.deleteStats(clearedAt: stamp, token: token)
+            UserDefaults.standard.set(false, forKey: Self.statsResetKey)
+        } catch {
+            UserDefaults.standard.set(true, forKey: Self.statsResetKey)
+        }
+    }
+
     private func sync(token: String) async {
+        if syncing { return }
+        let epoch = statsEpoch
         syncing = true
         defer { syncing = false }
+        if UserDefaults.standard.bool(forKey: Self.statsResetKey) {
+            await pushEmptyStats(token: token)
+            if UserDefaults.standard.bool(forKey: Self.statsResetKey) { return }
+        }
+        guard epoch == statsEpoch else { return }
+        let payload = stats.exportPayload()
+        guard epoch == statsEpoch else { return }
         do {
-            let merged = try await AccountClient.pushStats(stats.exportPayload(), token: token)
+            let merged = try await AccountClient.pushStats(payload, token: token)
+            guard epoch == statsEpoch else { return }
             stats.replace(with: merged)
             lastSyncedAt = Date()
         } catch let error as APIFailure {

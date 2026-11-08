@@ -47,6 +47,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === "POST" && url.pathname === "/v1/me/username") return setUsername(request, env, user);
   if (request.method === "GET" && url.pathname === "/v1/me/stats") return getStats(env, user.id);
   if (request.method === "PUT" && url.pathname === "/v1/me/stats") return putStats(request, env, user);
+  if (request.method === "DELETE" && url.pathname === "/v1/me/stats") return deleteStats(request, env, user);
   if (request.method === "GET" && url.pathname === "/v1/friends") return listFriends(env, user.id);
   if (request.method === "POST" && url.pathname === "/v1/friends/requests") return requestFriend(request, env, user);
   if (request.method === "GET" && url.pathname === "/v1/leaderboard") return leaderboard(url, env, user.id);
@@ -290,6 +291,21 @@ async function setUsername(request: Request, env: Env, user: SessionUser): Promi
 
 async function getStats(env: Env, userId: string): Promise<Response> {
   const payload = await loadPayload(env, userId);
+  return json({ stats: payload });
+}
+
+async function deleteStats(request: Request, env: Env, user: SessionUser): Promise<Response> {
+  const raw = await readJson(request);
+  const body = (raw && typeof raw === "object") ? raw as Record<string, unknown> : {};
+  const sent = typeof body.clearedAt === "number" && Number.isFinite(body.clearedAt) && body.clearedAt > 0
+    ? body.clearedAt
+    : Date.now() / 1000;
+  const payload = emptyPayload();
+  payload.clearedAt = sent;
+  await env.DB.prepare(
+    `INSERT INTO stat_snapshots (user_id, payload, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at`,
+  ).bind(user.id, JSON.stringify(payload), Date.now()).run();
   return json({ stats: payload });
 }
 

@@ -102,6 +102,9 @@ final class RaceSession: ObservableObject {
     @Published private(set) var status = "Waiting for your friend"
     @Published private(set) var challengeEnd: ChallengeEnd?
     @Published private(set) var inviteNote: String?
+    @Published private(set) var invitedNames: Set<String> = []
+    @Published private(set) var lobbyNote: String?
+    @Published private(set) var lobbyNoteIsError = false
     @Published private(set) var opponentJoined = false
 
     var onClose: () -> Void = {}
@@ -112,6 +115,7 @@ final class RaceSession: ObservableObject {
     var onGiveUp: () -> Void = {}
     var onFinished: (String) -> Void = { _ in }
     private var waitPoll: Task<Void, Never>?
+    private var lobbyNoteTask: Task<Void, Never>?
     private var clockStart: Date?
     private var recordedTime = false
     private var notedFinish = false
@@ -121,15 +125,28 @@ final class RaceSession: ObservableObject {
 
     func invite(username: String) {
         guard isHost, phase == "waiting" else { return }
+        lobbyNote = nil
         Task {
             do {
                 try await AccountClient.inviteToRace(code: ticket.code, username: username, token: token)
-                inviteNote = "Invited \(username)."
+                invitedNames.insert(username)
             } catch let error as APIFailure {
-                status = error.message
+                showLobbyNote(error.message, error: true)
             } catch {
-                status = "Could not send the invite."
+                showLobbyNote("Could not send the invite.", error: true)
             }
+        }
+    }
+
+    private func showLobbyNote(_ text: String, error: Bool) {
+        lobbyNote = text
+        lobbyNoteIsError = error
+        lobbyNoteTask?.cancel()
+        let wait: UInt64 = error ? 6_000_000_000 : 3_000_000_000
+        lobbyNoteTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: wait)
+            guard !Task.isCancelled, self?.lobbyNote == text else { return }
+            self?.lobbyNote = nil
         }
     }
 

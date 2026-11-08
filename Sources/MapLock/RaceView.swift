@@ -85,17 +85,26 @@ struct RaceShareButton: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeNSView(context: Context) -> NSButton {
+    func makeNSView(context: Context) -> NSView {
+        let host = NSView()
         let button = NSButton(title: "Share", target: context.coordinator, action: #selector(Coordinator.share(_:)))
         button.bezelStyle = .rounded
         button.setButtonType(.momentaryPushIn)
+        button.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            button.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            button.topAnchor.constraint(equalTo: host.topAnchor),
+            button.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ])
         context.coordinator.text = text
-        return button
+        return host
     }
 
-    func updateNSView(_ button: NSButton, context: Context) {
+    func updateNSView(_ host: NSView, context: Context) {
         context.coordinator.text = text
-        button.title = "Share"
     }
 
     final class Coordinator: NSObject {
@@ -114,7 +123,9 @@ struct RaceShareButton: NSViewRepresentable {
 /// on the race window and the account race card.
 struct CopyLinkButton: View {
     let text: String
+    var title: String = "Copy"
     var height: CGFloat = 36
+    var expands = false
     @Binding var copyToken: Int
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -129,13 +140,14 @@ struct CopyLinkButton: View {
                 CopiedCheckmark(token: bounceToken, reduceMotion: reduceMotion)
                 Text("Copied!")
             } else {
-                Text("Copy")
+                Text(title)
             }
         }
         .font(Theme.font(Theme.Size.body, .semibold))
         .foregroundStyle(copied ? Theme.onTint : Color.white)
         .lineLimit(1)
-        .padding(.horizontal, Theme.Space.s5)
+        .padding(.horizontal, Theme.Space.s4)
+        .frame(maxWidth: expands ? .infinity : nil)
         .frame(height: height)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
@@ -145,7 +157,7 @@ struct CopyLinkButton: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: copied)
         .animation(reduceMotion ? nil : Theme.Motion.medium, value: hovering)
         .overlay(HitTarget(enabled: true, action: copy, hover: { hovering = $0 }))
-        .accessibilityLabel(copied ? "Copied" : "Copy link")
+        .accessibilityLabel(copied ? "Copied" : title)
         .accessibilityAddTraits(.isButton)
         .onDisappear { resetTask?.cancel() }
     }
@@ -262,14 +274,16 @@ enum PracticeFrame {
 
 struct RaceView: View {
     @ObservedObject var session: RaceSession
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var copyToken = 0
     @State private var confirmCancel = false
+    @State private var linkCopied = false
 
     var body: some View {
         ZStack {
             QuizView(session: session.quiz)
             if session.phase == "waiting" || session.phase == "countdown" || session.challengeEnd != nil {
-                Theme.background.opacity(0.94).ignoresSafeArea()
+                Theme.background.ignoresSafeArea()
                 VStack(spacing: Theme.Space.s4) {
                     if let end = session.challengeEnd {
                         Text(end.message)
@@ -298,81 +312,21 @@ struct RaceView: View {
                         Text("Get ready")
                             .font(Theme.font(Theme.Size.md, .semibold))
                     } else {
-                        Text("Waiting for your friend")
-                            .font(Theme.font(Theme.Size.lg, .semibold))
-                        Text(session.ticket.code)
-                            .font(.system(size: 40, weight: .bold, design: .monospaced))
-                            .monospacedDigit()
-                            .textSelection(.enabled)
-                            .modifier(CopyCodeHighlight(token: copyToken))
-                        Text(session.ticket.webUrl)
-                            .font(Theme.font(Theme.Size.sm))
-                            .foregroundStyle(Theme.text2)
-                            .textSelection(.enabled)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                        HStack(spacing: Theme.Space.s2) {
-                            CopyLinkButton(text: session.ticket.webUrl, height: 36, copyToken: $copyToken)
-                            RaceShareButton(text: session.ticket.webUrl)
-                                .frame(width: 96, height: 36)
-                        }
-                        if session.isHost, !session.friendNames.isEmpty {
-                            Menu {
-                                ForEach(session.friendNames, id: \.self) { name in
-                                    Button(name) { session.invite(username: name) }
-                                }
-                            } label: {
-                                Text("Invite a friend")
-                                    .font(Theme.font(Theme.Size.body, .semibold))
-                                    .foregroundStyle(Theme.accent)
-                            }
-                            .menuStyle(.borderlessButton)
-                            .fixedSize()
-                            if let note = session.inviteNote {
-                                Text(note)
-                                    .font(Theme.font(Theme.Size.sm))
-                                    .foregroundStyle(Theme.text2)
-                            }
-                        }
-                        if session.canOfferCancel {
-                            HitButton { confirmCancel = true } label: {
-                                Text("Cancel race")
-                                    .font(Theme.font(Theme.Size.body, .semibold))
-                                    .foregroundStyle(Theme.bad)
-                                    .frame(height: 32)
-                                    .padding(.horizontal, Theme.Space.s3)
-                                    .contentShape(Rectangle())
-                            }
-                            .confirmationDialog("Cancel this race?", isPresented: $confirmCancel, titleVisibility: .visible) {
-                                Button("Cancel race", role: .destructive) { session.cancelAndClose() }
-                                Button("Keep it open", role: .cancel) {}
-                            } message: {
-                                Text("The code will stop working.")
-                            }
-                        }
-                        if session.status != "Waiting for your friend" {
-                            Text(session.status)
-                                .font(Theme.font(Theme.Size.sm))
-                                .foregroundStyle(Theme.bad)
-                                .multilineTextAlignment(.center)
-                        }
+                        waitingBody
                     }
-                    Text(SpeedrunKey.title(SpeedrunKey.make(
-                        subject: QuizSubject(rawValue: session.ticket.subject) ?? .countries,
-                        style: PracticeAnswerStyle(rawValue: session.ticket.style) ?? .clickMap,
-                        place: session.scope.placeKey
-                    )))
-                    .font(Theme.font(Theme.Size.sm))
-                    .foregroundStyle(Theme.text2)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
+                    settingChips
                 }
                 .padding(Theme.Space.s6)
                 .frame(width: 440)
                 .background(
-                    RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
-                        .fill(Theme.card)
+                    RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
+                        .fill(Color(nsColor: .windowBackgroundColor))
                 )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
+                        .strokeBorder(Theme.hairline, lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.16), radius: 24, y: 10)
                 .animation(.easeOut(duration: 0.2), value: session.phase)
                 .animation(.easeOut(duration: 0.2), value: session.challengeEnd)
             }
@@ -412,6 +366,201 @@ struct RaceView: View {
             }
         }
         .foregroundStyle(Theme.text)
+        .onAppear { syncCursorPrompt() }
+        .onChange(of: session.phase) { _, _ in syncCursorPrompt() }
+        .onChange(of: session.youFinished) { _, _ in syncCursorPrompt() }
+        .onChange(of: session.challengeEnd) { _, _ in syncCursorPrompt() }
+        .onDisappear { session.quiz.hideCursorPrompt = false }
+    }
+
+    private var lobbyCoversMap: Bool {
+        session.phase != "racing" || session.youFinished || session.challengeEnd != nil
+    }
+
+    private func syncCursorPrompt() {
+        session.quiz.hideCursorPrompt = lobbyCoversMap
+    }
+
+    private var waitingBody: some View {
+        VStack(spacing: Theme.Space.s4) {
+            HStack(spacing: Theme.Space.s2) {
+                WaitingPulse(reduceMotion: reduceMotion)
+                Text("Waiting for your friend")
+                    .font(Theme.font(Theme.Size.lg, .semibold))
+                    .foregroundStyle(Theme.text)
+            }
+            Button(action: copyCode) {
+                Text(session.ticket.code)
+                    .font(.system(size: 40, weight: .bold, design: .monospaced))
+                    .tracking(3)
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.text)
+                    .modifier(CopyCodeHighlight(token: copyToken))
+            }
+            .buttonStyle(.plain)
+            .help("Copy code")
+            .accessibilityLabel("Race code \(session.ticket.code)")
+            .accessibilityHint("Copies the code")
+
+            HStack(spacing: Theme.Space.s2) {
+                Text(session.ticket.webUrl)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(Theme.text2)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Button(action: copyLink) {
+                    Image(systemName: linkCopied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(linkCopied ? Theme.good : Theme.text2)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .help(linkCopied ? "Copied" : "Copy link")
+            }
+            .padding(.leading, Theme.Space.s3)
+            .padding(.trailing, Theme.Space.s1)
+            .frame(maxWidth: .infinity, minHeight: 36)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(Theme.fill)
+            )
+
+            HStack(spacing: Theme.Space.s2) {
+                CopyLinkButton(text: session.ticket.webUrl, title: "Copy link", height: 36, expands: true, copyToken: $copyToken)
+                RaceShareButton(text: session.ticket.webUrl)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 36)
+            }
+
+            if session.isHost, !session.friendNames.isEmpty {
+                VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                    Text("Invite a friend")
+                        .font(Theme.font(Theme.Size.xs, .semibold))
+                        .foregroundStyle(Theme.text3)
+                    ScrollView {
+                        VStack(spacing: Theme.Space.s2) {
+                            ForEach(session.friendNames, id: \.self) { name in
+                                inviteRow(name)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 160)
+                }
+            }
+            if let note = session.lobbyNote {
+                Text(note)
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(session.lobbyNoteIsError ? Theme.bad : Theme.text2)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if session.status != "Waiting for your friend" {
+                Text(session.status)
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.bad)
+                    .multilineTextAlignment(.center)
+            }
+            if session.canOfferCancel {
+                HitButton { confirmCancel = true } label: {
+                    Text("Cancel race")
+                        .font(Theme.font(Theme.Size.body, .semibold))
+                        .foregroundStyle(Theme.bad)
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                                .fill(Theme.bad.opacity(0.12))
+                        )
+                }
+                .confirmationDialog("Cancel this race?", isPresented: $confirmCancel, titleVisibility: .visible) {
+                    Button("Cancel race", role: .destructive) { session.cancelAndClose() }
+                    Button("Keep it open", role: .cancel) {}
+                } message: {
+                    Text("The code will stop working.")
+                }
+            }
+        }
+    }
+
+    private func inviteRow(_ name: String) -> some View {
+        let invited = session.invitedNames.contains(name)
+        return HStack(spacing: Theme.Space.s3) {
+            Text(String(name.prefix(1)).uppercased())
+                .font(Theme.font(Theme.Size.xs, .semibold))
+                .foregroundStyle(Color.white)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(Theme.accentFill))
+            Text(name)
+                .font(Theme.font(Theme.Size.body, .medium))
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+            Spacer(minLength: Theme.Space.s2)
+            Button(invited ? "Invited ✓" : "Invite") {
+                session.invite(username: name)
+            }
+            .buttonStyle(AppButtonStyle(kind: .ghost, height: 28))
+            .disabled(invited)
+        }
+    }
+
+    private var settingChips: some View {
+        HStack(spacing: Theme.Space.s2) {
+            settingChip(subjectChip)
+            settingChip(styleChip)
+            settingChip(placeChip)
+        }
+    }
+
+    private func settingChip(_ title: String) -> some View {
+        Text(title)
+            .font(Theme.font(Theme.Size.xs, .semibold))
+            .foregroundStyle(Theme.text2)
+            .lineLimit(1)
+            .padding(.horizontal, Theme.Space.s3)
+            .padding(.vertical, Theme.Space.s1)
+            .background(Capsule().fill(Theme.fill))
+    }
+
+    private var subjectChip: String {
+        (QuizSubject(rawValue: session.ticket.subject) ?? .countries).practiceTitle
+    }
+
+    private var styleChip: String {
+        switch PracticeAnswerStyle(rawValue: session.ticket.style) ?? .clickMap {
+        case .clickMap: return "Click map"
+        case .typeIt: return "Type"
+        case .multipleChoice: return "Multiple choice"
+        }
+    }
+
+    private var placeChip: String {
+        switch session.scope {
+        case .custom(let countries):
+            let title = CustomSets.displayTitle(countries: countries)
+            if title.hasPrefix("Custom (") {
+                let count = countries.count
+                return count == 1 ? "Custom · 1 country" : "Custom · \(count) countries"
+            }
+            return title
+        default:
+            return session.scope.title
+        }
+    }
+
+    private func copyCode() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(session.ticket.code, forType: .string)
+        copyToken += 1
+    }
+
+    private func copyLink() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(session.ticket.webUrl, forType: .string)
+        copyToken += 1
+        linkCopied = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            linkCopied = false
+        }
     }
 
     private var opponentBar: some View {
@@ -615,6 +764,26 @@ private struct RaceResultView: View {
     private func accuracy(found: Int, misses: Int) -> String {
         let percent = SpeedrunRules.accuracy(countries: found, misses: misses) * 100
         return String(format: "%.0f%%", percent)
+    }
+}
+
+private struct WaitingPulse: View {
+    var reduceMotion: Bool
+
+    var body: some View {
+        if reduceMotion {
+            Circle()
+                .fill(Theme.accent)
+                .frame(width: 8, height: 8)
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                let wave = sin(timeline.date.timeIntervalSinceReferenceDate * 3)
+                Circle()
+                    .fill(Theme.accent)
+                    .frame(width: 8, height: 8)
+                    .opacity(0.35 + 0.65 * (0.5 + 0.5 * wave))
+            }
+        }
     }
 }
 

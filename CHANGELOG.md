@@ -2,6 +2,9 @@
 
 ## 1.3.7
 
+- Reset stats is in Settings and in the Stats tab menu. It clears practice and unlock scores, the streak, the unlock round, and personal bests on this Mac and, when you are signed in, on your account. Race history and friends stay.
+- Race and friend status notes fade on their own. A success such as an invite turns green and leaves after a few seconds. Errors stay red a little longer.
+- The race waiting card is solid, with the code, an equal Copy link and Share, an inline invite list, and Cancel at the bottom. The cursor label hides while that card is up.
 - Race is its own sidebar tab for the race card and a one-tap challenge list. Friends and the leaderboard are on Account.
 - With a custom set of at least 2 countries, unlock can turn every continent off and quiz only that set. Continents you leave on are included too.
 - Home panes no longer scroll underneath the toolbar buttons. The scroll views start below that band.

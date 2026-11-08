@@ -36,3 +36,31 @@ test("merge unions history and keeps the faster best", () => {
   assert.equal(merged.countries.France.wrong, 1);
   assert.equal(merged.countries.France.box, 2);
 });
+
+test("a reset stamp drops older stats and ignores an older upload", () => {
+  const wiped = parsePayload({ clearedAt: 50 });
+  const older = parsePayload({
+    quizzes: [{ id: "q1", date: 10 }],
+    speedrunBests: { Europe: 20 },
+    countries: { France: { seen: 4, correct: 1, wrong: 3, box: 1 } },
+  });
+  const kept = mergePayload(wiped, older);
+  assert.equal(kept.clearedAt, 50);
+  assert.deepEqual(kept.quizzes, []);
+  assert.deepEqual(kept.speedrunBests, {});
+
+  const again = parsePayload({
+    clearedAt: 50,
+    quizzes: [{ id: "q3", date: 60 }],
+    speedrunBests: { Europe: 12 },
+  });
+  const after = mergePayload(wiped, again);
+  assert.deepEqual(after.quizzes.map((item) => item.id), ["q3"]);
+  assert.equal(after.speedrunBests["countries|click|Europe"], 12);
+
+  const newerWipe = parsePayload({ clearedAt: 80 });
+  const replaced = mergePayload(after, newerWipe);
+  assert.equal(replaced.clearedAt, 80);
+  assert.deepEqual(replaced.quizzes, []);
+  assert.deepEqual(replaced.speedrunBests, {});
+});

@@ -245,6 +245,13 @@ enum AccountClient {
                                method: "GET", token: token, json: nil)
     }
 
+    /// Replaces this account's saved stats with an empty document. Other people are left alone.
+    static func deleteStats(clearedAt: Double, token: String) async throws {
+        struct Body: Codable { var clearedAt: Double }
+        try await sendEmpty(path: "/v1/me/stats", method: "DELETE", token: token,
+                             json: try encode(Body(clearedAt: clearedAt)))
+    }
+
     static func pushStats(_ payload: SyncPayload, token: String) async throws -> SyncPayload {
         struct Box: Codable { var stats: SyncPayload }
         return try await send(Box.self, path: "/v1/me/stats", method: "PUT", token: token,

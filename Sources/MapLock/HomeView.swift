@@ -217,6 +217,13 @@ final class HomeModel: ObservableObject {
     }
 
     /// Reads everything again from the stores (for example after a menu change or a quiz).
+    func resetPracticeStats() {
+        stats.reset()
+        deck.reset()
+        onChange()
+        refreshNumbers()
+    }
+
     func reload() {
         loading = true
         mode = settings.mode
@@ -595,11 +602,19 @@ struct HomeView: View {
         case .race:
             AccountPane(account: account, home: model, showsRace: true)
         case .stats:
-            StatsPane(model: model)
+            StatsPane(model: model, onResetStats: {
+                account.markStatsReset()
+                model.resetPracticeStats()
+                Task { await account.forgetSyncedStats() }
+            })
         case .account:
             AccountPane(account: account, home: model)
         case .settings:
-            SettingsPane(model: model)
+            SettingsPane(model: model, onResetStats: {
+                account.markStatsReset()
+                model.resetPracticeStats()
+                Task { await account.forgetSyncedStats() }
+            })
         }
     }
 }
@@ -895,6 +910,8 @@ private struct PracticePlaceCard: View {
 
 private struct StatsPane: View {
     @ObservedObject var model: HomeModel
+    var onResetStats: () -> Void = {}
+    @State private var confirmReset = false
 
     private var snap: StatsSnapshot { model.statsSnapshot }
 
@@ -925,7 +942,20 @@ private struct StatsPane: View {
                                           bottom: Theme.Space.s3, trailing: Theme.Space.s3))
                 .listRowBackground(Color.clear)
             } header: {
-                Text("Overview")
+                HStack {
+                    Text("Overview")
+                    Spacer()
+                    Menu {
+                        Button("Reset stats…", role: .destructive) { confirmReset = true }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Theme.text2)
+                    }
+                    .menuIndicator(.hidden)
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
             } footer: {
                 Text("Practice and unlock quizzes both count here. Saved on this Mac only.")
             }
@@ -1081,6 +1111,16 @@ private struct StatsPane: View {
             }
         }
         .formStyle(.grouped)
+        .confirmationDialog(
+            "Reset stats?",
+            isPresented: $confirmReset,
+            titleVisibility: .visible
+        ) {
+            Button("Reset stats", role: .destructive) { onResetStats() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This wipes practice and unlock scores, the daily streak, the current unlock round, and speedrun personal bests on this Mac. A signed-in account loses that copy too, so it does not come back on the next sync. Race history and friends stay.")
+        }
     }
 
     @ViewBuilder
@@ -1281,7 +1321,9 @@ private struct StatTile: View {
 
 private struct SettingsPane: View {
     @ObservedObject var model: HomeModel
+    var onResetStats: () -> Void = {}
     @State private var editingCustom = false
+    @State private var confirmReset = false
 
     var body: some View {
         Form {
@@ -1398,6 +1440,14 @@ private struct SettingsPane: View {
             }
 
             Section {
+                Button("Reset stats…", role: .destructive) { confirmReset = true }
+            } header: {
+                Text("Stats")
+            } footer: {
+                Text("Clears practice and unlock scores and personal bests. Races and friends are kept.")
+            }
+
+            Section {
                 Toggle("Answer sounds", isOn: $model.answerSounds)
                 Toggle("Friend request notifications", isOn: $model.friendRequestNotifications)
                 Toggle("Show prompt next to cursor", isOn: $model.cursorPrompt)
@@ -1418,6 +1468,16 @@ private struct SettingsPane: View {
         }
         .formStyle(.grouped)
         .toggleStyle(.switch)
+        .confirmationDialog(
+            "Reset stats?",
+            isPresented: $confirmReset,
+            titleVisibility: .visible
+        ) {
+            Button("Reset stats", role: .destructive) { onResetStats() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This wipes practice and unlock scores, the daily streak, the current unlock round, and speedrun personal bests on this Mac. A signed-in account loses that copy too, so it does not come back on the next sync. Race history and friends stay.")
+        }
     }
 
 }

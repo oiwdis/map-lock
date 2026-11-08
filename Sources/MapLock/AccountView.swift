@@ -50,8 +50,15 @@ struct AccountPane: View {
                 account.refreshClipboardOffer()
             }
         }
-        .onDisappear { account.setFriendsVisible(false) }
+        .onDisappear {
+            account.setFriendsVisible(false)
+            account.clearStatusNote()
+        }
+        .onChange(of: home.homeTab) { _, _ in
+            account.clearStatusNote()
+        }
         .onChange(of: account.page) { _, page in
+            account.clearStatusNote()
             if !showsRace {
                 account.setFriendsVisible(account.isSignedIn && !account.needsUsername && page == .friends)
             }
@@ -247,7 +254,7 @@ struct AccountPane: View {
             if let notice = bannerNotice, account.page != .race {
                 Text(notice)
                     .font(Theme.font(Theme.Size.sm))
-                    .foregroundStyle(noticeIsGood(notice) ? Theme.good : Theme.bad)
+                    .foregroundStyle(noticeColor(notice))
                     .fixedSize(horizontal: false, vertical: true)
             }
             switch account.page {
@@ -306,7 +313,7 @@ struct AccountPane: View {
             if let notice = bannerNotice, !isFriendNotice(notice) {
                 Text(notice)
                     .font(Theme.font(Theme.Size.sm))
-                    .foregroundStyle(noticeIsGood(notice) ? Theme.good : Theme.bad)
+                    .foregroundStyle(noticeColor(notice))
                     .fixedSize(horizontal: false, vertical: true)
             }
             racePage
@@ -366,9 +373,14 @@ struct AccountPane: View {
         return lower.contains("request") || lower.contains("username") || lower.contains("friend") || lower.contains("that's you")
     }
 
-    private func noticeIsGood(_ text: String) -> Bool {
+    private func noticeColor(_ text: String) -> Color {
+        if AccountModel.noteIsError(text) { return Theme.bad }
         let lower = text.lowercased()
-        return lower.contains("copied") || lower.contains("request sent") || lower.contains("now friends")
+        if lower.contains("invited") || lower.contains("copied") || lower.contains("saved")
+            || lower.contains("now friends") || lower.contains("request sent") {
+            return Theme.good
+        }
+        return Theme.text2
     }
 
     private var profileHeader: some View {
@@ -945,7 +957,7 @@ struct AccountPane: View {
             if let message = account.message, isFriendNotice(message) {
                 Text(message)
                     .font(Theme.font(Theme.Size.sm))
-                    .foregroundStyle(noticeIsGood(message) ? Theme.good : Theme.bad)
+                    .foregroundStyle(noticeColor(message))
                     .fixedSize(horizontal: false, vertical: true)
             }
 

@@ -69,6 +69,8 @@ final class QuizSession: ObservableObject {
     let speedrunStyle: PracticeAnswerStyle
     /// When false, a race countdown is up and answers are ignored.
     @Published var speedrunAcceptsInput = true
+    /// Lobby cards cover the map, so the cursor pill stays hidden until the race starts.
+    @Published var hideCursorPrompt = false
     var onSpeedrunProgress: ((Int, Int, Int, Int, Bool) -> Void)?
     @Published private(set) var speedrunClockStart: Date?
     @Published private(set) var speedrunFrozenAt: Date?

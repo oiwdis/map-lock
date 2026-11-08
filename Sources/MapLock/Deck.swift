@@ -43,6 +43,12 @@ final class DeckStore {
         }
     }
 
+    /// Starts the unlock round over. Called when stats are reset.
+    func reset() {
+        state = State()
+        save()
+    }
+
     /// Makes the deck match the countries that can be asked right now.
     func sync(pool: [String]) {
         let poolSet = Set(pool)
