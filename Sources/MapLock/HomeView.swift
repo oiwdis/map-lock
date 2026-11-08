@@ -1317,6 +1317,24 @@ private struct StatTile: View {
     }
 }
 
+/// A grouped-form action. Plain text on the row, same insets and hover as the toggles beside it.
+private struct SettingsRowButton: View {
+    var title: String
+    var destructive = false
+    var action: () -> Void
+
+    var body: some View {
+        Button(role: destructive ? .destructive : nil, action: action) {
+            Text(title)
+                .foregroundStyle(destructive ? Theme.bad : Theme.accent)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 // MARK: Settings (grouped Form, Apple HIG)
 
 private struct SettingsPane: View {
@@ -1349,7 +1367,7 @@ private struct SettingsPane: View {
                             .help("Remove this time")
                         }
                     }
-                    Button("Add a time") { model.addTime() }
+                    SettingsRowButton(title: "Add a time") { model.addTime() }
                 }
                 if model.scheduleKind == .random {
                     DatePicker("From", selection: $model.randomStart, displayedComponents: .hourAndMinute)
@@ -1440,7 +1458,7 @@ private struct SettingsPane: View {
             }
 
             Section {
-                Button("Reset stats…", role: .destructive) { confirmReset = true }
+                SettingsRowButton(title: "Reset stats…", destructive: true) { confirmReset = true }
             } header: {
                 Text("Stats")
             } footer: {
@@ -1457,9 +1475,9 @@ private struct SettingsPane: View {
                     Text(message).foregroundStyle(Theme.warn)
                 }
                 if model.needsApproval {
-                    Button("Open Login Items...") { model.openLoginItems() }
+                    SettingsRowButton(title: "Open Login Items...") { model.openLoginItems() }
                 }
-                Button("Hide Map Lock") { NSApp.terminate(nil) }
+                SettingsRowButton(title: "Hide Map Lock") { NSApp.terminate(nil) }
             } header: {
                 Text("General")
             } footer: {

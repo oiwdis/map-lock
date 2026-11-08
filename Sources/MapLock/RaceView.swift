@@ -86,25 +86,31 @@ struct RaceShareButton: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSView {
-        let host = NSView()
-        let button = NSButton(title: "Share", target: context.coordinator, action: #selector(Coordinator.share(_:)))
-        button.bezelStyle = .rounded
-        button.setButtonType(.momentaryPushIn)
-        button.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        host.addSubview(button)
-        NSLayoutConstraint.activate([
-            button.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            button.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-            button.topAnchor.constraint(equalTo: host.topAnchor),
-            button.bottomAnchor.constraint(equalTo: host.bottomAnchor),
-        ])
+        let host = ShareHost()
+        host.button.target = context.coordinator
+        host.button.action = #selector(Coordinator.share(_:))
+        host.button.attributedTitle = Self.shareTitle()
         context.coordinator.text = text
         return host
     }
 
     func updateNSView(_ host: NSView, context: Context) {
         context.coordinator.text = text
+        guard let host = host as? ShareHost else { return }
+        host.button.attributedTitle = Self.shareTitle()
+    }
+
+    /// Accent label, no system bezel. Follows light and dark.
+    fileprivate static func shareTitle() -> NSAttributedString {
+        let color = NSColor(name: nil, dynamicProvider: { appearance in
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let rgba = Palette.accent.value(dark: dark)
+            return NSColor(srgbRed: rgba.r, green: rgba.g, blue: rgba.b, alpha: 1)
+        })
+        return NSAttributedString(string: "Share", attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+            .foregroundColor: color,
+        ])
     }
 
     final class Coordinator: NSObject {
@@ -116,6 +122,53 @@ struct RaceShareButton: NSViewRepresentable {
             self.picker = picker
             picker.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
         }
+    }
+}
+
+/// Accent "Share" label. No system bezel; a light wash on hover.
+private final class ShareHost: NSView {
+    let button = NSButton(title: "Share", target: nil, action: nil)
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        button.isBordered = false
+        button.setButtonType(.momentaryPushIn)
+        button.wantsLayer = true
+        button.layer?.cornerRadius = 6
+        button.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(button)
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: leadingAnchor),
+            button.trailingAnchor.constraint(equalTo: trailingAnchor),
+            button.topAnchor.constraint(equalTo: topAnchor),
+            button.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        button.attributedTitle = RaceShareButton.shareTitle()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        let rgba = Palette.accent.value(dark: effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+        button.layer?.backgroundColor = NSColor(srgbRed: rgba.r, green: rgba.g, blue: rgba.b, alpha: 0.12).cgColor
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        button.layer?.backgroundColor = nil
     }
 }
 
