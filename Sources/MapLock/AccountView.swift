@@ -39,16 +39,22 @@ struct AccountPane: View {
             }
         }
         .onAppear {
+            if !showsRace, account.page == .race { account.page = .friends }
             if !account.isSignedIn { focus = .username }
             Task { @MainActor in
                 account.accountOpened()
+                if showsRace {
+                    account.setFriendsVisible(false)
+                }
                 account.seedRaceOptions(subject: home.practiceSubject, style: home.practiceAnswerStyle)
                 account.refreshClipboardOffer()
             }
         }
         .onDisappear { account.setFriendsVisible(false) }
         .onChange(of: account.page) { _, page in
-            account.setFriendsVisible(account.isSignedIn && !account.needsUsername && page == .friends)
+            if !showsRace {
+                account.setFriendsVisible(account.isSignedIn && !account.needsUsername && page == .friends)
+            }
         }
         .onChange(of: account.isSignedIn) { _, signedIn in
             if !signedIn { focus = .username }
@@ -222,6 +228,32 @@ struct AccountPane: View {
             if account.justJoined {
                 welcomeCard
             }
+            if account.isSignedIn && !account.needsUsername {
+                accountSections
+            }
+        }
+    }
+
+    private var accountSections: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s4) {
+            SegmentedChoice(
+                selection: $account.page,
+                choices: [
+                    SegmentChoice(value: AccountPage.friends, title: AccountPage.friends.title,
+                                  badge: account.incomingFriendCount, badgeNoun: "friend requests"),
+                    SegmentChoice(value: AccountPage.board, title: AccountPage.board.title),
+                ]
+            )
+            if let notice = bannerNotice, account.page != .race {
+                Text(notice)
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(noticeIsGood(notice) ? Theme.good : Theme.bad)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            switch account.page {
+            case .board: boardPage
+            case .friends, .race: friendsPage
+            }
         }
     }
 
@@ -271,38 +303,55 @@ struct AccountPane: View {
 
     private var raceSignedIn: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s4) {
-            if !account.friends.incoming.isEmpty && account.page != .friends {
-                HitButton { account.page = .friends } label: {
-                    Text("You have a friend request")
-                        .font(Theme.font(Theme.Size.sm, .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(minHeight: 28)
-                }
-            }
-            SegmentedChoice(
-                selection: $account.page,
-                choices: AccountPage.allCases.map {
-                    SegmentChoice(
-                        value: $0,
-                        title: $0.title,
-                        badge: $0 == .friends ? account.incomingFriendCount : ($0 == .race ? account.raceInvites.count : 0),
-                        badgeNoun: $0 == .race ? "race invites" : "friend requests"
-                    )
-                }
-            )
-            if let notice = bannerNotice {
+            if let notice = bannerNotice, !isFriendNotice(notice) {
                 Text(notice)
                     .font(Theme.font(Theme.Size.sm))
                     .foregroundStyle(noticeIsGood(notice) ? Theme.good : Theme.bad)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            switch account.page {
-            case .race: racePage
-            case .board: boardPage
-            case .friends: friendsPage
+            racePage
+            challengeFriends
+        }
+    }
+
+    private var challengeFriends: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s3) {
+            HStack(spacing: Theme.Space.s2) {
+                Text("Challenge a friend")
+                    .font(Theme.font(Theme.Size.body, .semibold))
+                    .foregroundStyle(Theme.text)
+                Spacer()
+                Button("Friends") {
+                    account.page = .friends
+                    home.homeTab = .account
+                }
+                .buttonStyle(.plain)
+                .font(Theme.font(Theme.Size.sm, .semibold))
+                .foregroundStyle(Theme.accent)
+            }
+            if account.friends.friends.isEmpty {
+                Text("Add friends in Account, then challenge them here.")
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.text2)
+            } else {
+                ForEach(account.friends.friends) { item in
+                    HStack(spacing: Theme.Space.s3) {
+                        AccountAvatar(name: item.username ?? "?", size: 32)
+                        Text(item.username ?? "Player")
+                            .font(Theme.font(Theme.Size.body, .medium))
+                            .foregroundStyle(Theme.text)
+                            .lineLimit(1)
+                        Spacer(minLength: Theme.Space.s2)
+                        Button("Challenge") { account.challenge(item) }
+                            .buttonStyle(AppButtonStyle(kind: .primary, height: 32))
+                            .disabled(account.busy || (account.raceRegion == .custom && CustomSets.countries().count < 2))
+                    }
+                }
             }
         }
+        .padding(Theme.Space.s4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accountCardChrome()
     }
 
     private var bannerNotice: String? {
@@ -407,11 +456,9 @@ struct AccountPane: View {
                 Button("Add a friend") {
                     account.page = .friends
                     account.dismissWelcome()
-                    home.homeTab = .race
                 }
                 .buttonStyle(AppButtonStyle(kind: .primary, height: 32))
                 Button("Race someone") {
-                    account.page = .race
                     account.dismissWelcome()
                     home.homeTab = .race
                 }

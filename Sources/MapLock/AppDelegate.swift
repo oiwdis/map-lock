@@ -578,7 +578,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func showFriendsTab(_ page: AccountPage) {
         account?.page = page
-        home?.model.homeTab = .race
+        home?.model.homeTab = page == .friends ? .account : .race
         guard !overlay.isShowing else { return }
         if NSApp.isHidden { NSApp.unhide(nil) }
         NSApp.activate(ignoringOtherApps: true)

@@ -546,8 +546,11 @@ struct HomeView: View {
                             HStack(spacing: Theme.Space.s2) {
                                 Label(tab.title, systemImage: tab.symbol)
                                 Spacer(minLength: 4)
-                                if tab == .race && account.alertCount > 0 {
-                                    FriendCountBadge(count: account.alertCount, noun: "race alerts")
+                                if tab == .race && account.raceInvites.count > 0 {
+                                    FriendCountBadge(count: account.raceInvites.count, noun: "race invites")
+                                }
+                                if tab == .account && account.incomingFriendCount > 0 {
+                                    FriendCountBadge(count: account.incomingFriendCount, noun: "friend requests")
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)

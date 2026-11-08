@@ -2,7 +2,7 @@
 
 ## 1.3.7
 
-- Race is its own sidebar tab, with the race card, friends, and the leaderboard. Account keeps sign-in and profile.
+- Race is its own sidebar tab for the race card and a one-tap challenge list. Friends and the leaderboard are on Account.
 - With a custom set of at least 2 countries, unlock can turn every continent off and quiz only that set. Continents you leave on are included too.
 - Home panes no longer scroll underneath the toolbar buttons. The scroll views start below that band.
 - The custom country picker can cancel and restore the previous set. Search results only open while you type, and the continent buttons and chips are no longer cut off.
