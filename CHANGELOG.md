@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.7
+
+- The custom country picker keeps a fixed size. Search shows a flag, the continent, and a check when a country is already in the set. Chips wrap. Saved sets are a menu. Pick on map fades to the continent you choose.
+- Race challenges sit in a 320pt card at the bottom-right, with a countdown bar and equal Accept and Decline buttons. Esc or the close button declines.
+- Race waiting, declined, and results screens use the same card, type, and spacing.
+
 ## 1.3.6
 
 - Custom place: pick individual countries, or add a whole continent, and save named sets. Practice, speedrun, unlock, and races can use that list. The map fits those countries and dims the rest.

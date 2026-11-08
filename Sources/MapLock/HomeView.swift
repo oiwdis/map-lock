@@ -597,6 +597,11 @@ private struct PracticePane: View {
                 .buttonStyle(AppButtonStyle(kind: .primary, height: 40, fullWidth: true))
                 .padding(.top, Theme.Space.s1)
                 .disabled(!model.canStartPractice || model.customRevision < 0)
+                if model.practiceChoice == .custom, !model.canStartPractice {
+                    Text("Pick at least 2 countries.")
+                        .font(Theme.font(Theme.Size.xs))
+                        .foregroundStyle(Theme.text3)
+                }
 
                 Text("Practice never locks the screen. Quiz me now (toolbar) uses Unlock quiz in Settings.")
                     .font(Theme.font(Theme.Size.xs))

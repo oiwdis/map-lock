@@ -487,6 +487,11 @@ struct AccountPane: View {
                     home.customRevision += 1
                 }
             }
+            if account.raceRegion == .custom, CustomSets.countries().count < 2 {
+                Text("Pick at least 2 countries.")
+                    .font(Theme.font(Theme.Size.xs))
+                    .foregroundStyle(Theme.text3)
+            }
 
             if let race = account.lastRace {
                 raceLobby(race)

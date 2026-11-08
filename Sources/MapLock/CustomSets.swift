@@ -86,20 +86,29 @@ struct CustomSetEditor: View {
     @State private var editingId: UUID?
     @State private var pickMode: CustomPickMode = .type
     @State private var mapFocus: CustomMapFocus = .world
-    @State private var hoveredCountry: String?
+    @State private var highlight = 0
+    @State private var saving = false
+    @State private var savingAsNew = false
+    @State private var renaming = false
+    @State private var confirmDelete = false
+    @State private var keyMonitor: Any?
+    @State private var keys = PickerKeys()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s3) {
-            HStack {
-                Text("Custom set")
-                    .font(Theme.font(Theme.Size.lg, .bold))
+        VStack(alignment: .leading, spacing: Theme.Space.s4) {
+            HStack(spacing: Theme.Space.s3) {
+                VStack(alignment: .leading, spacing: Theme.Space.s1) {
+                    Text("Custom set")
+                        .font(Theme.font(Theme.Size.lg, .bold))
+                    Text(countLine)
+                        .font(Theme.font(Theme.Size.sm))
+                        .foregroundStyle(Theme.text2)
+                }
                 Spacer()
+                savedMenu
                 Button("Done") { finish() }
                     .buttonStyle(AppButtonStyle(kind: .primary, height: 32))
             }
-            Text("\(countries.count) countries. At least 2 to start.")
-                .font(Theme.font(Theme.Size.sm))
-                .foregroundStyle(Theme.text2)
 
             SegmentedChoice(
                 selection: $pickMode,
@@ -109,79 +118,170 @@ struct CustomSetEditor: View {
                 ]
             )
 
-            if pickMode == .type {
-                typePicker
-            } else {
-                mapPicker
-            }
-
-            selectedChips
-
-            Divider()
-            Text("Saved sets")
-                .font(Theme.font(Theme.Size.sm, .semibold))
-                .foregroundStyle(Theme.text3)
-            HStack(spacing: Theme.Space.s2) {
-                TextField("Name, such as Middle East", text: $draftName)
-                    .textFieldStyle(.roundedBorder)
-                Button("Save") { saveNamed() }
-                    .buttonStyle(AppButtonStyle(kind: .primary, height: 32))
-                    .disabled(countries.count < 2 || draftName.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            ForEach(named) { set in
-                HStack {
-                    Button(set.name) { load(set) }
-                        .buttonStyle(.plain)
-                        .font(Theme.font(Theme.Size.body, .medium))
-                    Spacer()
-                    Text("\(set.countries.count)")
-                        .font(Theme.font(Theme.Size.xs))
-                        .foregroundStyle(Theme.text3)
-                    Button("Delete") { delete(set) }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Theme.bad)
+            Group {
+                if pickMode == .type {
+                    typePicker
+                } else {
+                    mapPicker
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+            selectedChips
         }
-        .padding(Theme.Space.s5)
-        .frame(minWidth: 720, minHeight: pickMode == .map ? 640 : 420)
+        .padding(Theme.Space.s6)
+        .frame(width: 720, height: 680)
+        .background(PickerKeySync(keys: keys, countries: $countries, highlight: $highlight,
+                                  mode: $pickMode, query: $query, suggestions: suggestions, close: finish))
+        .onAppear { installKeys() }
+        .onDisappear { removeKeys() }
+        .onChange(of: query) { _, _ in highlight = 0 }
+        .alert("Save as…", isPresented: $saving) {
+            TextField("Name, such as Middle East", text: $draftName)
+            Button("Save") { saveNamed() }
+            Button("Cancel", role: .cancel) { savingAsNew = false }
+        } message: {
+            Text("At least 2 countries.")
+        }
+        .alert("Rename", isPresented: $renaming) {
+            TextField("Name", text: $draftName)
+            Button("Rename") { saveNamed() }
+            Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog("Delete this set?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { deleteCurrent() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(currentSet?.name ?? "This saved set")
+        }
+    }
+
+    private var countLine: String {
+        if countries.count < 2 { return "Pick at least 2 countries." }
+        return countries.count == 1 ? "1 country." : "\(countries.count) countries."
+    }
+
+    private var savedMenu: some View {
+        Menu {
+            if named.isEmpty {
+                Button("No saved sets") {}
+                    .disabled(true)
+            } else {
+                ForEach(named) { set in
+                    Button(set.name) { load(set) }
+                }
+            }
+            Divider()
+            Button("Save as…") {
+                draftName = ""
+                savingAsNew = true
+                saving = true
+            }
+            .disabled(countries.count < 2)
+            Button("Rename") { renaming = true }
+                .disabled(currentSet == nil)
+            Button("Delete") { confirmDelete = true }
+                .disabled(currentSet == nil)
+        } label: {
+            Text(currentSet?.name ?? "Saved sets")
+                .font(Theme.font(Theme.Size.sm, .semibold))
+                .lineLimit(1)
+                .frame(maxWidth: 160, alignment: .leading)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
     private var typePicker: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s3) {
             HStack(spacing: Theme.Space.s2) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Theme.text3)
                 TextField("Type a country", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { addFirst() }
-                Button("Add") { addFirst() }
-                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
-                    .disabled(suggestions.isEmpty)
+                    .textFieldStyle(.plain)
+                    .onSubmit { addHighlighted() }
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                        highlight = 0
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Theme.text3)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            if !suggestions.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(suggestions, id: \.self) { name in
-                        Button(name) { add(name) }
-                            .buttonStyle(.plain)
-                            .font(Theme.font(Theme.Size.body))
+            .padding(.horizontal, Theme.Space.s3)
+            .frame(height: 36)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous).fill(Theme.fill2))
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    if suggestions.isEmpty {
+                        Text(query.isEmpty ? "Type to search." : "No matches.")
+                            .font(Theme.font(Theme.Size.sm))
+                            .foregroundStyle(Theme.text3)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(Theme.Space.s3)
+                    } else {
+                        ForEach(Array(suggestions.enumerated()), id: \.element) { index, name in
+                            suggestionRow(name, index: index)
+                        }
                     }
                 }
             }
+            .frame(maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous).fill(Theme.fill))
+
             ScrollView(.horizontal) {
                 HStack(spacing: Theme.Space.s2) {
                     ForEach(Region.allCases, id: \.self) { region in
                         Button("Add all of \(region.title)") { addRegion(region) }
-                            .buttonStyle(AppButtonStyle(kind: .ghost, height: 28))
+                            .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
                     }
                     Button("Clear") {
                         countries = []
                         CustomSets.saveCountries([])
                     }
-                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 28))
+                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
                     .disabled(countries.isEmpty)
                 }
             }
         }
+    }
+
+    private func suggestionRow(_ name: String, index: Int) -> some View {
+        let added = countries.contains(name)
+        let active = index == highlight
+        return Button {
+            highlight = index
+            if !added { add(name) }
+        } label: {
+            HStack(spacing: Theme.Space.s3) {
+                Text(CountryFacts.flagEmoji(for: name) ?? "")
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(name)
+                        .font(Theme.font(Theme.Size.body, .medium))
+                        .foregroundStyle(Theme.text)
+                    Text(continent(of: name))
+                        .font(Theme.font(Theme.Size.xs))
+                        .foregroundStyle(Theme.text3)
+                }
+                Spacer(minLength: Theme.Space.s2)
+                if added {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.accent)
+                }
+            }
+            .padding(.horizontal, Theme.Space.s3)
+            .frame(height: 40)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(active ? Theme.fill2 : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var mapPicker: some View {
@@ -198,46 +298,57 @@ struct CustomSetEditor: View {
                 world: CountryCatalog.all,
                 focus: mapFocus,
                 selected: Set(countries),
-                onToggle: toggle,
-                onHover: { hoveredCountry = $0 }
+                onToggle: toggle
             )
-            .frame(height: 300)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .id(mapFocus)
+            .transition(.opacity)
             HStack(spacing: Theme.Space.s2) {
-                Text(mapStatusLine)
-                    .font(Theme.font(Theme.Size.sm))
+                Text(countries.count == 1 ? "1 selected" : "\(countries.count) selected")
+                    .font(Theme.font(Theme.Size.sm, .medium))
                     .foregroundStyle(Theme.text2)
-                    .lineLimit(1)
-                Spacer(minLength: Theme.Space.s2)
+                    .monospacedDigit()
+                Spacer(minLength: Theme.Space.s3)
                 Button(mapFocus.selectTitle) { selectFocus() }
-                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 28))
+                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
                 Button(mapFocus.clearTitle) { clearFocus() }
-                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 28))
+                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
                     .disabled(focusSelectionCount == 0)
             }
+            .padding(.horizontal, Theme.Space.s3)
+            .frame(height: 44)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous).fill(Theme.fill))
         }
+        .animation(.easeOut(duration: 0.24), value: mapFocus)
     }
 
     private var selectedChips: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: Theme.Space.s2) {
+        ScrollView {
+            ChipFlow(spacing: Theme.Space.s2) {
                 ForEach(countries, id: \.self) { name in
-                    HStack(spacing: 4) {
+                    HStack(spacing: Theme.Space.s1) {
+                        Text(CountryFacts.flagEmoji(for: name) ?? "")
+                            .font(.system(size: 13))
                         Text(name)
                             .font(Theme.font(Theme.Size.sm))
                             .lineLimit(1)
                         Button { remove(name) } label: {
                             Image(systemName: "xmark")
                                 .font(.system(size: 9, weight: .bold))
+                                .frame(width: 16, height: 16)
                         }
                         .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, Theme.Space.s2)
+                    .padding(.vertical, Theme.Space.s1)
                     .background(Capsule().fill(Theme.fill2))
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
                 }
             }
+            .padding(1)
         }
-        .frame(minHeight: 28)
+        .frame(height: 72)
+        .animation(.easeOut(duration: 0.2), value: countries)
     }
 
     private func mapChip(_ focus: CustomMapFocus) -> some View {
@@ -255,12 +366,6 @@ struct CustomSetEditor: View {
         .buttonStyle(.plain)
     }
 
-    private var mapStatusLine: String {
-        if let hoveredCountry { return hoveredCountry }
-        let count = countries.count
-        return count == 1 ? "1 selected" : "\(count) selected"
-    }
-
     private var focusNames: Set<String> {
         let world = CountryCatalog.all
         switch mapFocus {
@@ -276,7 +381,35 @@ struct CustomSetEditor: View {
     }
 
     private var suggestions: [String] {
-        CountrySearch.suggestions(query: query, in: CountryCatalog.all, excluding: Set(countries))
+        CountrySearch.suggestions(query: query, in: CountryCatalog.all, excluding: [])
+    }
+
+    private var currentSet: NamedCustomSet? {
+        if let editingId, let set = named.first(where: { $0.id == editingId }) { return set }
+        return nil
+    }
+
+    private func continent(of name: String) -> String {
+        CountryCatalog.all.first { $0.name == name }?.region.title ?? ""
+    }
+
+    private func installKeys() {
+        guard keyMonitor == nil else { return }
+        let keys = keys
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            keys.handle(event)
+        }
+    }
+
+    private func removeKeys() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
+    }
+
+    private func addHighlighted() {
+        guard suggestions.indices.contains(highlight) else { return }
+        let name = suggestions[highlight]
+        if !countries.contains(name) { add(name) }
     }
 
     private func addFirst() {
@@ -330,9 +463,11 @@ struct CustomSetEditor: View {
 
     private func saveNamed() {
         let name = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let forceNew = savingAsNew
+        savingAsNew = false
         guard !name.isEmpty, countries.count >= 2 else { return }
         let list = countries.sorted()
-        if let id = editingId, let index = named.firstIndex(where: { $0.id == id }) {
+        if !forceNew, let id = editingId, let index = named.firstIndex(where: { $0.id == id }) {
             named[index].name = name
             named[index].countries = list
         } else if let index = named.firstIndex(where: { $0.name.compare(name, options: .caseInsensitive) == .orderedSame }) {
@@ -344,6 +479,12 @@ struct CustomSetEditor: View {
             editingId = set.id
         }
         CustomSets.saveNamed(named)
+    }
+
+    private func deleteCurrent() {
+        guard let set = currentSet else { return }
+        delete(set)
+        draftName = ""
     }
 
     private func delete(_ set: NamedCustomSet) {
@@ -425,7 +566,6 @@ struct CustomPickMap: View {
     let focus: CustomMapFocus
     let selected: Set<String>
     var onToggle: (String) -> Void
-    var onHover: (String?) -> Void
 
     @State private var zoom = MapZoomState()
     @State private var cache = ClickLayoutCache()
@@ -485,6 +625,7 @@ struct CustomPickMap: View {
                                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                                     .fill(Color.black.opacity(0.82))
                             )
+                            .fixedSize()
                             .position(tooltipPoint(pointer, in: geo.size))
                             .allowsHitTesting(false)
                     }
@@ -527,15 +668,12 @@ struct CustomPickMap: View {
     }
 
     private func setHover(_ name: String?) {
-        if hovered != name {
-            hovered = name
-            onHover(name)
-        }
+        if hovered != name { hovered = name }
     }
 
     private func tooltipPoint(_ pointer: CGPoint, in size: CGSize) -> CGPoint {
-        let x = min(max(pointer.x, 56), max(56, size.width - 56))
-        let y = min(max(pointer.y - 28, 16), max(16, size.height - 16))
+        let x = min(max(pointer.x + 64, 72), max(72, size.width - 72))
+        let y = min(max(pointer.y - 20, 16), max(16, size.height - 16))
         return CGPoint(x: x, y: y)
     }
 
@@ -563,9 +701,12 @@ struct CustomPickMap: View {
         return Canvas { context, size in
             var mapContext = context
             mapContext.beginMapZoom(zoom, size: size)
+            let inv = max(zoom.scale, 0.001)
             for target in layout.targets where names.contains(target.name) {
-                mapContext.fill(MapDrawing.makePath(target.polygons), with: .color(Theme.accentFill.opacity(0.72)),
-                                style: FillStyle(eoFill: true))
+                let path = MapDrawing.makePath(target.polygons)
+                mapContext.fill(path, with: .color(Theme.accentFill.opacity(0.72)), style: FillStyle(eoFill: true))
+                mapContext.stroke(path, with: .color(Theme.accentFill),
+                                  style: StrokeStyle(lineWidth: 1.25 / inv, lineJoin: .round))
             }
         }
         .allowsHitTesting(false)
@@ -603,5 +744,116 @@ struct CustomPickMap: View {
             }
         }
         .allowsHitTesting(false)
+    }
+}
+
+/// Holds the latest picker bindings so a key monitor can add a country or close the sheet.
+final class PickerKeys {
+    var countries: Binding<[String]> = .constant([])
+    var highlight: Binding<Int> = .constant(0)
+    var mode: Binding<CustomPickMode> = .constant(.type)
+    var query: Binding<String> = .constant("")
+    var suggestions: [String] = []
+    var close: () -> Void = {}
+
+    func handle(_ event: NSEvent) -> NSEvent? {
+        let code = event.keyCode
+        if code == 53 {
+            close()
+            return nil
+        }
+        guard mode.wrappedValue == .type else { return event }
+        let count = suggestions.count
+        if code == 125 {
+            highlight.wrappedValue = count == 0 ? 0 : min(highlight.wrappedValue + 1, count - 1)
+            return nil
+        }
+        if code == 126 {
+            highlight.wrappedValue = max(highlight.wrappedValue - 1, 0)
+            return nil
+        }
+        if code == 36 || code == 76 {
+            addHighlighted()
+            return nil
+        }
+        return event
+    }
+
+    private func addHighlighted() {
+        let index = highlight.wrappedValue
+        guard suggestions.indices.contains(index) else { return }
+        let name = suggestions[index]
+        var list = countries.wrappedValue
+        guard !list.contains(name) else { return }
+        list.append(name)
+        list.sort()
+        countries.wrappedValue = list
+        query.wrappedValue = ""
+        CustomSets.saveCountries(list)
+    }
+}
+
+private struct PickerKeySync: View {
+    let keys: PickerKeys
+    var countries: Binding<[String]>
+    var highlight: Binding<Int>
+    var mode: Binding<CustomPickMode>
+    var query: Binding<String>
+    var suggestions: [String]
+    var close: () -> Void
+
+    var body: some View {
+        let _ = apply()
+        Color.clear.frame(width: 0, height: 0)
+    }
+
+    private func apply() {
+        keys.countries = countries
+        keys.highlight = highlight
+        keys.mode = mode
+        keys.query = query
+        keys.suggestions = suggestions
+        keys.close = close
+    }
+}
+
+/// Wraps chips onto new lines inside a fixed width.
+struct ChipFlow: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 640
+        let rows = rows(width: width, subviews: subviews)
+        let height = rows.last.map { $0.y + $0.height } ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for row in rows(width: bounds.width, subviews: subviews) {
+            guard subviews.indices.contains(row.index) else { continue }
+            subviews[row.index].place(
+                at: CGPoint(x: bounds.minX + row.x, y: bounds.minY + row.y),
+                proposal: ProposedViewSize(width: row.width, height: row.height)
+            )
+        }
+    }
+
+    private func rows(width: CGFloat, subviews: Subviews) -> [(index: Int, x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat)] {
+        var placed: [(index: Int, x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat)] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            placed.append((index, x, y, size.width, size.height))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return placed
     }
 }

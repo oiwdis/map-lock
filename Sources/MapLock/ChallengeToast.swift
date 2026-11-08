@@ -76,7 +76,30 @@ final class ChallengeToastController: ObservableObject {
         handled = handled.intersection(nextIds.union(Set(flashes)))
         previous = visible
         invites = visible
+        updateEsc()
         reposition()
+    }
+
+    private var escMonitor: Any?
+
+    private func updateEsc() {
+        if invites.isEmpty {
+            if let escMonitor { NSEvent.removeMonitor(escMonitor) }
+            escMonitor = nil
+            return
+        }
+        guard escMonitor == nil else { return }
+        escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 53 else { return event }
+            if NSApp.keyWindow?.isSheet == true { return event }
+            if let responder = NSApp.keyWindow?.firstResponder, responder is NSTextView { return event }
+            let taken = MainActor.assumeIsolated { () -> Bool in
+                guard let invite = self.invites.first else { return false }
+                self.decline(invite)
+                return true
+            }
+            return taken ? nil : event
+        }
     }
 
     private func ensurePanel() {
@@ -145,7 +168,10 @@ final class ChallengeToastController: ObservableObject {
         let width = max(fit.width, 300)
         let height = max(fit.height, 40)
         let frame = parent.frame
-        let origin = NSPoint(x: frame.maxX - width - 16, y: frame.minY + 16)
+        let margin: CGFloat = 24
+        var y = frame.minY + margin
+        if y + height > frame.maxY - 8 { y = max(frame.minY + 8, frame.maxY - height - 8) }
+        let origin = NSPoint(x: frame.maxX - width - margin, y: y)
         panel.setFrame(NSRect(x: origin.x, y: origin.y, width: width, height: height), display: true)
     }
 
@@ -183,14 +209,14 @@ private struct ChallengeToastColumn: View {
     @ObservedObject var model: ChallengeToastController
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: Theme.Space.s2) {
+        VStack(alignment: .trailing, spacing: Theme.Space.s3) {
             ForEach(model.flashes, id: \.self) { _ in
                 Text("Challenge cancelled")
                     .font(Theme.font(Theme.Size.sm, .semibold))
                     .foregroundStyle(Theme.text)
-                    .padding(.horizontal, Theme.Space.s4)
-                    .padding(.vertical, Theme.Space.s3)
-                    .background(cardBackground)
+                    .frame(width: 320, alignment: .leading)
+                    .padding(Theme.Space.s4)
+                    .background(toastPlate)
             }
             ForEach(Array(model.invites.reversed())) { invite in
                 ChallengeCard(invite: invite) {
@@ -202,15 +228,14 @@ private struct ChallengeToastColumn: View {
                 }
             }
         }
-        .padding(12)
-        .frame(width: 360)
+        .padding(Theme.Space.s2)
         .fixedSize(horizontal: true, vertical: true)
     }
 
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(Theme.card)
-            .shadow(color: Theme.shadow, radius: 16, y: 8)
+    private var toastPlate: some View {
+        RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+            .fill(.regularMaterial)
+            .shadow(color: Color.black.opacity(0.16), radius: 18, y: 8)
     }
 }
 
@@ -225,22 +250,13 @@ private struct ChallengeCard: View {
         TimelineView(.periodic(from: .now, by: 0.5)) { context in
             let left = RaceInviteClock.fractionLeft(invite.createdAt, now: context.date)
             VStack(alignment: .leading, spacing: Theme.Space.s3) {
-                HStack(alignment: .center, spacing: Theme.Space.s3) {
-                    ZStack {
-                        Circle()
-                            .stroke(Theme.fill3, lineWidth: 3)
-                        Circle()
-                            .trim(from: 0, to: left)
-                            .stroke(Theme.good, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                        Text(initials(invite.fromUsername))
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.white)
-                            .frame(width: 36, height: 36)
-                            .background(Circle().fill(Theme.accentFill))
-                    }
-                    .frame(width: 44, height: 44)
-                    VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .top, spacing: Theme.Space.s3) {
+                    Text(initials(invite.fromUsername))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.white)
+                        .frame(width: 36, height: 36)
+                        .background(Circle().fill(Theme.accentFill))
+                    VStack(alignment: .leading, spacing: Theme.Space.s1) {
                         Text(invite.fromUsername)
                             .font(Theme.font(Theme.Size.body, .semibold))
                             .foregroundStyle(Theme.text)
@@ -248,42 +264,47 @@ private struct ChallengeCard: View {
                         Text("challenged you to a race")
                             .font(Theme.font(Theme.Size.sm))
                             .foregroundStyle(Theme.text2)
+                            .lineLimit(1)
                         Text(invite.challengeLine)
                             .font(Theme.font(Theme.Size.sm, .medium))
                             .foregroundStyle(Theme.text)
-                            .lineLimit(2)
+                            .lineLimit(1)
                     }
-                    Spacer(minLength: 0)
-                }
-                HStack(spacing: Theme.Space.s2) {
-                    Button(action: onAccept) {
-                        Text("Accept")
-                            .font(Theme.font(Theme.Size.body, .semibold))
-                            .foregroundStyle(Color.white)
-                            .frame(maxWidth: .infinity, minHeight: 36)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color(red: 0.204, green: 0.780, blue: 0.349))
-                            )
-                    }
-                    .buttonStyle(.plain)
+                    Spacer(minLength: Theme.Space.s2)
                     Button(action: onDecline) {
-                        Text("Decline")
-                            .font(Theme.font(Theme.Size.body, .semibold))
-                            .foregroundStyle(Theme.text)
-                            .frame(maxWidth: .infinity, minHeight: 36)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Theme.fill2)
-                            )
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Theme.text3)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .help("Decline")
+                }
+                Capsule()
+                    .fill(Theme.fill3)
+                    .frame(height: 4)
+                    .overlay(alignment: .leading) {
+                        GeometryReader { geo in
+                            Capsule()
+                                .fill(Theme.accent)
+                                .frame(width: max(4, geo.size.width * left))
+                        }
+                    }
+                HStack(spacing: Theme.Space.s2) {
+                    ToastAction(title: "Accept", prominent: true, action: onAccept)
+                    ToastAction(title: "Decline", prominent: false, action: onDecline)
                 }
             }
             .padding(Theme.Space.s4)
-            .background(cardBackground)
+            .frame(width: 320)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                    .fill(.regularMaterial)
+                    .shadow(color: Color.black.opacity(0.16), radius: 18, y: 8)
+            )
             .opacity(arrived ? 1 : 0)
-            .offset(y: arrived ? 0 : 28)
+            .offset(x: arrived ? 0 : 16, y: arrived ? 0 : 20)
             .onAppear {
                 withAnimation(.easeOut(duration: 0.28)) { arrived = true }
             }
@@ -297,12 +318,6 @@ private struct ChallengeCard: View {
         }
     }
 
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(Theme.card)
-            .shadow(color: Theme.shadow, radius: 16, y: 8)
-    }
-
     private func initials(_ name: String) -> String {
         let parts = name.split { $0 == "_" || $0 == " " || $0 == "-" }.filter { !$0.isEmpty }
         if parts.count >= 2 {
@@ -311,5 +326,34 @@ private struct ChallengeCard: View {
         let letters = name.filter(\.isLetter)
         let raw = String(letters.prefix(2)).uppercased()
         return raw.isEmpty ? "?" : raw
+    }
+}
+
+private struct ToastAction: View {
+    let title: String
+    let prominent: Bool
+    var action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(Theme.font(Theme.Size.sm, .semibold))
+                .foregroundStyle(prominent ? Color.white : Theme.text)
+                .frame(maxWidth: .infinity, minHeight: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
+                        .fill(fill)
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+
+    private var fill: Color {
+        if prominent {
+            return hovering ? Theme.accentFillHover : Theme.accentFill
+        }
+        return hovering ? Theme.fill3 : Theme.fill2
     }
 }

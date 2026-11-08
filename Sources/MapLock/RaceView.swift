@@ -273,13 +273,16 @@ struct RaceView: View {
                 VStack(spacing: Theme.Space.s4) {
                     if let end = session.challengeEnd {
                         Text(end.message)
-                            .font(Theme.font(Theme.Size.lg, .semibold))
+                            .font(Theme.font(Theme.Size.xl, .bold))
+                            .foregroundStyle(Theme.text)
                             .multilineTextAlignment(.center)
-                        HStack(spacing: Theme.Space.s3) {
+                            .frame(maxWidth: .infinity)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: Theme.Space.s2) {
                             Button("Challenge again") { session.challengeAgain() }
-                                .buttonStyle(AppButtonStyle(kind: .primary, height: 40))
+                                .buttonStyle(AppButtonStyle(kind: .primary, height: 40, fullWidth: true))
                             Button("Go back") { session.giveUp() }
-                                .buttonStyle(AppButtonStyle(kind: .ghost, height: 40))
+                                .buttonStyle(AppButtonStyle(kind: .ghost, height: 40, fullWidth: true))
                         }
                         if session.status != end.message {
                             Text(session.status)
@@ -289,15 +292,17 @@ struct RaceView: View {
                         }
                     } else if session.phase == "countdown" {
                         Text(session.countdown.map(String.init) ?? "1")
-                            .font(.system(size: 96, weight: .bold, design: .rounded))
+                            .font(.system(size: 64, weight: .bold))
                             .monospacedDigit()
+                            .frame(height: 72)
                         Text("Get ready")
                             .font(Theme.font(Theme.Size.md, .semibold))
                     } else {
                         Text("Waiting for your friend")
                             .font(Theme.font(Theme.Size.lg, .semibold))
                         Text(session.ticket.code)
-                            .font(.system(size: 48, weight: .bold, design: .monospaced))
+                            .font(.system(size: 40, weight: .bold, design: .monospaced))
+                            .monospacedDigit()
                             .textSelection(.enabled)
                             .modifier(CopyCodeHighlight(token: copyToken))
                         Text(session.ticket.webUrl)
@@ -305,6 +310,7 @@ struct RaceView: View {
                             .foregroundStyle(Theme.text2)
                             .textSelection(.enabled)
                             .multilineTextAlignment(.center)
+                            .lineLimit(2)
                         HStack(spacing: Theme.Space.s2) {
                             CopyLinkButton(text: session.ticket.webUrl, height: 36, copyToken: $copyToken)
                             RaceShareButton(text: session.ticket.webUrl)
@@ -358,9 +364,17 @@ struct RaceView: View {
                     )))
                     .font(Theme.font(Theme.Size.sm))
                     .foregroundStyle(Theme.text2)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
                 }
                 .padding(Theme.Space.s6)
-                .frame(maxWidth: 520)
+                .frame(width: 440)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                        .fill(Theme.card)
+                )
+                .animation(.easeOut(duration: 0.2), value: session.phase)
+                .animation(.easeOut(duration: 0.2), value: session.challengeEnd)
             }
             if session.phase == "racing", session.youFinished {
                 Theme.background.opacity(0.94).ignoresSafeArea()
@@ -434,12 +448,11 @@ private struct FinishedWaitingView: View {
                 Text(session.decided && session.youWon == true ? "You won!" : "You finished!")
                     .font(Theme.font(Theme.Size.xl, .bold))
                     .foregroundStyle(Theme.text)
-                if let time = session.youElapsed {
-                    Text(SpeedrunClock.format(time))
-                        .font(.system(size: 56, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.text)
-                }
+                Text(session.youElapsed.map { SpeedrunClock.format($0) } ?? "–")
+                    .font(.system(size: 40, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.text)
+                    .frame(height: 48)
                 Text(session.decided && session.youWon == true
                      ? "\(session.opponentName) can still finish."
                      : "Waiting for \(session.opponentName)")
@@ -461,16 +474,20 @@ private struct FinishedWaitingView: View {
                         .tint(Theme.accent)
                 }
                 .padding(Theme.Space.s4)
-                .frame(maxWidth: 360)
+                .frame(width: 360)
                 .background(
                     RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                        .fill(Theme.card)
+                        .fill(Theme.fill)
                 )
                 Button("Leave") { session.leaveWaiting() }
                     .buttonStyle(AppButtonStyle(kind: .ghost, height: 36))
             }
             .padding(Theme.Space.s6)
-            .frame(maxWidth: 460)
+            .frame(width: 440)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                    .fill(Theme.card)
+            )
         }
     }
 }
@@ -488,24 +505,28 @@ private struct RaceResultView: View {
             }
             VStack(spacing: Theme.Space.s4) {
                 Text(headline)
-                    .font(.system(size: 34, weight: .bold))
+                    .font(Theme.font(Theme.Size.xl, .bold))
                     .foregroundStyle(Theme.text)
                     .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
                 if let margin {
                     Text(margin)
                         .font(Theme.font(Theme.Size.sm, .semibold))
                         .foregroundStyle(Theme.text2)
                 }
-                HStack(alignment: .top, spacing: Theme.Space.s4) {
+                HStack(alignment: .top, spacing: 0) {
                     playerColumn(name: "You", elapsed: session.youElapsed, raw: session.youRaw,
                                  misses: session.youMisses, skips: session.youSkips,
                                  found: session.youFound, dnf: session.youDnf, forfeited: session.youForfeited,
                                  best: session.isPersonalBest)
+                    Divider().frame(height: 180)
                     playerColumn(name: session.opponentName, elapsed: session.opponentElapsed, raw: session.opponentRaw,
                                  misses: session.opponentMisses, skips: session.opponentSkips,
                                  found: session.opponentFound, dnf: session.opponentDnf, forfeited: session.opponentForfeited,
                                  best: false)
                 }
+                .padding(.vertical, Theme.Space.s3)
+                .background(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous).fill(Theme.fill))
                 VStack(spacing: Theme.Space.s2) {
                     Button("Rematch") { session.rematch() }
                         .buttonStyle(AppButtonStyle(kind: .primary, height: 40, fullWidth: true))
@@ -559,17 +580,18 @@ private struct RaceResultView: View {
             Text(name)
                 .font(Theme.font(Theme.Size.sm, .semibold))
                 .lineLimit(1)
-            Text(forfeited ? "Forfeit" : dnf ? "DNF" : elapsed.map { SpeedrunClock.format($0) } ?? "-")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+            Text(forfeited ? "Forfeit" : dnf ? "DNF" : elapsed.map { SpeedrunClock.format($0) } ?? "–")
+                .font(.system(size: 22, weight: .bold))
                 .monospacedDigit()
-            if best {
-                Text("Personal best")
-                    .font(Theme.font(Theme.Size.xs, .bold))
-                    .foregroundStyle(Theme.good)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(Theme.good.opacity(0.15)))
-            }
+                .frame(height: 28)
+            Text("Personal best")
+                .font(Theme.font(Theme.Size.xs, .bold))
+                .foregroundStyle(Theme.good)
+                .padding(.horizontal, Theme.Space.s2)
+                .padding(.vertical, Theme.Space.s1)
+                .background(Capsule().fill(Theme.good.opacity(0.15)))
+                .opacity(best ? 1 : 0)
+                .accessibilityHidden(!best)
             VStack(alignment: .leading, spacing: 2) {
                 detail("Raw", raw.map { SpeedrunClock.format($0) } ?? "-")
                 detail("Misses", "\(misses) × +3s")
