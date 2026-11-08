@@ -37,6 +37,8 @@ final class QuizSession: ObservableObject {
     private var plannedCount: Int
     /// Countries missed in this quiz that have not been answered right since.
     private var pendingRetry: [String] = []
+    /// Every country asked in this quiz, for the unlock continent table.
+    private var askedPlaces: [AskedCountry] = []
 
     @Published private(set) var total: Int
     @Published private(set) var questions: [Question] = []
@@ -411,6 +413,7 @@ final class QuizSession: ObservableObject {
         if right { pulseCount += 1 } else { shakeCount += 1 }
         if right, q.kind == .click { foundCountries.insert(name) }
         stats.record(name, correct: right)
+        askedPlaces.append(AskedCountry(name: name, correct: right))
         deck.answered(name, correct: right)
         showChip(right: right, title: right ? "Correct!" : "It was \(q.answer)")
 
@@ -586,7 +589,7 @@ final class QuizSession: ObservableObject {
         stats.recordQuiz(score: score, total: askedCount, duration: duration,
                          missed: Array(Set(pendingRetry)),
                          kind: kind == .practice ? .practice : .lock,
-                         subject: subject, scope: scopeKey)
+                         subject: subject, scope: scopeKey, asked: askedPlaces)
         phase = .finished
         updateRound()
     }

@@ -241,32 +241,32 @@ struct MapCursorPromptPill: View {
     var prompt: MapCursorPrompt
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             if let note = prompt.note {
                 Text(note)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(prompt.noteIsGood
                                      ? Color(red: 0.09, green: 0.45, blue: 0.18)
                                      : Color(red: 0.78, green: 0.16, blue: 0.14))
             }
             Text(prompt.lead)
-                .font(.system(size: 15, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
             if let emphasis = prompt.emphasis, !emphasis.isEmpty {
                 Text(emphasis)
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 13, weight: .semibold))
             }
             if let flag = prompt.flag, !flag.isEmpty {
                 Text(flag)
-                    .font(.system(size: 18))
+                    .font(.system(size: 16))
             }
         }
         .foregroundStyle(Color(white: 0.12))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.white.opacity(0.92))
-                .shadow(color: Color.black.opacity(0.18), radius: 10, y: 4)
+                .shadow(color: Color.black.opacity(0.12), radius: 6, y: 2)
         )
         .fixedSize()
     }

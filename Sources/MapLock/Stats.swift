@@ -111,6 +111,12 @@ struct SpeedrunRecord: Codable, Identifiable, Equatable {
     }
 }
 
+/// One question in a finished quiz. Older records do not have this list.
+struct AskedCountry: Codable, Equatable {
+    var name: String
+    var correct: Bool
+}
+
 /// One finished quiz, for the Stats page.
 struct QuizRecord: Codable, Identifiable, Equatable {
     var id: UUID = UUID()
@@ -123,6 +129,8 @@ struct QuizRecord: Codable, Identifiable, Equatable {
     /// QuizSubject.rawValue. Empty on very old records.
     var subjectRaw: String = QuizSubject.countries.rawValue
     var scopeRaw: String = StatsScopeKey.unknown.rawValue
+    /// Countries actually asked, in order. Empty on quizzes saved before 1.3.3.
+    var asked: [AskedCountry] = []
 
     var percent: Double { total == 0 ? 0 : Double(score) / Double(total) }
     var wrong: Int { max(total - score, 0) }
@@ -136,12 +144,12 @@ struct QuizRecord: Codable, Identifiable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, date, score, total, duration, missed, kind, subjectRaw, scopeRaw
+        case id, date, score, total, duration, missed, kind, subjectRaw, scopeRaw, asked
     }
 
     init(date: Date, score: Int, total: Int, duration: TimeInterval, missed: [String],
          kind: QuizRecordKind, subject: QuizSubject, scope: StatsScopeKey,
-         id: UUID = UUID()) {
+         asked: [AskedCountry] = [], id: UUID = UUID()) {
         self.id = id
         self.date = date
         self.score = score
@@ -151,6 +159,21 @@ struct QuizRecord: Codable, Identifiable, Equatable {
         self.kind = kind
         self.subjectRaw = subject.rawValue
         self.scopeRaw = scope.rawValue
+        self.asked = asked
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(date, forKey: .date)
+        try c.encode(score, forKey: .score)
+        try c.encode(total, forKey: .total)
+        try c.encode(duration, forKey: .duration)
+        try c.encode(missed, forKey: .missed)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(subjectRaw, forKey: .subjectRaw)
+        try c.encode(scopeRaw, forKey: .scopeRaw)
+        try c.encode(asked, forKey: .asked)
     }
 
     init(from decoder: Decoder) throws {
@@ -166,6 +189,7 @@ struct QuizRecord: Codable, Identifiable, Equatable {
             ?? QuizSubject.countries.rawValue
         scopeRaw = try c.decodeIfPresent(String.self, forKey: .scopeRaw)
             ?? StatsScopeKey.unknown.rawValue
+        asked = try c.decodeIfPresent([AskedCountry].self, forKey: .asked) ?? []
     }
 }
 
@@ -182,7 +206,13 @@ struct StatsBreakdownRow: Identifiable, Equatable {
         guard total > 0 else { return "-" }
         return String(format: "%.0f%%", percent * 100)
     }
+    /// True when `total` counts questions, not quizzes.
+    var countsQuestions: Bool = false
+
     var detailText: String {
+        if countsQuestions {
+            return "\(correct) of \(total)"
+        }
         guard quizzes > 0 else { return "No quizzes yet" }
         let q = quizzes == 1 ? "1 quiz" : "\(quizzes) quizzes"
         return "\(q) · \(correct) of \(total)"
@@ -214,6 +244,12 @@ struct StatsKindSummary: Equatable {
     var total: Int = 0
     var byScope: [StatsBreakdownRow] = []
     var bySubject: [StatsBreakdownRow] = []
+    /// Unlock only: accuracy for each continent, from questions asked.
+    var byContinent: [StatsBreakdownRow] = []
+    /// Set when some unlock quizzes were saved before each question's country was stored.
+    var continentNote: String? = nil
+    /// Unlock only: Countries, Capitals, and Flags when those quizzes exist.
+    var byType: [StatsBreakdownRow] = []
     var mostMissed: [StatsMissRow] = []
 
     var percent: Double { total == 0 ? 0 : Double(correct) / Double(total) }
@@ -424,10 +460,11 @@ final class StatsStore {
 
     func recordQuiz(score: Int, total: Int, duration: TimeInterval, missed: [String],
                     kind: QuizRecordKind, subject: QuizSubject, scope: StatsScopeKey,
-                    now: Date = Date()) {
+                    asked: [AskedCountry] = [], now: Date = Date()) {
         guard total > 0 else { return }
         let record = QuizRecord(date: now, score: score, total: total, duration: duration,
-                                missed: missed, kind: kind, subject: subject, scope: scope)
+                                missed: missed, kind: kind, subject: subject, scope: scope,
+                                asked: asked)
         quizzes.insert(record, at: 0)
         if quizzes.count > Self.maxQuizRecords {
             quizzes = Array(quizzes.prefix(Self.maxQuizRecords))
@@ -584,8 +621,19 @@ final class StatsStore {
         s.quizzes = rows.count
         s.correct = rows.reduce(0) { $0 + $1.score }
         s.total = rows.reduce(0) { $0 + $1.total }
-        s.byScope = breakdownByScope(rows)
-        s.bySubject = breakdownBySubject(rows)
+        if kind == .lock {
+            let continents = unlockContinents(rows)
+            s.byContinent = continents.rows
+            s.byScope = []
+            s.bySubject = []
+            s.byType = breakdownByType(rows)
+            if continents.omitted > 0 {
+                s.continentNote = "Older unlock quizzes aren't in this table."
+            }
+        } else {
+            s.byScope = breakdownByScope(rows)
+            s.bySubject = breakdownBySubject(rows)
+        }
         s.mostMissed = mostMissed(in: rows, limit: 8)
         return s
     }
@@ -606,6 +654,46 @@ final class StatsStore {
         return order.compactMap { key in
             guard let v = map[key], v.q > 0 else { return nil }
             return StatsBreakdownRow(label: key.title, quizzes: v.q, correct: v.c, total: v.t)
+        }
+    }
+
+    /// Each asked country, using the map's continent (Russia stays in Asia).
+    private func unlockContinents(_ rows: [QuizRecord]) -> (rows: [StatsBreakdownRow], omitted: Int) {
+        let order: [StatsScopeKey] = [.africa, .asia, .europe, .northAmerica, .southAmerica]
+        var map: [StatsScopeKey: (correct: Int, total: Int)] = [:]
+        var omitted = 0
+        for quiz in rows {
+            guard !quiz.asked.isEmpty else {
+                omitted += 1
+                continue
+            }
+            for item in quiz.asked {
+                guard let place = scopeCensus?.regionOf[item.name], order.contains(place) else { continue }
+                var cur = map[place] ?? (0, 0)
+                cur.total += 1
+                if item.correct { cur.correct += 1 }
+                map[place] = cur
+            }
+        }
+        let built = order.compactMap { key -> StatsBreakdownRow? in
+            guard let value = map[key], value.total > 0 else { return nil }
+            return StatsBreakdownRow(label: key.title, quizzes: 0, correct: value.correct,
+                                     total: value.total, countsQuestions: true)
+        }
+        return (built, omitted)
+    }
+
+    /// Capitals and Flags, plus Countries when those quizzes are stored too.
+    private func breakdownByType(_ rows: [QuizRecord]) -> [StatsBreakdownRow] {
+        let typed = rows.filter { $0.subject == .capitals || $0.subject == .flags }
+        guard !typed.isEmpty else { return [] }
+        return QuizSubject.allCases.compactMap { subject in
+            let subset = rows.filter { $0.subject == subject }
+            guard !subset.isEmpty else { return nil }
+            let correct = subset.reduce(0) { $0 + $1.score }
+            let total = subset.reduce(0) { $0 + $1.total }
+            return StatsBreakdownRow(label: subject.title, quizzes: subset.count,
+                                     correct: correct, total: total)
         }
     }
 

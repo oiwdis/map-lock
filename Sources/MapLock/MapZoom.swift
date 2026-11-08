@@ -80,10 +80,10 @@ struct MapZoomState: Equatable {
     }
 
     /// Top-left of the cursor prompt. Screen points, not map points, so zoom does not change its size.
-    /// Sits 18pt right and 14pt below the pointer, and flips toward the open side near an edge.
+    /// Sits 24pt right and 18pt below the pointer, and flips toward the open side near an edge.
     static func cursorPromptOrigin(pointer: CGPoint, map: CGSize, pill: CGSize) -> CGPoint {
-        let gapX: CGFloat = 18
-        let gapY: CGFloat = 14
+        let gapX: CGFloat = 24
+        let gapY: CGFloat = 18
         let margin: CGFloat = 8
         var x = pointer.x + gapX
         var y = pointer.y + gapY

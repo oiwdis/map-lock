@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.3
+
+- Unlock stats count each question by its continent, instead of filing mixed quizzes under Several regions or Other. Older unlock quizzes stay out of that table until new ones are saved.
+- Unlock also lists Capitals and Flags when those quizzes are stored.
+- The label next to the pointer is smaller, so it covers less of the map.
+
 ## 1.3.2
 
 - Click-the-map questions show a small "Click on …" label next to the pointer. Flag mode shows the flag without the country name. Turn it off in Settings.

@@ -854,7 +854,7 @@ private struct StatsPane: View {
             }
 
             kindSection(title: "Practice", summary: snap.practice, empty: "Finish a practice test to see numbers here.")
-            kindSection(title: "Unlock", summary: snap.unlock, empty: "Finish an unlock quiz to see numbers here.")
+            kindSection(title: "Unlock", summary: snap.unlock, empty: "Finish an unlock quiz to see numbers here.", unlock: true)
 
             Section {
                 ForEach(snap.speedrunBests) { row in
@@ -1008,7 +1008,7 @@ private struct StatsPane: View {
     }
 
     @ViewBuilder
-    private func kindSection(title: String, summary: StatsKindSummary, empty: String) -> some View {
+    private func kindSection(title: String, summary: StatsKindSummary, empty: String, unlock: Bool = false) -> some View {
         Section {
             if !summary.hasData {
                 Text(empty)
@@ -1023,7 +1023,32 @@ private struct StatsPane: View {
                 }
                 .padding(.vertical, Theme.Space.s1)
 
-                if !summary.byScope.isEmpty {
+                if unlock {
+                    if !summary.byContinent.isEmpty {
+                        Text("By place")
+                            .font(Theme.font(Theme.Size.xs, .semibold))
+                            .foregroundStyle(Theme.text3)
+                            .padding(.top, Theme.Space.s1)
+                        ForEach(summary.byContinent) { row in
+                            breakdownRow(row)
+                        }
+                    }
+                    if let note = summary.continentNote {
+                        Text(note)
+                            .font(Theme.font(Theme.Size.xs))
+                            .foregroundStyle(Theme.text3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if !summary.byType.isEmpty {
+                        Text("By type")
+                            .font(Theme.font(Theme.Size.xs, .semibold))
+                            .foregroundStyle(Theme.text3)
+                            .padding(.top, Theme.Space.s2)
+                        ForEach(summary.byType) { row in
+                            breakdownRow(row)
+                        }
+                    }
+                } else if !summary.byScope.isEmpty {
                     Text("By place")
                         .font(Theme.font(Theme.Size.xs, .semibold))
                         .foregroundStyle(Theme.text3)
@@ -1033,7 +1058,7 @@ private struct StatsPane: View {
                     }
                 }
 
-                if !summary.bySubject.isEmpty {
+                if !unlock, !summary.bySubject.isEmpty {
                     Text("By mode")
                         .font(Theme.font(Theme.Size.xs, .semibold))
                         .foregroundStyle(Theme.text3)
