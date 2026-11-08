@@ -1,0 +1,9 @@
+# Local check only. The deploy steps are in README.md.
+# Do not add routes. /v1, /race/, and /health are forwarded with the API binding.
+name = "map-lock"
+main = "map-lock-site.js"
+compatibility_date = "2026-11-07"
+
+[[services]]
+binding = "API"
+service = "map-lock-api"

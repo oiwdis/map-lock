@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.4
+
+- Microstate dots stay above neighboring countries. Highlighting Malaysia, marking it found, or the correct-answer glow no longer covers Singapore's dot. The label by the pointer and the rising name still sit above the dots.
+- The website badge reads the latest version from the update feed. That change is the site only.
+
 ## 1.3.3
 
 - Unlock stats count each question by its continent, instead of filing mixed quizzes under Several regions or Other. Older unlock quizzes stay out of that table until new ones are saved.

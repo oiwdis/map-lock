@@ -106,6 +106,11 @@ struct ClickMapView: View {
                     }
                 )
 
+                // Above every country fill. Clicks pass through to the overlay, which
+                // still asks ClickMap.hit (a dot wins over the country under it).
+                ClickDotsLayer(layout: layout, scheme: scheme, zoom: zoom)
+                    .equatable()
+
                 MapPinLayer(pins: pins, reduceMotion: reduceMotion)
                     .allowsHitTesting(false)
 
@@ -318,7 +323,7 @@ final class ClickLayoutCache {
     }
 }
 
-/// All countries, no highlight, plus the neutral dots. Only redraws when the view or zoom changes.
+/// All countries, no highlight. Dots are a later layer so a neighbor's fill cannot cover them.
 private struct ClickBaseMap: View, Equatable {
     let world: [Country]
     let layout: ClickLayout
@@ -355,18 +360,6 @@ private struct ClickBaseMap: View, Equatable {
                 mapContext.stroke(path, with: .color(Theme.border),
                                   style: StrokeStyle(lineWidth: 0.6 / inv, lineJoin: .round))
             }
-            // Dots: constant on-screen size => radius / zoom in map space.
-            for t in layout.targets {
-                guard let dot = t.dot else { continue }
-                if t.needsLeader, let anchor = t.anchor {
-                    ClickDots.leader(from: anchor, to: dot, in: &mapContext, color: Theme.leader,
-                                     scale: inv)
-                }
-                let r = ClickMap.dotRadius / inv
-                let circle = Path(ellipseIn: CGRect(x: dot.x - r, y: dot.y - r, width: r * 2, height: r * 2))
-                mapContext.fill(circle, with: .color(Theme.dotFill))
-                mapContext.stroke(circle, with: .color(Theme.dotStroke), lineWidth: 1.5 / inv)
-            }
         }
         .allowsHitTesting(false)
     }
@@ -395,10 +388,50 @@ enum ClickDots {
                      with: .color(color))
     }
 
-    static func path(for target: ClickTarget, scale: CGFloat = 1) -> Path {
-        var path = MapDrawing.makePath(target.polygons)
-        if let dot = target.dot { path.addEllipse(in: rect(at: dot, scale: scale)) }
-        return path
+    /// Country outline only. The dot is not part of this path: a fill, glow, or
+    /// scale on the country would otherwise paint over a neighbor's dot.
+    static func shape(for target: ClickTarget) -> Path {
+        MapDrawing.makePath(target.polygons)
+    }
+}
+
+/// Microstate dots and their leader lines, in one pass above every country.
+/// Practice, world zoom, unlock, and races all use this click map. Stats has no map.
+///
+/// The found fill, the hover, the selection ring, the wrong-answer shake, and the
+/// correct-answer glow (the shadow on the result layer) are views under this one.
+/// A scale on those views, including the correct-answer pop, stays under the dots,
+/// so Malaysia cannot cover Singapore while it grows. The rising name tags and the
+/// cursor pill are the only labels above the dots. This layer does not take clicks.
+/// `ClickMap.hit` still prefers a dot over the country underneath.
+private struct ClickDotsLayer: View, Equatable {
+    let layout: ClickLayout
+    let scheme: ColorScheme
+    let zoom: MapZoomState
+
+    nonisolated static func == (lhs: ClickDotsLayer, rhs: ClickDotsLayer) -> Bool {
+        lhs.layout.key == rhs.layout.key && lhs.scheme == rhs.scheme && lhs.zoom == rhs.zoom
+    }
+
+    var body: some View {
+        let layout = self.layout
+        let zoom = self.zoom
+        Canvas { context, size in
+            var mapContext = context
+            mapContext.beginMapZoom(zoom, size: size)
+            let inv = max(zoom.scale, 0.001)
+            for t in layout.targets {
+                guard t.needsLeader, let anchor = t.anchor, let dot = t.dot else { continue }
+                ClickDots.leader(from: anchor, to: dot, in: &mapContext, color: Theme.leader, scale: inv)
+            }
+            for t in layout.targets {
+                guard let dot = t.dot else { continue }
+                let circle = Path(ellipseIn: ClickDots.rect(at: dot, scale: inv))
+                mapContext.fill(circle, with: .color(Theme.dotFill))
+                mapContext.stroke(circle, with: .color(Theme.dotStroke), lineWidth: 1.5 / inv)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -412,15 +445,9 @@ private struct HoverLayer: View {
         Canvas { context, size in
             var ctx = context
             ctx.beginMapZoom(zoom, size: size)
-            let inv = max(zoom.scale, 0.001)
             for target in parts {
                 let shape = MapDrawing.makePath(target.polygons)
                 ctx.fill(shape, with: .color(Theme.hover), style: FillStyle(eoFill: true))
-                if let dot = target.dot {
-                    let circle = Path(ellipseIn: ClickDots.rect(at: dot, scale: inv))
-                    ctx.fill(circle, with: .color(Theme.fill3))
-                    ctx.stroke(circle, with: .color(Theme.text), lineWidth: 1.5 / inv)
-                }
             }
         }
         .id(scheme)
@@ -463,20 +490,14 @@ private struct ClickResultLayer: View {
                 var ctx = context
                 ctx.beginMapZoom(zoom, size: size)
                 for wrong in wrongShapes {
-                    if wrong.needsLeader, let a = wrong.anchor, let d = wrong.dot {
-                        ClickDots.leader(from: a, to: d, in: &ctx, color: Theme.ringBad, scale: inv)
-                    }
-                    let path = ClickDots.path(for: wrong, scale: inv)
+                    let path = ClickDots.shape(for: wrong)
                     ctx.fill(path, with: .color(Theme.mapBad.opacity(redOpacity)), style: FillStyle(eoFill: true))
                     ctx.stroke(path, with: .color(Theme.mapBadOutline),
                                style: StrokeStyle(lineWidth: 1.2 / inv, lineJoin: .round))
                 }
                 if showTarget {
                     for shape in targetShapes {
-                        if shape.needsLeader, let a = shape.anchor, let d = shape.dot {
-                            ClickDots.leader(from: a, to: d, in: &ctx, color: ringColor, scale: inv)
-                        }
-                        let path = ClickDots.path(for: shape, scale: inv)
+                        let path = ClickDots.shape(for: shape)
                         ctx.fill(path, with: .color(targetColor), style: FillStyle(eoFill: true))
                         ctx.stroke(path, with: .color(look.outline),
                                    style: StrokeStyle(lineWidth: 1.2 / inv, lineJoin: .round))
@@ -519,12 +540,6 @@ private struct FoundCountriesLayer: View {
                 ctx.fill(path, with: .color(fill), style: FillStyle(eoFill: true))
                 ctx.stroke(path, with: .color(Theme.border),
                            style: StrokeStyle(lineWidth: 0.6 / inv, lineJoin: .round))
-                if let dot = part.dot {
-                    let r = ClickMap.dotRadius / inv
-                    let circle = Path(ellipseIn: CGRect(x: dot.x - r, y: dot.y - r, width: r * 2, height: r * 2))
-                    ctx.fill(circle, with: .color(fill))
-                    ctx.stroke(circle, with: .color(Theme.dotStroke), lineWidth: 1.5 / inv)
-                }
             }
         }
         .allowsHitTesting(false)
@@ -614,7 +629,7 @@ private struct WrongMapFlash: View {
 
     private func fill(_ name: String, color: Color, outline: Color, in context: inout GraphicsContext, scale: CGFloat) {
         for part in layout.targets where part.name == name {
-            let path = ClickDots.path(for: part, scale: scale)
+            let path = ClickDots.shape(for: part)
             context.fill(path, with: .color(color), style: FillStyle(eoFill: true))
             context.stroke(path, with: .color(outline), style: StrokeStyle(lineWidth: 1.6 / scale, lineJoin: .round))
         }
@@ -657,7 +672,7 @@ private struct SpeedrunCountryFlash: View {
     private func fill(_ name: String, color: Color, outline: Color, in context: inout GraphicsContext,
                       scale: CGFloat, dashed: Bool = false) {
         for part in layout.targets where part.name == name {
-            let path = ClickDots.path(for: part, scale: scale)
+            let path = ClickDots.shape(for: part)
             context.fill(path, with: .color(color), style: FillStyle(eoFill: true))
             let style = dashed
                 ? StrokeStyle(lineWidth: 2.4 / scale, lineCap: .round, dash: [6 / scale, 4 / scale])
