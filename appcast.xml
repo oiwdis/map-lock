@@ -6,6 +6,15 @@
     <description>Map Lock updates.</description>
     <language>en</language>
     <item>
+      <title>Version 1.3.5</title>
+      <pubDate>Sun, 08 Nov 2026 04:30:00 +0000</pubDate>
+      <sparkle:version>1.3.5</sparkle:version>
+      <sparkle:shortVersionString>1.3.5</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description>Race invites with notifications, a new 1v1 finish flow and results screen, and a smaller cursor pill.</description>
+      <enclosure url="https://github.com/oiwdis/map-lock/releases/download/v1.3.5/MapLock.zip" sparkle:edSignature="zePUzUe9FUYDsFdLnZ916/Xysj+x/nL0V80IB5yhUAKvDL2FwRPXPVWoEMMzghenGJDZj9L9N5K+qh+tV0g1Dg==" length="3596009" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.3.4</title>
       <pubDate>Sun, 08 Nov 2026 01:35:00 +0000</pubDate>
       <sparkle:version>1.3.4</sparkle:version>
