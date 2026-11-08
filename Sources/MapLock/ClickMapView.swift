@@ -85,10 +85,6 @@ struct ClickMapView: View {
                         clicks.append((name, viewPoint))
                         onClick(name)
                     },
-                    onPointer: { point, dragging in
-                        panning = dragging
-                        pointer = dragging ? nil : point
-                    },
                     onHover: { viewPoint in
                         guard let viewPoint else {
                             if hovered != nil { hovered = nil }
@@ -103,6 +99,10 @@ struct ClickMapView: View {
                             NSCursor.arrow.set()
                             if hovered != nil { hovered = nil }
                         }
+                    },
+                    onPointer: { point, dragging in
+                        panning = dragging
+                        pointer = dragging ? nil : point
                     }
                 )
 

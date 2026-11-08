@@ -560,7 +560,7 @@ final class StatsStore {
         case .northAmerica: return (subject, style, .northAmerica)
         case .southAmerica: return (subject, style, .southAmerica)
         case .world: return (subject, style, .world)
-        case .several, .unknown: return nil
+        case .several, .unknown, .other: return nil
         }
     }
 
