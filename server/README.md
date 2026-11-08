@@ -44,8 +44,9 @@ From this `server/` directory:
    `migrations/0003_race_subject_style.sql` adds `races.subject` and `races.style`. It is already applied on production. SQLite has no `ADD COLUMN IF NOT EXISTS`, so running 0003 again fails. Do not run it on prod.
    `migrations/0004_race_status.sql` adds `races.status` (`open` by default). It is already applied on production. SQLite has no `ADD COLUMN IF NOT EXISTS`, so running it again fails. Do not run it on prod.
    `migrations/0005_race_invites.sql` creates `race_invites`. It is not on production yet. Run it once. Do not edit it after that.
+   `migrations/0006_race_results.sql` creates `race_results`. It is not on production yet. Run it once. Do not edit it after that.
 
-   Applying 0001, then 0002, then 0003, then 0004, then 0005 builds the same database as `schema.sql`.
+   Applying 0001, then 0002, then 0003, then 0004, then 0005, then 0006 builds the same database as `schema.sql`.
 
 5. Check the project: `npm run check`
 6. Deploy: `npx wrangler deploy`

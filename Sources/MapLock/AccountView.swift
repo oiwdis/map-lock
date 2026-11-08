@@ -523,6 +523,18 @@ struct AccountPane: View {
                 }
                 .help(code)
             }
+            if !account.raceHistory.isEmpty {
+                Text("Recent races")
+                    .font(Theme.font(Theme.Size.sm, .semibold))
+                    .foregroundStyle(Theme.text3)
+                    .padding(.top, Theme.Space.s2)
+                ForEach(account.raceHistory.prefix(8)) { item in
+                    Text(account.historyLine(item))
+                        .font(Theme.font(Theme.Size.sm))
+                        .foregroundStyle(Theme.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
         }
         .padding(Theme.Space.s4)
         .frame(maxWidth: .infinity, alignment: .leading)

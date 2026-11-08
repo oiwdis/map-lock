@@ -64,6 +64,8 @@ final class QuizSession: ObservableObject {
     @Published private(set) var unlockedByTimeLimit = false
 
     let isSpeedrun: Bool
+    /// Races record the server time instead of this quiz's own clock.
+    let recordsResult: Bool
     let speedrunStyle: PracticeAnswerStyle
     /// When false, a race countdown is up and answers are ignored.
     @Published var speedrunAcceptsInput = true
@@ -111,6 +113,7 @@ final class QuizSession: ObservableObject {
          speedrun: Bool = false,
          speedrunStyle: PracticeAnswerStyle = .clickMap,
          speedrunOrder: [String]? = nil,
+         recordsResult: Bool = true,
          now: Date = Date(),
          onClose: @escaping () -> Void) {
         self.world = world
@@ -132,6 +135,7 @@ final class QuizSession: ObservableObject {
         }
         self.mapScope = mapScope
         self.isSpeedrun = speedrun
+        self.recordsResult = recordsResult
         self.speedrunStyle = speedrunStyle
         self.onClose = onClose
         self.byName = Dictionary(world.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
@@ -570,13 +574,15 @@ final class QuizSession: ObservableObject {
             let final = raw + speedrunPenalty
             speedrunRawText = SpeedrunClock.format(raw)
             speedrunFinalTime = SpeedrunClock.format(final)
-            let scopeKey = statsScope
-            let key = SpeedrunKey.make(subject: subject, style: speedrunStyle, scope: scopeKey)
-            let saved = stats.recordSpeedrun(key: key, duration: final, misses: speedrunWrongs,
-                                             countries: score, now: now)
-            speedrunIsNewBest = saved.isNewBest
-            speedrunBestText = saved.best > 0 ? SpeedrunClock.format(saved.best) : "-"
-            streak = stats.finishSession(now: now)
+            if recordsResult {
+                let scopeKey = statsScope
+                let key = SpeedrunKey.make(subject: subject, style: speedrunStyle, scope: scopeKey)
+                let saved = stats.recordSpeedrun(key: key, duration: final, misses: speedrunWrongs,
+                                                 countries: score, now: now)
+                speedrunIsNewBest = saved.isNewBest
+                speedrunBestText = saved.best > 0 ? SpeedrunClock.format(saved.best) : "-"
+                streak = stats.finishSession(now: now)
+            }
             phase = .finished
             return
         }

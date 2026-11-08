@@ -85,3 +85,18 @@ CREATE TABLE IF NOT EXISTS race_invites (
 
 CREATE INDEX IF NOT EXISTS race_invites_to ON race_invites(to_user, status, created_at);
 CREATE INDEX IF NOT EXISTS race_invites_race ON race_invites(race_code, status);
+
+-- Closed 1v1 races, so a player who left can still see the result.
+CREATE TABLE IF NOT EXISTS race_results (
+  code TEXT PRIMARY KEY,
+  region TEXT NOT NULL,
+  subject TEXT NOT NULL DEFAULT 'countries',
+  style TEXT NOT NULL DEFAULT 'click',
+  finished_at INTEGER NOT NULL,
+  player_a TEXT NOT NULL,
+  player_b TEXT NOT NULL,
+  payload TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS race_results_a ON race_results(player_a, finished_at);
+CREATE INDEX IF NOT EXISTS race_results_b ON race_results(player_b, finished_at);

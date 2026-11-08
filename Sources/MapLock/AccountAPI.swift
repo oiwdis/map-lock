@@ -79,6 +79,39 @@ struct RaceInvite: Codable, Identifiable, Equatable {
     var sentence: String { "\(fromUsername) challenged you to a race (\(placeName))" }
 }
 
+struct RaceHistoryPlayer: Codable {
+    var userId: String
+    var username: String
+    var found: Int
+    var total: Int
+    var misses: Int
+    var skips: Int?
+    var finished: Bool
+    var raw: Double?
+    var elapsed: Double?
+    var forfeited: Bool
+    var dnf: Bool?
+}
+
+struct RaceHistoryRace: Codable {
+    var winnerId: String?
+    var tie: Bool?
+    var reason: String?
+    var players: [RaceHistoryPlayer]
+}
+
+struct RaceHistoryItem: Codable, Identifiable {
+    var code: String
+    var region: String
+    var subject: String
+    var style: String
+    var finishedAt: Int
+    var race: RaceHistoryRace?
+    var id: String { code }
+
+    var placeName: String { region == "world" ? "Whole world" : region }
+}
+
 struct RaceTicket: Codable, Equatable {
     var code: String
     var region: String
@@ -198,6 +231,11 @@ enum AccountClient {
         let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         return try await send(RaceTicket.self, path: "/v1/race-invites/\(encoded)/accept", method: "POST",
                                token: token, json: try encode([String: String]()))
+    }
+
+    static func raceResults(token: String) async throws -> [RaceHistoryItem] {
+        struct Box: Codable { var results: [RaceHistoryItem] }
+        return try await send(Box.self, path: "/v1/me/race-results", method: "GET", token: token, json: nil).results
     }
 
     static func declineRaceInvite(id: String, token: String) async throws {

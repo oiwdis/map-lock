@@ -37,6 +37,7 @@ final class AccountModel: ObservableObject {
     @Published var leaderboardStyle: PracticeAnswerStyle = .clickMap
     @Published private(set) var friends = FriendLists(friends: [], incoming: [], outgoing: [])
     @Published private(set) var raceInvites: [RaceInvite] = []
+    @Published private(set) var raceHistory: [RaceHistoryItem] = []
     @Published private(set) var leaderboard: [LeaderboardRow] = []
     @Published private(set) var friendView: FriendStatsResponse?
     @Published private(set) var friendSnapshot = StatsSnapshot()
@@ -75,6 +76,7 @@ final class AccountModel: ObservableObject {
     private var visibleFriendPoll: Task<Void, Never>?
     private var invitePoll: Task<Void, Never>?
     private var askedRaceNotifications = false
+    private var leftRaces: Set<String> = []
 
     func restoreIfNeeded() {
         guard token != nil, user == nil else { return }
@@ -182,6 +184,7 @@ final class AccountModel: ObservableObject {
         KeychainStore.deleteSession()
         friends = FriendLists(friends: [], incoming: [], outgoing: [])
         raceInvites = []
+        raceHistory = []
         leaderboard = []
         friendView = nil
         lastRace = nil
@@ -652,11 +655,77 @@ final class AccountModel: ObservableObject {
             raceInvites = next
             await announceInvites(next)
             refreshDockBadge()
+            await reloadRaceResults()
         } catch let error as APIFailure {
             if reportErrors { message = Self.friendlier(error.message) }
         } catch {
             if reportErrors { message = "Could not check race invites." }
         }
+    }
+
+    func rememberRace(_ ticket: RaceTicket) {
+        lastRace = ticket
+    }
+
+    func noteLeftRace(_ code: String) {
+        leftRaces.insert(code)
+    }
+
+    func noteSawResult(_ code: String) {
+        guard let userId = user?.id else { return }
+        var seen = loadSeenResults(userId: userId)
+        seen.insert(code)
+        saveSeenResults(seen, userId: userId)
+        leftRaces.remove(code)
+    }
+
+    func historyLine(_ item: RaceHistoryItem) -> String {
+        let race = item.race
+        let me = user?.id
+        let mine = race?.players.first { $0.userId == me }
+        let other = race?.players.first { $0.userId != me }
+        let name = other?.username ?? "your friend"
+        let headline: String
+        if race?.tie == true {
+            headline = "Tie with \(name)"
+        } else if race?.winnerId == me {
+            headline = race?.reason == "forfeit" ? "Won by forfeit vs \(name)" : "Won vs \(name)"
+        } else if race?.winnerId != nil {
+            headline = "Lost vs \(name)"
+        } else {
+            headline = "Race with \(name) ended"
+        }
+        let time = mine?.elapsed.map { SpeedrunClock.format($0) }
+        return time.map { "\(headline) · \($0)" } ?? "\(headline) · \(item.placeName)"
+    }
+
+    private func reloadRaceResults() async {
+        guard let token, let userId = user?.id else { return }
+        guard let next = try? await AccountClient.raceResults(token: token) else { return }
+        raceHistory = next
+        var seen = loadSeenResults(userId: userId)
+        for item in next where !seen.contains(item.code) && leftRaces.contains(item.code) {
+            let body = historyLine(item)
+            await FriendAlerts.postAlert(
+                id: "race-result-\(item.code)",
+                title: "Race result",
+                body: body,
+                info: ["maplock": "race-result", "code": item.code]
+            )
+            seen.insert(item.code)
+            leftRaces.remove(item.code)
+        }
+        saveSeenResults(seen, userId: userId)
+    }
+
+    private func seenResultKey(_ userId: String) -> String { "maplock.seenRaceResultCodes.\(userId)" }
+
+    private func loadSeenResults(userId: String) -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: seenResultKey(userId)) ?? [])
+    }
+
+    private func saveSeenResults(_ ids: Set<String>, userId: String) {
+        UserDefaults.standard.set(Array(ids), forKey: seenResultKey(userId))
     }
 
     private func startInvitePoll() {

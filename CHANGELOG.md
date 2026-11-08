@@ -4,6 +4,8 @@
 
 - Challenging a friend from the Friends list creates the race and invites them. They get a notification on their Mac, with Join and Decline, even if Map Lock is in the background.
 - The same invite shows at the top of the Race tab. You can also invite a friend from the waiting screen. The code still works if you want to send it yourself.
+- A 1v1 race keeps going after the first person finishes. They see their time and the other player's progress. If you leave, the result shows up later under Recent races.
+- The results card shows both times, the margin, and a rematch that invites the same friend.
 
 ## 1.3.4
 

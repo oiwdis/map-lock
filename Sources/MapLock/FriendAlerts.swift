@@ -41,6 +41,11 @@ enum FriendAlerts {
         await deliver(id: id, title: title, body: body, category: category, info: info ?? ["maplock": "friends"])
     }
 
+    static func postAlert(id: String, title: String, body: String, info: [String: String]) async {
+        guard await canPostRace() else { return }
+        await deliver(id: id, title: title, body: body, category: nil, info: info)
+    }
+
     static func postRace(id: String, title: String, body: String, info: [String: String]) async {
         guard await canPostRace() else { return }
         await deliver(id: id, title: title, body: body, category: raceCategory, info: info)

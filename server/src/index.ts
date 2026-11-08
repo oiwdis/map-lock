@@ -51,6 +51,7 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === "GET" && url.pathname === "/v1/leaderboard") return leaderboard(url, env, user.id);
   if (request.method === "POST" && url.pathname === "/v1/races") return createRace(request, env, user);
   if (request.method === "GET" && url.pathname === "/v1/race-invites") return listRaceInvites(env, user);
+  if (request.method === "GET" && url.pathname === "/v1/me/race-results") return listRaceResults(env, user);
 
   const inviteDecision = url.pathname.match(/^\/v1\/race-invites\/([^/]+)\/(accept|decline)$/);
   if (request.method === "POST" && inviteDecision) {
@@ -430,7 +431,7 @@ async function createRace(request: Request, env: Env, user: SessionUser): Promis
   const room = env.RACE.get(env.RACE.idFromName(code));
   await room.fetch("https://race/init", {
     method: "POST",
-    body: JSON.stringify({ code, region, seed, hostId: user.id }),
+    body: JSON.stringify({ code, region, seed, hostId: user.id, subject, style }),
   });
   return json(raceLinks(env, code, region, seed, subject, style));
 }
@@ -513,6 +514,36 @@ async function createRaceInvite(request: Request, env: Env, user: SessionUser, c
     "INSERT INTO race_invites (id, race_code, from_user, to_user, created_at, status) VALUES (?, ?, ?, ?, ?, 'pending')",
   ).bind(id, code, user.id, other.id, Date.now()).run();
   return json({ ok: true, id, username: other.username, region: race.region });
+}
+
+async function listRaceResults(env: Env, user: SessionUser): Promise<Response> {
+  const rows = await env.DB.prepare(
+    `SELECT code, region, subject, style, finished_at AS finishedAt, payload
+     FROM race_results
+     WHERE player_a = ? OR player_b = ?
+     ORDER BY finished_at DESC
+     LIMIT 20`,
+  ).bind(user.id, user.id).all<{
+    code: string;
+    region: string;
+    subject: string;
+    style: string;
+    finishedAt: number;
+    payload: string;
+  }>();
+  const results = (rows.results ?? []).map((row) => {
+    let payload: unknown = null;
+    try { payload = JSON.parse(row.payload); } catch { payload = null; }
+    return {
+      code: row.code,
+      region: row.region,
+      subject: row.subject,
+      style: row.style,
+      finishedAt: row.finishedAt,
+      race: payload,
+    };
+  });
+  return json({ results });
 }
 
 async function listRaceInvites(env: Env, user: SessionUser): Promise<Response> {

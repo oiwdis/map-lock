@@ -454,6 +454,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         session.onCancelled = { [weak self] in
             self?.account?.noteRaceCancelled()
         }
+        session.onLeft = { [weak self] code in
+            self?.account?.noteLeftRace(code)
+        }
+        session.onFinished = { [weak self] code in
+            self?.account?.noteSawResult(code)
+        }
+        session.onRematch = { [weak self] ticket in
+            self?.account?.rememberRace(ticket)
+            self?.openRace(ticket, isHost: true)
+        }
+        session.onChangeRegion = { [weak self] in
+            self?.races.close()
+            self?.account?.page = .race
+            self?.home?.model.homeTab = .account
+            self?.home?.show()
+        }
         races.onClosed = { [weak self] in
             self?.account?.syncNow()
             self?.home?.model.reload()
@@ -462,7 +478,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func showFriends() {
-        account?.page = .friends
+        showFriendsTab(.friends)
+    }
+
+    private func showFriendsTab(_ page: AccountPage) {
+        account?.page = page
         home?.model.homeTab = .account
         guard !overlay.isShowing else { return }
         if NSApp.isHidden { NSApp.unhide(nil) }
@@ -827,6 +847,9 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 } else if action != UNNotificationDismissActionIdentifier {
                     self.account?.acceptInvite(id: inviteId)
                 }
+            } else if kind == "race-result" {
+                self.account?.page = .race
+                self.showFriendsTab(.race)
             } else if kind == "friends" {
                 self.showFriends()
             }

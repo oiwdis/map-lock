@@ -342,13 +342,26 @@ struct RaceView: View {
                 .padding(Theme.Space.s6)
                 .frame(maxWidth: 520)
             }
-            if session.phase == "racing" {
+            if session.phase == "racing", session.youFinished {
+                Theme.background.opacity(0.94).ignoresSafeArea()
+                FinishedWaitingView(session: session)
+            } else if session.phase == "racing" {
                 VStack {
-                    opponentBar
-                        .padding(Theme.Space.s4)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
-                        .padding(.top, Theme.Space.s3)
-                        .padding(.horizontal, Theme.Space.s4)
+                    VStack(spacing: Theme.Space.s2) {
+                        if session.opponentFinished, let time = session.opponentElapsed {
+                            Text("\(session.opponentName) finished in \(SpeedrunClock.format(time))")
+                                .font(Theme.font(Theme.Size.sm, .semibold))
+                                .foregroundStyle(Theme.text)
+                                .padding(.horizontal, Theme.Space.s3)
+                                .padding(.vertical, 6)
+                                .background(Capsule().fill(Theme.card))
+                        }
+                        opponentBar
+                    }
+                    .padding(Theme.Space.s4)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+                    .padding(.top, Theme.Space.s3)
+                    .padding(.horizontal, Theme.Space.s4)
                     Spacer()
                 }
                 .allowsHitTesting(false)
@@ -391,46 +404,214 @@ struct RaceView: View {
     }
 }
 
-private struct RaceResultView: View {
+private struct FinishedWaitingView: View {
     @ObservedObject var session: RaceSession
 
     var body: some View {
-        VStack(spacing: Theme.Space.s3) {
-            Text(title)
-                .font(Theme.font(Theme.Size.xl, .bold))
-            timeRow("You", elapsed: session.youElapsed, forfeited: session.youForfeited)
-            timeRow(session.opponentName, elapsed: session.opponentElapsed, forfeited: session.opponentForfeited)
-            HStack {
-                Button("Rematch") { session.rematch() }
-                    .buttonStyle(AppButtonStyle(kind: .primary))
-                Button("Close") { session.close() }
-                    .buttonStyle(AppButtonStyle(kind: .ghost))
+        TimelineView(.animation(minimumInterval: 0.1, paused: session.opponentFinished || session.opponentDnf)) { timeline in
+            let running = session.opponentRunning(at: timeline.date)
+            VStack(spacing: Theme.Space.s4) {
+                Text(session.decided && session.youWon == true ? "You won!" : "You finished!")
+                    .font(Theme.font(Theme.Size.xl, .bold))
+                    .foregroundStyle(Theme.text)
+                if let time = session.youElapsed {
+                    Text(SpeedrunClock.format(time))
+                        .font(.system(size: 56, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.text)
+                }
+                Text(session.decided && session.youWon == true
+                     ? "\(session.opponentName) can still finish."
+                     : "Waiting for \(session.opponentName)")
+                    .font(Theme.font(Theme.Size.sm))
+                    .foregroundStyle(Theme.text2)
+                VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                    HStack {
+                        Text(session.opponentName)
+                            .font(Theme.font(Theme.Size.sm, .semibold))
+                        Spacer()
+                        Text(session.opponentDnf ? "DNF" : SpeedrunClock.format(running))
+                            .font(Theme.font(Theme.Size.sm, .semibold))
+                            .monospacedDigit()
+                    }
+                    Text("\(session.opponentFound) of \(session.opponentTotal) countries")
+                        .font(Theme.font(Theme.Size.xs))
+                        .foregroundStyle(Theme.text3)
+                    ProgressView(value: Double(session.opponentFound), total: Double(max(session.opponentTotal, 1)))
+                        .tint(Theme.accent)
+                }
+                .padding(Theme.Space.s4)
+                .frame(maxWidth: 360)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                        .fill(Theme.card)
+                )
+                Button("Leave") { session.leaveWaiting() }
+                    .buttonStyle(AppButtonStyle(kind: .ghost, height: 36))
             }
-            .padding(.top, Theme.Space.s3)
-            Text(session.status)
-                .font(Theme.font(Theme.Size.xs))
-                .foregroundStyle(Theme.text3)
+            .padding(Theme.Space.s6)
+            .frame(maxWidth: 460)
         }
-        .padding(Theme.Space.s8)
-        .frame(maxWidth: 420)
-        .glass(radius: Theme.Radius.xl, strong: true)
+    }
+}
+
+private struct RaceResultView: View {
+    @ObservedObject var session: RaceSession
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = false
+
+    var body: some View {
+        ZStack {
+            if won && !reduceMotion {
+                RaceGlow()
+                    .allowsHitTesting(false)
+            }
+            VStack(spacing: Theme.Space.s4) {
+                Text(headline)
+                    .font(.system(size: 34, weight: .bold))
+                    .foregroundStyle(Theme.text)
+                    .multilineTextAlignment(.center)
+                if let margin {
+                    Text(margin)
+                        .font(Theme.font(Theme.Size.sm, .semibold))
+                        .foregroundStyle(Theme.text2)
+                }
+                HStack(alignment: .top, spacing: Theme.Space.s4) {
+                    playerColumn(name: "You", elapsed: session.youElapsed, raw: session.youRaw,
+                                 misses: session.youMisses, skips: session.youSkips,
+                                 found: session.youFound, dnf: session.youDnf, forfeited: session.youForfeited,
+                                 best: session.isPersonalBest)
+                    playerColumn(name: session.opponentName, elapsed: session.opponentElapsed, raw: session.opponentRaw,
+                                 misses: session.opponentMisses, skips: session.opponentSkips,
+                                 found: session.opponentFound, dnf: session.opponentDnf, forfeited: session.opponentForfeited,
+                                 best: false)
+                }
+                VStack(spacing: Theme.Space.s2) {
+                    Button("Rematch") { session.rematch() }
+                        .buttonStyle(AppButtonStyle(kind: .primary, height: 40, fullWidth: true))
+                    HStack(spacing: Theme.Space.s2) {
+                        Button("Change region") { session.changeRegion() }
+                            .buttonStyle(AppButtonStyle(kind: .ghost, height: 36, fullWidth: true))
+                        Button("Done") { session.close() }
+                            .buttonStyle(AppButtonStyle(kind: .ghost, height: 36, fullWidth: true))
+                    }
+                }
+            }
+            .padding(Theme.Space.s6)
+            .frame(maxWidth: 520)
+            .glass(radius: Theme.Radius.xl, strong: true)
+            .scaleEffect(shown || reduceMotion ? 1 : 0.96)
+            .opacity(shown || reduceMotion ? 1 : 0)
+        }
+        .onAppear {
+            if reduceMotion {
+                shown = true
+            } else {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) { shown = true }
+            }
+        }
     }
 
-    private var title: String {
-        if session.youForfeited { return "You forfeited" }
-        if session.opponentForfeited { return "You win" }
-        if session.youWon == true { return "You win" }
-        if session.youWon == false { return "\(session.opponentName) wins" }
-        return "Race over"
+    private var won: Bool { session.youWon == true && !session.tie }
+
+    private var headline: String {
+        if session.tie { return "Tie" }
+        if session.youForfeited { return "You lost" }
+        if session.opponentForfeited || (session.youWon == true && session.reason == "forfeit") { return "Won by forfeit" }
+        if session.youDnf { return "DNF" }
+        if session.youWon == true { return "You won!" }
+        if session.youWon == false { return "You lost" }
+        return "Race ended"
     }
 
-    private func timeRow(_ name: String, elapsed: Double?, forfeited: Bool) -> some View {
-        HStack {
+    private var margin: String? {
+        guard !session.tie, session.reason == "time" || session.reason == nil,
+              let you = session.youElapsed, let them = session.opponentElapsed,
+              !session.youDnf, !session.opponentDnf, !session.youForfeited, !session.opponentForfeited else { return nil }
+        let gap = abs(you - them)
+        return String(format: "Won by %.1fs", gap)
+    }
+
+    private func playerColumn(name: String, elapsed: Double?, raw: Double?, misses: Int, skips: Int,
+                              found: Int, dnf: Bool, forfeited: Bool, best: Bool) -> some View {
+        VStack(spacing: Theme.Space.s2) {
+            RaceInitials(name: name)
             Text(name)
-            Spacer()
-            Text(forfeited ? "Forfeit" : elapsed.map { SpeedrunClock.format($0) } ?? "Still going")
+                .font(Theme.font(Theme.Size.sm, .semibold))
+                .lineLimit(1)
+            Text(forfeited ? "Forfeit" : dnf ? "DNF" : elapsed.map { SpeedrunClock.format($0) } ?? "-")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
                 .monospacedDigit()
-                .font(Theme.font(Theme.Size.md, .semibold))
+            if best {
+                Text("Personal best")
+                    .font(Theme.font(Theme.Size.xs, .bold))
+                    .foregroundStyle(Theme.good)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Theme.good.opacity(0.15)))
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                detail("Raw", raw.map { SpeedrunClock.format($0) } ?? "-")
+                detail("Misses", "\(misses) × +3s")
+                detail("Skips", "\(skips) × +10s")
+                detail("Accuracy", accuracy(found: found, misses: misses))
+            }
+            .font(Theme.font(Theme.Size.xs))
+            .foregroundStyle(Theme.text3)
         }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func detail(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label)
+            Spacer(minLength: 8)
+            Text(value).monospacedDigit()
+        }
+    }
+
+    private func accuracy(found: Int, misses: Int) -> String {
+        let percent = SpeedrunRules.accuracy(countries: found, misses: misses) * 100
+        return String(format: "%.0f%%", percent)
+    }
+}
+
+private struct RaceInitials: View {
+    let name: String
+
+    var body: some View {
+        Text(initials)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(Color.white)
+            .frame(width: 44, height: 44)
+            .background(Circle().fill(Theme.accentFill))
+    }
+
+    private var initials: String {
+        let parts = name.split { $0 == "_" || $0 == " " || $0 == "-" }.filter { !$0.isEmpty }
+        if parts.count >= 2 {
+            return (String(parts[0].prefix(1)) + String(parts[1].prefix(1))).uppercased()
+        }
+        let letters = name.filter(\.isLetter)
+        let raw = String(letters.prefix(2)).uppercased()
+        return raw.isEmpty ? "?" : raw
+    }
+}
+
+private struct RaceGlow: View {
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                for i in 0..<14 {
+                    let travel = (t * 36 + Double(i * 28)).truncatingRemainder(dividingBy: Double(size.height + 20))
+                    let x = CGFloat((i * 53) % max(Int(size.width), 1))
+                    let rect = CGRect(x: x, y: CGFloat(travel) - 10, width: 7, height: 9)
+                    let color = i % 2 == 0 ? Theme.good : Theme.accent
+                    context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(color.opacity(0.85)))
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
