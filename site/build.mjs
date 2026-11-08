@@ -15,10 +15,6 @@ if (!js.includes('id=\\"ml-version\\"')) {
   throw new Error("homepage badge marker is missing");
 }
 
-js = js.replace("macOS 14 or newer", "macOS 14.0 or newer");
-js = js.replace("Needs macOS 14 Sonoma or newer.", "Needs macOS 14.0 (Sonoma) or newer.");
-js = js.replace("Needs macOS 14.0 Sonoma or newer.", "Needs macOS 14.0 (Sonoma) or newer.");
-
 const versionSource = fs.readFileSync(path.join(dir, "version.js"), "utf8")
   .replace(/^export /gm, "")
   .replace(/^\/\/.*\n/gm, "")
@@ -121,8 +117,7 @@ js = withoutOld + "\n" + versionSource + "\n" + runtime.trim() + "\n" + fetchFn.
 
 if (!js.includes("env.API.fetch(req)")) throw new Error("API proxy was dropped");
 if (js.includes("1.1.1")) throw new Error("old version badge remains");
-if (!js.includes("macOS 14.0 or newer")) throw new Error("macOS 14.0 line missing");
-if (!js.includes("macOS 14.0 (Sonoma) or newer")) throw new Error("Sonoma line missing");
+if (!js.includes("Requires macOS 14 or later")) throw new Error("macOS requirement missing");
 if (!js.includes("HTMLRewriter")) throw new Error("HTMLRewriter missing");
 
 fs.writeFileSync(workerPath, js);
