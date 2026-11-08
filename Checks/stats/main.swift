@@ -61,6 +61,20 @@ expect("scope from world", StatsScopeKey.from(practiceScope: .world) == .world)
 expect("scope from region", StatsScopeKey.from(practiceScope: .region(.europe)) == .europe)
 expect("scope several", StatsScopeKey.from(poolRegions: [.africa, .asia]) == .several)
 expect("scope one", StatsScopeKey.from(poolRegions: [.europe]) == .europe)
+let counts: [StatsScopeKey: Int] = [.europe: 44, .asia: 49, .africa: 54]
+expect("infer continent from a miss",
+       StatsScopeKey.infer(missed: ["France"], total: 10, regionOf: { $0 == "France" ? .europe : nil },
+                           counts: counts, worldCount: 190) == .europe)
+expect("infer world from the question count",
+       StatsScopeKey.infer(missed: [], total: 190, regionOf: { _ in nil },
+                           counts: counts, worldCount: 190) == .world)
+expect("infer several from two places",
+       StatsScopeKey.infer(missed: ["France", "China"], total: 20,
+                           regionOf: { $0 == "France" ? .europe : ($0 == "China" ? .asia : nil) },
+                           counts: counts, worldCount: 190) == .several)
+expect("infer other when nothing matches",
+       StatsScopeKey.infer(missed: [], total: 7, regionOf: { _ in nil },
+                           counts: counts, worldCount: 190) == .other)
 
 print(fails.isEmpty ? "stats: all pass" : "stats FAILS: \(fails)")
 exit(fails.isEmpty ? 0 : 1)

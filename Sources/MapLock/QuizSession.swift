@@ -567,7 +567,7 @@ final class QuizSession: ObservableObject {
             let final = raw + speedrunPenalty
             speedrunRawText = SpeedrunClock.format(raw)
             speedrunFinalTime = SpeedrunClock.format(final)
-            let scopeKey = mapScope.map { StatsScopeKey.from(practiceScope: $0) } ?? .unknown
+            let scopeKey = statsScope
             let key = SpeedrunKey.make(subject: subject, style: speedrunStyle, scope: scopeKey)
             let saved = stats.recordSpeedrun(key: key, duration: final, misses: speedrunWrongs,
                                              countries: score, now: now)
@@ -582,19 +582,21 @@ final class QuizSession: ObservableObject {
         }
         let duration = Date().timeIntervalSince(startedAt)
         streak = stats.finishSession()
-        let scopeKey: StatsScopeKey
-        if let mapScope {
-            scopeKey = StatsScopeKey.from(practiceScope: mapScope)
-        } else {
-            let regions = Set(pool.compactMap { byName[$0]?.region })
-            scopeKey = StatsScopeKey.from(poolRegions: regions)
-        }
+        let scopeKey = statsScope
         stats.recordQuiz(score: score, total: askedCount, duration: duration,
                          missed: Array(Set(pendingRetry)),
                          kind: kind == .practice ? .practice : .lock,
                          subject: subject, scope: scopeKey)
         phase = .finished
         updateRound()
+    }
+
+    /// The place this quiz covers. Unlock quizzes have no map scope, so the
+    /// countries actually in the pool decide it.
+    var statsScope: StatsScopeKey {
+        if let mapScope { return StatsScopeKey.from(practiceScope: mapScope) }
+        let regions = Set(pool.compactMap { byName[$0]?.region })
+        return StatsScopeKey.from(poolRegions: regions)
     }
 
     // MARK: Closing

@@ -125,7 +125,9 @@ private struct SpeedrunQuestionView: View {
             mapScope: session.scope,
             revealTarget: false,
             speedrunCue: session.burst,
-            found: session.found
+            found: session.found,
+            cursorPrompt: cursorPrompt,
+            cursorPromptSuspended: session.confirmingEnd
         ) { name in
             session.click(name)
         }
@@ -137,6 +139,21 @@ private struct SpeedrunQuestionView: View {
         )
         .shadow(color: Theme.shadow, radius: 12, x: 0, y: 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var cursorPrompt: MapCursorPrompt? {
+        guard AppSettings().cursorPrompt else { return nil }
+        let note: String?
+        let good: Bool
+        if let chip = session.answerChip {
+            note = chip.right ? "Correct!" : "Wrong"
+            good = chip.right
+        } else {
+            note = nil
+            good = false
+        }
+        return MapCursorPrompt.click(subject: .countries, country: country.name, detail: country.name,
+                                     note: note, noteIsGood: good)
     }
 
     private var clickAspect: Double {

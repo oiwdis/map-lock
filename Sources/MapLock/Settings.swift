@@ -207,6 +207,7 @@ final class AppSettings {
         static let appearance = "maplock.appearance"
         static let answerSounds = "maplock.answerSounds"
         static let friendRequestNotifications = "maplock.friendRequestNotifications"
+        static let cursorPrompt = "maplock.cursorPrompt"
         static let questionCount = "maplock.questionCount"
         static let requirePerfect = "maplock.requirePerfect"
         // Practice tab.
@@ -286,6 +287,12 @@ final class AppSettings {
     var friendRequestNotifications: Bool {
         get { defaults.object(forKey: Keys.friendRequestNotifications) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Keys.friendRequestNotifications) }
+    }
+
+    /// The small "Click on …" label that follows the pointer. On unless turned off.
+    var cursorPrompt: Bool {
+        get { defaults.object(forKey: Keys.cursorPrompt) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Keys.cursorPrompt) }
     }
 
     var quizOnUnlock: Bool {

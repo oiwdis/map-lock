@@ -185,6 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         do {
             let data = try Data(contentsOf: url)
             world = try WorldLoader.parse(data)
+            stats.repairQuizScopes(world: world)
         } catch {
             loadError = "Could not read map data: \(error.localizedDescription)"
         }

@@ -99,6 +99,10 @@ final class HomeModel: ObservableObject {
         didSet { if !loading { settings.friendRequestNotifications = friendRequestNotifications; onChange() } }
     }
 
+    @Published var cursorPrompt = true {
+        didSet { if !loading { settings.cursorPrompt = cursorPrompt; onChange() } }
+    }
+
     @Published var questionCount: QuestionCount = .five {
         didSet { if !loading { settings.questionCount = questionCount; onChange() } }
     }
@@ -202,6 +206,7 @@ final class HomeModel: ObservableObject {
         quizOnWake = settings.quizOnWake
         answerSounds = settings.answerSounds
         friendRequestNotifications = settings.friendRequestNotifications
+        cursorPrompt = settings.cursorPrompt
         questionCount = settings.questionCount
         requirePerfect = settings.requirePerfect
         subject = settings.subject
@@ -1280,6 +1285,7 @@ private struct SettingsPane: View {
             Section {
                 Toggle("Answer sounds", isOn: $model.answerSounds)
                 Toggle("Friend request notifications", isOn: $model.friendRequestNotifications)
+                Toggle("Show prompt next to cursor", isOn: $model.cursorPrompt)
                 Toggle("Open at login", isOn: $model.openAtLogin)
                     .disabled(!model.canUseLoginItem)
                 if let message = model.loginMessage {

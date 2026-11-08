@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.2
+
+- Click-the-map questions show a small "Click on …" label next to the pointer. Flag mode shows the flag without the country name. Turn it off in Settings.
+- Stats no longer files quizzes under Unknown. Each one is labeled with its place, and older saved quizzes are filled in when the countries or the question count make the place clear.
+
 ## 1.3.1
 
 - Friend requests show up for the person who was asked, with a badge and a notification. Friends refreshes when you open it, when you sync, and while that tab is open.

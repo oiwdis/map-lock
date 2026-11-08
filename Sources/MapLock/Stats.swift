@@ -32,31 +32,63 @@ enum StatsScopeKey: String, Codable, CaseIterable {
     case southAmerica = "South America"
     case several
     case unknown
+    /// A quiz whose place cannot be recovered.
+    case other
 
     var title: String {
         switch self {
         case .world: return "Whole world"
         case .several: return "Several regions"
-        case .unknown: return "Unknown"
+        case .unknown, .other: return "Other"
         default: return rawValue
         }
     }
 
     static func from(practiceScope: PracticeScope?) -> StatsScopeKey {
-        guard let practiceScope else { return .unknown }
+        guard let practiceScope else { return .other }
         switch practiceScope {
         case .world: return .world
         case .region(let r):
-            return StatsScopeKey(rawValue: r.rawValue) ?? .unknown
+            return StatsScopeKey(rawValue: r.rawValue) ?? .other
         }
     }
 
     static func from(poolRegions: Set<Region>) -> StatsScopeKey {
-        if poolRegions.isEmpty { return .unknown }
+        if poolRegions.isEmpty { return .other }
         if poolRegions.count == 1, let only = poolRegions.first {
-            return StatsScopeKey(rawValue: only.rawValue) ?? .unknown
+            return StatsScopeKey(rawValue: only.rawValue) ?? .other
         }
         return .several
+    }
+
+    /// A saved quiz with no place. Missed country names win. A total that matches
+    /// one continent, or the whole world, is used when the miss list is empty.
+    static func infer(missed: [String], total: Int, regionOf: (String) -> StatsScopeKey?,
+                      counts: [StatsScopeKey: Int], worldCount: Int) -> StatsScopeKey {
+        let places = Set(missed.compactMap { name -> StatsScopeKey? in
+            guard let key = regionOf(name), key != .unknown, key != .other, key != .several, key != .world else { return nil }
+            return key
+        })
+        if places.count == 1, let only = places.first { return only }
+        if places.count >= 2 {
+            if worldCount > 0, abs(total - worldCount) <= 2 { return .world }
+            return .several
+        }
+        if total > 0 {
+            if worldCount > 0, abs(total - worldCount) <= 2 { return .world }
+            let near = counts.filter { key, count in
+                key != .world && key != .unknown && key != .other && key != .several && abs(count - total) <= 1
+            }
+            if near.count == 1, let key = near.keys.first { return key }
+            let africa = counts[.africa] ?? 0
+            let asia = counts[.asia] ?? 0
+            if africa > 0, asia > 0, abs(total - (africa + asia)) <= 2 { return .several }
+        }
+        return .other
+    }
+
+    var needsPlaceRepair: Bool {
+        self == .unknown || self == .other
     }
 
     /// Places a speedrun can be scored against, in the same order as the practice picker.
@@ -242,6 +274,8 @@ final class StatsStore {
     private(set) var quizzes: [QuizRecord] = []
     private(set) var speedruns: [SpeedrunRecord] = []
     private var speedrunBests: [String: Double] = [:]
+    /// Country places, filled once the map has loaded. Used again after a sync.
+    private var scopeCensus: (regionOf: [String: StatsScopeKey], counts: [StatsScopeKey: Int], worldCount: Int)?
 
     private enum Keys {
         static let stats = "maplock.stats"
@@ -558,15 +592,16 @@ final class StatsStore {
 
     private func breakdownByScope(_ rows: [QuizRecord]) -> [StatsBreakdownRow] {
         let order: [StatsScopeKey] = [
-            .africa, .asia, .europe, .northAmerica, .southAmerica, .world, .several, .unknown,
+            .africa, .asia, .europe, .northAmerica, .southAmerica, .world, .several, .other,
         ]
         var map: [StatsScopeKey: (q: Int, c: Int, t: Int)] = [:]
         for r in rows {
-            var cur = map[r.scope] ?? (0, 0, 0)
+            let key: StatsScopeKey = r.scope == .unknown ? .other : r.scope
+            var cur = map[key] ?? (0, 0, 0)
             cur.q += 1
             cur.c += r.score
             cur.t += r.total
-            map[r.scope] = cur
+            map[key] = cur
         }
         return order.compactMap { key in
             guard let v = map[key], v.q > 0 else { return nil }
@@ -661,9 +696,56 @@ final class StatsStore {
         }
         speedrunBests = Self.migratedBests(payload.speedrunBests)
         stats = payload.countries
+        applyScopeRepair()
         saveQuizzes()
         saveSpeedruns()
         saveStats()
+    }
+
+    /// Rewrites quizzes saved before a place was recorded. Call once the map is loaded,
+    /// and again after a sync so the server copy uses the same place keys.
+    func repairQuizScopes(world: [Country]) {
+        var regionOf: [String: StatsScopeKey] = [:]
+        var counts: [StatsScopeKey: Int] = [:]
+        var worldCount = 0
+        for country in world where country.quizzable {
+            let key = StatsScopeKey.from(poolRegions: [country.region])
+            regionOf[country.name] = key
+            counts[key, default: 0] += 1
+            worldCount += 1
+        }
+        scopeCensus = (regionOf, counts, worldCount)
+        applyScopeRepair()
+    }
+
+    private func applyScopeRepair() {
+        guard let census = scopeCensus else { return }
+        var quizChanged = false
+        quizzes = quizzes.map { record in
+            guard record.scope.needsPlaceRepair else { return record }
+            let inferred = StatsScopeKey.infer(missed: record.missed, total: record.total,
+                                                regionOf: { census.regionOf[$0] },
+                                                counts: census.counts, worldCount: census.worldCount)
+            guard inferred.rawValue != record.scopeRaw else { return record }
+            quizChanged = true
+            var copy = record
+            copy.scopeRaw = inferred.rawValue
+            return copy
+        }
+        var runChanged = false
+        speedruns = speedruns.map { run in
+            guard run.scope.needsPlaceRepair else { return run }
+            let inferred = StatsScopeKey.infer(missed: [], total: run.countries,
+                                                regionOf: { _ in nil },
+                                                counts: census.counts, worldCount: census.worldCount)
+            guard inferred.rawValue != run.scopeRaw else { return run }
+            runChanged = true
+            var copy = run
+            copy.scopeRaw = inferred.rawValue
+            return copy
+        }
+        if quizChanged { saveQuizzes() }
+        if runChanged { saveSpeedruns() }
     }
 
     static func previewSnapshot(_ payload: SyncPayload) -> StatsSnapshot {

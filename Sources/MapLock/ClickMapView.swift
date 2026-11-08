@@ -21,6 +21,10 @@ struct ClickMapView: View {
     var found: Set<String> = []
     /// Fired once the layout exists, after a warm hit-test, so the clock can start.
     var onReady: (() -> Void)? = nil
+    /// Seterra-style label that follows the pointer. Nil hides it.
+    var cursorPrompt: MapCursorPrompt? = nil
+    /// True while a modal covers the quiz, so the label does not float over the dialog.
+    var cursorPromptSuspended = false
     let onClick: (String) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -30,6 +34,9 @@ struct ClickMapView: View {
     @State private var clicks: [(name: String, at: CGPoint)] = []
     @State private var pins: [MapPin] = []
     @State private var pinnedNames: Set<String> = []
+    @State private var pointer: CGPoint?
+    @State private var panning = false
+    @State private var promptSize = CGSize(width: 180, height: 36)
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -78,6 +85,10 @@ struct ClickMapView: View {
                         clicks.append((name, viewPoint))
                         onClick(name)
                     },
+                    onPointer: { point, dragging in
+                        panning = dragging
+                        pointer = dragging ? nil : point
+                    },
                     onHover: { viewPoint in
                         guard let viewPoint else {
                             if hovered != nil { hovered = nil }
@@ -107,6 +118,25 @@ struct ClickMapView: View {
                 }
                 .padding(10)
                 .allowsHitTesting(true)
+
+                if let cursorPrompt, let pointer, !panning, !cursorPromptSuspended {
+                    MapCursorPromptPill(prompt: cursorPrompt)
+                        .fixedSize()
+                        .background(
+                            GeometryReader { proxy in
+                                Color.clear.preference(key: PromptSizeKey.self, value: proxy.size)
+                            }
+                        )
+                        .position(promptCenter(pointer: pointer, map: geo.size))
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .onPreferenceChange(PromptSizeKey.self) { size in
+                guard size.width > 1 else { return }
+                if abs(size.width - promptSize.width) > 0.5 || abs(size.height - promptSize.height) > 0.5 {
+                    promptSize = size
+                }
             }
             .clipShape(Rectangle())
             .contentShape(Rectangle())
@@ -135,6 +165,12 @@ struct ClickMapView: View {
             hovered = nil
             zoom.reset()
         }
+        .onChange(of: enabled) { _, on in
+            if !on {
+                pointer = nil
+                panning = false
+            }
+        }
         .onChange(of: mapScope) { _, _ in
             zoom.reset()
         }
@@ -151,6 +187,11 @@ struct ClickMapView: View {
         }
     }
 
+    private func promptCenter(pointer: CGPoint, map: CGSize) -> CGPoint {
+        let origin = MapZoomState.cursorPromptOrigin(pointer: pointer, map: map, pill: promptSize)
+        return CGPoint(x: origin.x + promptSize.width / 2, y: origin.y + promptSize.height / 2)
+    }
+
     /// Dot center for a microstate, otherwise the exact click.
     private func pinPoint(name: String, click: CGPoint, layout: ClickLayout, size: CGSize) -> CGPoint {
         guard let part = layout.targets.first(where: { $0.name == name }), let dot = part.dot else { return click }
@@ -159,6 +200,75 @@ struct ClickMapView: View {
             x: (dot.x - c.x) * zoom.scale + c.x + zoom.offset.width,
             y: (dot.y - c.y) * zoom.scale + c.y + zoom.offset.height
         )
+    }
+}
+
+/// The small label that rides next to the pointer in click-the-map questions.
+struct MapCursorPrompt: Equatable {
+    var lead: String
+    var emphasis: String?
+    var flag: String?
+    var note: String?
+    var noteIsGood: Bool = false
+
+    static func click(subject: QuizSubject, country: String, detail: String, flag: String? = nil,
+                      note: String? = nil, noteIsGood: Bool = false) -> MapCursorPrompt {
+        switch subject {
+        case .countries:
+            return MapCursorPrompt(lead: "Click on", emphasis: country,
+                                   flag: flag ?? CountryFacts.flagEmoji(for: country),
+                                   note: note, noteIsGood: noteIsGood)
+        case .capitals:
+            return MapCursorPrompt(lead: "Click on", emphasis: detail, flag: nil,
+                                   note: note, noteIsGood: noteIsGood)
+        case .flags:
+            return MapCursorPrompt(lead: "Click on", emphasis: nil,
+                                   flag: flag ?? CountryFacts.flagEmoji(for: country),
+                                   note: note, noteIsGood: noteIsGood)
+        }
+    }
+}
+
+private struct PromptSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        let next = nextValue()
+        if next.width > 0 { value = next }
+    }
+}
+
+struct MapCursorPromptPill: View {
+    var prompt: MapCursorPrompt
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let note = prompt.note {
+                Text(note)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(prompt.noteIsGood
+                                     ? Color(red: 0.09, green: 0.45, blue: 0.18)
+                                     : Color(red: 0.78, green: 0.16, blue: 0.14))
+            }
+            Text(prompt.lead)
+                .font(.system(size: 15, weight: .medium))
+            if let emphasis = prompt.emphasis, !emphasis.isEmpty {
+                Text(emphasis)
+                    .font(.system(size: 15, weight: .bold))
+            }
+            if let flag = prompt.flag, !flag.isEmpty {
+                Text(flag)
+                    .font(.system(size: 18))
+            }
+        }
+        .foregroundStyle(Color(white: 0.12))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(0.92))
+                .shadow(color: Color.black.opacity(0.18), radius: 10, y: 4)
+        )
+        .fixedSize()
     }
 }
 

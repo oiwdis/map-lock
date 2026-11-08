@@ -218,7 +218,9 @@ private struct QuestionView: View {
                     mapScope: session.mapScope,
                     speedrunCue: session.speedrunCue?.showsMap == true ? session.speedrunCue?.mapCue : nil,
                     found: session.foundCountries,
-                    onReady: { session.noteSpeedrunVisible() }
+                    onReady: { session.noteSpeedrunVisible() },
+                    cursorPrompt: cursorPrompt,
+                    cursorPromptSuspended: session.phase == .finished || session.confirmingSkip
                 ) { name in
                     session.click(name)
                 }
@@ -294,7 +296,7 @@ private struct QuestionView: View {
         HStack(spacing: Theme.Space.s4) {
             if let label = clickPromptLabel {
                 Text(label)
-                    .font(Theme.font(Theme.Size.xl, .bold))
+                    .font(Theme.font(Theme.Size.lg, .bold))
                     .kerning(-0.4)
                     .foregroundStyle(clickNameColor)
                     .modifier(ShakeEffect(shakes: CGFloat(session.shakeCount)))
@@ -305,6 +307,22 @@ private struct QuestionView: View {
                     .buttonStyle(QuietButtonStyle())
             }
         }
+    }
+
+    private var cursorPrompt: MapCursorPrompt? {
+        guard question.kind == .click, AppSettings().cursorPrompt else { return nil }
+        let note: String?
+        let good: Bool
+        if let chip = session.answerChip {
+            note = chip.right ? "Correct!" : "Wrong"
+            good = chip.right
+        } else {
+            note = nil
+            good = false
+        }
+        return MapCursorPrompt.click(subject: question.subject, country: question.target.name,
+                                     detail: question.answer, flag: question.flagEmoji,
+                                     note: note, noteIsGood: good)
     }
 
     /// Name or capital next to the map. Flags rely on the emoji above, so no label.
@@ -699,7 +717,7 @@ private struct FinishedView: View {
                     .background(Capsule().fill(Theme.accent.opacity(0.14)))
             }
             Text(SpeedrunKey.title(SpeedrunKey.make(subject: session.subject, style: session.speedrunStyle,
-                                                    scope: session.mapScope.map { StatsScopeKey.from(practiceScope: $0) } ?? .unknown)))
+                                                    scope: session.statsScope)))
                 .font(Theme.font(Theme.Size.sm))
                 .foregroundStyle(Theme.text2)
                 .multilineTextAlignment(.center)

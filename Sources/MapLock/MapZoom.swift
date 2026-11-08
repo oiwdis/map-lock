@@ -79,6 +79,27 @@ struct MapZoomState: Equatable {
         offset.height = min(max(offset.height, -maxY), maxY)
     }
 
+    /// Top-left of the cursor prompt. Screen points, not map points, so zoom does not change its size.
+    /// Sits 18pt right and 14pt below the pointer, and flips toward the open side near an edge.
+    static func cursorPromptOrigin(pointer: CGPoint, map: CGSize, pill: CGSize) -> CGPoint {
+        let gapX: CGFloat = 18
+        let gapY: CGFloat = 14
+        let margin: CGFloat = 8
+        var x = pointer.x + gapX
+        var y = pointer.y + gapY
+        if pill.width > 0, x + pill.width > map.width - margin {
+            x = pointer.x - gapX - pill.width
+        }
+        if pill.height > 0, y + pill.height > map.height - margin {
+            y = pointer.y - gapY - pill.height
+        }
+        let maxX = max(margin, map.width - max(pill.width, 0) - margin)
+        let maxY = max(margin, map.height - max(pill.height, 0) - margin)
+        x = min(max(x, margin), maxX)
+        y = min(max(y, margin), maxY)
+        return CGPoint(x: x, y: y)
+    }
+
     /// View/screen point -> map layout point (FittedMap coordinates).
     func mapPoint(from viewPoint: CGPoint, in size: CGSize) -> CGPoint {
         let c = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -149,6 +170,8 @@ struct MapInteractionOverlay: NSViewRepresentable {
     var onZoomChange: (MapZoomState) -> Void
     var onClick: ((CGPoint) -> Void)?
     var onHover: ((CGPoint?) -> Void)?
+    /// Pointer in view points, and whether a drag-pan is underway. Nil means it left the map.
+    var onPointer: ((CGPoint?, Bool) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -250,6 +273,7 @@ final class MapInteractionView: NSView {
         let dy = p.y - c.mouseDownPoint.y
         if !c.isDragging, hypot(dx, dy) < 4 { return }
         guard parent.zoom.isZoomed else { return }
+        if !c.isDragging { parent.onPointer?(p, true) }
         c.isDragging = true
         mutateZoom { zoom, size in
             zoom.offset = CGSize(width: c.dragStartOffset.width + dx,
@@ -265,14 +289,19 @@ final class MapInteractionView: NSView {
             parent.onClick?(p)
         }
         c.isDragging = false
+        parent.onPointer?(p, false)
     }
 
     override func mouseMoved(with event: NSEvent) {
-        guard let c = coordinator, let parent = c.parent, parent.clicksEnabled else { return }
-        parent.onHover?(viewPoint(from: event))
+        guard let c = coordinator, let parent = c.parent else { return }
+        let point = viewPoint(from: event)
+        parent.onPointer?(point, false)
+        guard parent.clicksEnabled else { return }
+        parent.onHover?(point)
     }
 
     override func mouseExited(with event: NSEvent) {
+        coordinator?.parent?.onPointer?(nil, false)
         coordinator?.parent?.onHover?(nil)
     }
 }
