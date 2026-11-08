@@ -74,7 +74,17 @@ struct RaceInvite: Codable, Identifiable, Equatable {
     var style: String
     var createdAt: Int
 
-    var placeName: String { region == "world" ? "Whole world" : region }
+    var countries: [String]?
+
+    var placeName: String {
+        if region == "custom" {
+            if let countries, countries.count >= 2 {
+                return CustomSets.displayTitle(countries: countries)
+            }
+            return "Custom"
+        }
+        return region == "world" ? "Whole world" : region
+    }
 
     var sentence: String { "\(fromUsername) challenged you to a race (\(placeName))" }
 }
@@ -109,7 +119,17 @@ struct RaceHistoryItem: Codable, Identifiable {
     var race: RaceHistoryRace?
     var id: String { code }
 
-    var placeName: String { region == "world" ? "Whole world" : region }
+    var countries: [String]?
+
+    var placeName: String {
+        if region == "custom" {
+            if let countries, countries.count >= 2 {
+                return CustomSets.displayTitle(countries: countries)
+            }
+            return "Custom"
+        }
+        return region == "world" ? "Whole world" : region
+    }
 }
 
 struct RaceTicket: Codable, Equatable {
@@ -118,8 +138,24 @@ struct RaceTicket: Codable, Equatable {
     var seed: String
     var subject: String
     var style: String
+    var countries: [String]?
     var webUrl: String
     var appUrl: String
+
+    /// Continent, world, or the country list stored with a custom race.
+    var practiceScope: PracticeScope? {
+        if region == "custom", let countries, countries.count >= 2 {
+            return .custom(countries: countries)
+        }
+        return PracticeScope.fromServer(region)
+    }
+}
+
+private struct RaceCreateBody: Encodable {
+    var region: String
+    var subject: String
+    var style: String
+    var countries: [String]?
 }
 
 struct FriendStatsResponse: Codable {
@@ -203,9 +239,9 @@ enum AccountClient {
                                json: try encode(payload)).stats
     }
 
-    static func createRace(region: String, subject: String, style: String, token: String) async throws -> RaceTicket {
+    static func createRace(region: String, subject: String, style: String, countries: [String]? = nil, token: String) async throws -> RaceTicket {
         try await send(RaceTicket.self, path: "/v1/races", method: "POST", token: token,
-                       json: try encode(["region": region, "subject": subject, "style": style]))
+                       json: try encode(RaceCreateBody(region: region, subject: subject, style: style, countries: countries)))
     }
 
     static func joinRace(code: String, token: String) async throws -> RaceTicket {

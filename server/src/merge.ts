@@ -1,3 +1,5 @@
+import { isCustomBestPlace } from "./customCountries.ts";
+
 export type JsonObject = Record<string, unknown>;
 
 export interface SyncPayload {
@@ -21,6 +23,7 @@ export function canonicalBestKey(key: string): string | null {
   const [subject, style, region] = parts;
   if (!["countries", "capitals", "flags"].includes(subject)) return null;
   if (!["choice", "type", "click"].includes(style)) return null;
+  if (isCustomBestPlace(region)) return key;
   if (!isRegion(region)) return null;
   return key;
 }

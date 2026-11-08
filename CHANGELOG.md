@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.6
+
+- Custom place: pick individual countries, or add a whole continent, and save named sets. Practice, speedrun, unlock, and races can use that list. The map fits those countries and dims the rest.
+
 ## 1.3.5
 
 - Challenging a friend from the Friends list creates the race and invites them. They get a notification on their Mac, with Join and Decline, even if Map Lock is in the background.

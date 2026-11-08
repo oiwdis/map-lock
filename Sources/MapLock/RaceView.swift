@@ -334,7 +334,7 @@ struct RaceView: View {
                     Text(SpeedrunKey.title(SpeedrunKey.make(
                         subject: QuizSubject(rawValue: session.ticket.subject) ?? .countries,
                         style: PracticeAnswerStyle(rawValue: session.ticket.style) ?? .clickMap,
-                        scope: StatsScopeKey.from(practiceScope: session.scope)
+                        place: session.scope.placeKey
                     )))
                     .font(Theme.font(Theme.Size.sm))
                     .foregroundStyle(Theme.text2)

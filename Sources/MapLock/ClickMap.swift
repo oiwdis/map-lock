@@ -80,14 +80,21 @@ enum ClickMap {
                 return c.region == region
             case .some(.world):
                 return true
+            case .some(.custom):
+                return true
             }
         }
+        let chosen: Set<String>? = {
+            if case .some(.custom(let countries)) = scope { return Set(countries) }
+            return nil
+        }()
         var result: [ClickTarget] = []
         for country in world where inScope(country) {
             let name: String
-            if country.quizzable {
+            let inQuiz = country.quizzable && (chosen?.contains(country.name) ?? true)
+            if inQuiz {
                 name = country.name
-            } else if let alias = clickAliases[country.name] {
+            } else if let alias = clickAliases[country.name], chosen?.contains(alias) ?? true {
                 name = alias
             } else {
                 name = ""   // not asked: a click here is ignored like the sea
@@ -97,7 +104,7 @@ enum ClickMap {
             let bounds = boundsOf(polygons)
             guard bounds.intersects(screen) else { continue }
             // Alias pieces never get their own dot.
-            let anchor = country.quizzable && wantsDot(country, polygons: polygons) ? dotCenter(for: polygons) : nil
+            let anchor = inQuiz && wantsDot(country, polygons: polygons) ? dotCenter(for: polygons) : nil
             var dot = anchor
             // Bahrain sits right next to Qatar: its dot starts up and to the left of the island,
             // out over the Gulf, with a leader line, so it covers none of Qatar.

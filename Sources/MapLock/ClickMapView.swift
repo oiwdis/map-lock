@@ -285,8 +285,10 @@ struct ClickLayout {
     let map: FittedMap
     let region: Region
     let targets: [ClickTarget]
-    /// Whole-world practice draws every region, not only the target's.
+    /// Whole-world and custom practice draw every region, not only the target's.
     var drawsAllRegions: Bool = false
+    /// When set, countries outside the list are drawn dimmed and are not clickable.
+    var quizNames: Set<String>? = nil
 }
 
 /// Keeps the layout between redraws (hover changes redraw often). Not observed on purpose.
@@ -300,6 +302,7 @@ final class ClickLayoutCache {
             case .none: return target.region.rawValue
             case .some(.world): return "world"
             case .some(.region(let r)): return r.rawValue
+            case .some(.custom(let countries)): return CustomSets.placeKey(countries)
             }
         }()
         let key = "\(scopeKey)|\(Int(size.width))x\(Int(size.height))|\(world.count)"
@@ -312,13 +315,22 @@ final class ClickLayoutCache {
         }
         let map = FittedMap(projection: plan.projection, fit: plan.fit, size: size)
         let targets = ClickMap.targets(for: target, world: world, map: map, size: size, scope: scope)
-        let worldScope: Bool = { if case .some(.world) = scope { return true }; return false }()
+        let drawsAll: Bool = {
+            switch scope {
+            case .some(.world), .some(.custom): return true
+            default: return false
+            }
+        }()
+        let quizNames: Set<String>? = {
+            if case .some(.custom(let countries)) = scope { return Set(countries) }
+            return nil
+        }()
         let layoutRegion: Region = {
             if case .some(.region(let r)) = scope { return r }
             return target.region
         }()
         let made = ClickLayout(key: key, plan: plan, map: map, region: layoutRegion,
-                               targets: targets, drawsAllRegions: worldScope)
+                               targets: targets, drawsAllRegions: drawsAll, quizNames: quizNames)
         last = made
         return made
     }
@@ -357,8 +369,11 @@ private struct ClickBaseMap: View, Equatable {
             for country in world where layout.drawsAllRegions || country.region == layout.region {
                 let path = MapDrawing.makePath(layout.map.viewPolygons(for: country))
                 guard path.boundingRect.intersects(visible) else { continue }
-                mapContext.fill(path, with: .color(Theme.land), style: FillStyle(eoFill: true))
-                mapContext.stroke(path, with: .color(Theme.border),
+                let dimmed = layout.quizNames?.contains(country.name) == false
+                let land = dimmed ? Theme.land.opacity(0.32) : Theme.land
+                let border = dimmed ? Theme.border.opacity(0.35) : Theme.border
+                mapContext.fill(path, with: .color(land), style: FillStyle(eoFill: true))
+                mapContext.stroke(path, with: .color(border),
                                   style: StrokeStyle(lineWidth: 0.6 / inv, lineJoin: .round))
             }
         }

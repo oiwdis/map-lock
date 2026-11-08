@@ -34,12 +34,15 @@ enum StatsScopeKey: String, Codable, CaseIterable {
     case unknown
     /// A quiz whose place cannot be recovered.
     case other
+    /// A hand-picked country list. The set name, when there is one, is stored on the quiz.
+    case custom = "Custom"
 
     var title: String {
         switch self {
         case .world: return "Whole world"
         case .several: return "Several regions"
         case .unknown, .other: return "Other"
+        case .custom: return "Custom"
         default: return rawValue
         }
     }
@@ -48,6 +51,7 @@ enum StatsScopeKey: String, Codable, CaseIterable {
         guard let practiceScope else { return .other }
         switch practiceScope {
         case .world: return .world
+        case .custom: return .custom
         case .region(let r):
             return StatsScopeKey(rawValue: r.rawValue) ?? .other
         }
@@ -144,12 +148,15 @@ struct QuizRecord: Codable, Identifiable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, date, score, total, duration, missed, kind, subjectRaw, scopeRaw, asked
+        case id, date, score, total, duration, missed, kind, subjectRaw, scopeRaw, asked, placeName
     }
+
+    /// Set name for a custom quiz. Nil for continent and world quizzes.
+    var placeName: String? = nil
 
     init(date: Date, score: Int, total: Int, duration: TimeInterval, missed: [String],
          kind: QuizRecordKind, subject: QuizSubject, scope: StatsScopeKey,
-         asked: [AskedCountry] = [], id: UUID = UUID()) {
+         asked: [AskedCountry] = [], placeName: String? = nil, id: UUID = UUID()) {
         self.id = id
         self.date = date
         self.score = score
@@ -160,6 +167,7 @@ struct QuizRecord: Codable, Identifiable, Equatable {
         self.subjectRaw = subject.rawValue
         self.scopeRaw = scope.rawValue
         self.asked = asked
+        self.placeName = placeName
     }
 
     func encode(to encoder: Encoder) throws {
@@ -174,6 +182,7 @@ struct QuizRecord: Codable, Identifiable, Equatable {
         try c.encode(subjectRaw, forKey: .subjectRaw)
         try c.encode(scopeRaw, forKey: .scopeRaw)
         try c.encode(asked, forKey: .asked)
+        try c.encodeIfPresent(placeName, forKey: .placeName)
     }
 
     init(from decoder: Decoder) throws {
@@ -190,6 +199,7 @@ struct QuizRecord: Codable, Identifiable, Equatable {
         scopeRaw = try c.decodeIfPresent(String.self, forKey: .scopeRaw)
             ?? StatsScopeKey.unknown.rawValue
         asked = try c.decodeIfPresent([AskedCountry].self, forKey: .asked) ?? []
+        placeName = try c.decodeIfPresent(String.self, forKey: .placeName)
     }
 }
 
@@ -460,11 +470,11 @@ final class StatsStore {
 
     func recordQuiz(score: Int, total: Int, duration: TimeInterval, missed: [String],
                     kind: QuizRecordKind, subject: QuizSubject, scope: StatsScopeKey,
-                    asked: [AskedCountry] = [], now: Date = Date()) {
+                    asked: [AskedCountry] = [], placeName: String? = nil, now: Date = Date()) {
         guard total > 0 else { return }
         let record = QuizRecord(date: now, score: score, total: total, duration: duration,
                                 missed: missed, kind: kind, subject: subject, scope: scope,
-                                asked: asked)
+                                asked: asked, placeName: placeName)
         quizzes.insert(record, at: 0)
         if quizzes.count > Self.maxQuizRecords {
             quizzes = Array(quizzes.prefix(Self.maxQuizRecords))
@@ -590,6 +600,9 @@ final class StatsStore {
         guard parts.count == 3,
               let subject = QuizSubject(rawValue: parts[0]),
               let style = PracticeAnswerStyle(rawValue: parts[1]) else { return nil }
+        if parts[2].hasPrefix("custom:") || parts[2] == StatsScopeKey.custom.rawValue {
+            return (subject, style, .custom)
+        }
         switch StatsScopeKey(rawValue: parts[2]) ?? .unknown {
         case .africa: return (subject, style, .africa)
         case .asia: return (subject, style, .asia)
@@ -597,6 +610,7 @@ final class StatsStore {
         case .northAmerica: return (subject, style, .northAmerica)
         case .southAmerica: return (subject, style, .southAmerica)
         case .world: return (subject, style, .world)
+        case .custom: return (subject, style, .custom)
         case .several, .unknown, .other: return nil
         }
     }
@@ -639,21 +653,25 @@ final class StatsStore {
     }
 
     private func breakdownByScope(_ rows: [QuizRecord]) -> [StatsBreakdownRow] {
-        let order: [StatsScopeKey] = [
-            .africa, .asia, .europe, .northAmerica, .southAmerica, .world, .several, .other,
-        ]
-        var map: [StatsScopeKey: (q: Int, c: Int, t: Int)] = [:]
+        func label(for r: QuizRecord) -> String {
+            if r.scope == .unknown { return StatsScopeKey.other.title }
+            if r.scope == .custom { return r.placeName ?? "Custom" }
+            return r.scope.title
+        }
+        let preferred = ["Africa", "Asia", "Europe", "North America", "South America", "Whole world", "Custom", "Several regions", "Other"]
+        var map: [String: (q: Int, c: Int, t: Int)] = [:]
         for r in rows {
-            let key: StatsScopeKey = r.scope == .unknown ? .other : r.scope
+            let key = label(for: r)
             var cur = map[key] ?? (0, 0, 0)
             cur.q += 1
             cur.c += r.score
             cur.t += r.total
             map[key] = cur
         }
+        let order = preferred + map.keys.filter { !preferred.contains($0) }.sorted()
         return order.compactMap { key in
             guard let v = map[key], v.q > 0 else { return nil }
-            return StatsBreakdownRow(label: key.title, quizzes: v.q, correct: v.c, total: v.t)
+            return StatsBreakdownRow(label: key, quizzes: v.q, correct: v.c, total: v.t)
         }
     }
 

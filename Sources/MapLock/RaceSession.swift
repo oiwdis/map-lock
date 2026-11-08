@@ -149,7 +149,8 @@ final class RaceSession: ObservableObject {
         Task {
             do {
                 let created = try await AccountClient.createRace(
-                    region: ticket.region, subject: ticket.subject, style: ticket.style, token: token
+                    region: ticket.region, subject: ticket.subject, style: ticket.style,
+                    countries: ticket.countries, token: token
                 )
                 try await AccountClient.inviteToRace(code: created.code, username: opponentName, token: token)
                 onRematch(created)
@@ -287,7 +288,7 @@ final class RaceSession: ObservableObject {
                 let key = SpeedrunKey.make(
                     subject: QuizSubject(rawValue: ticket.subject) ?? .countries,
                     style: PracticeAnswerStyle(rawValue: ticket.style) ?? .clickMap,
-                    scope: StatsScopeKey.from(practiceScope: scope)
+                    place: scope.placeKey
                 )
                 isPersonalBest = stats.recordSpeedrun(
                     key: key, duration: elapsed, misses: mine.misses, countries: mine.found

@@ -210,6 +210,7 @@ final class AppSettings {
         static let cursorPrompt = "maplock.cursorPrompt"
         static let questionCount = "maplock.questionCount"
         static let requirePerfect = "maplock.requirePerfect"
+        static let unlockUsesCustom = "maplock.unlockUsesCustom"
         // Practice tab.
         static let practiceSubject = "maplock.practice.subject"
         static let practiceCountryStyle = "maplock.practice.style.countries"
@@ -315,6 +316,12 @@ final class AppSettings {
     var requirePerfect: Bool {
         get { defaults.bool(forKey: Keys.requirePerfect) }
         set { defaults.set(newValue, forKey: Keys.requirePerfect) }
+    }
+
+    /// Unlock quizzes use the saved custom country set instead of the region checkboxes.
+    var unlockUsesCustom: Bool {
+        get { defaults.bool(forKey: Keys.unlockUsesCustom) }
+        set { defaults.set(newValue, forKey: Keys.unlockUsesCustom) }
     }
 
     // MARK: Practice

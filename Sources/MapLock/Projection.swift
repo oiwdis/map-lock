@@ -172,6 +172,7 @@ extension MapViews {
         switch scope {
         case .some(.world): return "World"
         case .some(.region(let r)): return r.title
+        case .some(.custom(let countries)): return CustomSets.displayTitle(countries: countries)
         case .none: return regionTitle(for: target)
         }
     }
@@ -220,12 +221,36 @@ extension MapViews {
         return MapPlan(projection: GeoProjection.miller(lon0: centerLon(boxes)), fit: boxes)
     }
 
-    /// Plan for a practice scope: one continent or the whole world.
+    /// Flat view fitted to the chosen countries. Neighbors still draw, dimmed, outside the quiz.
+    static func customPlan(countries: [String], world: [Country]) -> MapPlan {
+        let chosen = Set(countries)
+        var boxes = world.filter { chosen.contains($0.name) }.map { $0.focusBounds }
+        if chosen.contains("Russia") { boxes += russiaExtras }
+        if boxes.isEmpty { return worldPlan(world: world) }
+        return MapPlan(projection: GeoProjection.miller(lon0: centerLon(boxes)), fit: boxes)
+    }
+
+    static func clickAspect(scope: PracticeScope, world: [Country]) -> Double {
+        switch scope {
+        case .world: return 2.0
+        case .region(let region):
+            guard let sample = world.first(where: { $0.quizzable && $0.region == region }) else { return 1.6 }
+            return clickAspect(for: sample, world: world)
+        case .custom(let countries):
+            let plan = customPlan(countries: countries, world: world)
+            let map = FittedMap(projection: plan.projection, fit: plan.fit, size: CGSize(width: 1000, height: 1000), margin: 0)
+            return min(max(map.fitAspect, 1.2), 2.4)
+        }
+    }
+
+    /// Plan for a practice scope: one continent, the whole world, or a custom list.
     static func scopePlan(_ scope: PracticeScope, target: Country, world: [Country]) -> MapPlan {
         switch scope {
         case .world: return worldPlan(world: world)
         case .region:
             return regionPlan(for: target, world: world)
+        case .custom(let countries):
+            return customPlan(countries: countries, world: world)
         }
     }
 

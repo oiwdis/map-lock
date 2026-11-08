@@ -40,7 +40,7 @@ enum QuizEngine {
     /// Builds one question for a target picked by the deck.
     static func makeQuestion(target: Country, number: Int, world: [Country], mode: QuizMode,
                              type: QuizType = .name, subject: QuizSubject = .countries,
-                             stats: StatsStore) -> Question {
+                             stats: StatsStore, allowed: Set<String>? = nil) -> Question {
         // Click means "click the country on the map" for every subject:
         // countries show the name, flags show the flag, capitals show the capital.
         var nameNumber = number
@@ -66,16 +66,16 @@ enum QuizEngine {
 
         switch subject {
         case .countries:
-            let options = kind == .choice ? choiceOptions(for: target, world: world) : []
+            let options = kind == .choice ? choiceOptions(for: target, world: world, allowed: allowed) : []
             return Question(target: target, kind: kind, subject: .countries, options: options,
                             answer: target.name, flagEmoji: nil)
         case .capitals:
             let capital = CountryFacts.capital(of: target.name) ?? target.name
-            let options = kind == .choice ? capitalOptions(for: target, world: world) : []
+            let options = kind == .choice ? capitalOptions(for: target, world: world, allowed: allowed) : []
             return Question(target: target, kind: kind, subject: .capitals, options: options,
                             answer: capital, flagEmoji: nil)
         case .flags:
-            let options = kind == .choice ? choiceOptions(for: target, world: world) : []
+            let options = kind == .choice ? choiceOptions(for: target, world: world, allowed: allowed) : []
             return Question(target: target, kind: kind, subject: .flags, options: options,
                             answer: target.name, flagEmoji: CountryFacts.flagEmoji(for: target.name))
         }
@@ -99,7 +99,8 @@ enum QuizEngine {
 
     /// The answer plus 3 others from the same continent. Two are nearby countries
     /// (harder to tell apart), one is random.
-    static func choiceOptions(for target: Country, world: [Country]) -> [String] {
+    static func choiceOptions(for target: Country, world: [Country], allowed: Set<String>? = nil) -> [String] {
+        let world = allowed.map { names in world.filter { names.contains($0.name) } } ?? world
         let sameRegion = world.filter { $0.quizzable && $0.region == target.region && $0.name != target.name }
 
         func distance(_ c: Country) -> Double {
@@ -126,7 +127,8 @@ enum QuizEngine {
     }
 
     /// Four capital names: the right one plus three others from the same region.
-    static func capitalOptions(for target: Country, world: [Country]) -> [String] {
+    static func capitalOptions(for target: Country, world: [Country], allowed: Set<String>? = nil) -> [String] {
+        let world = allowed.map { names in world.filter { names.contains($0.name) } } ?? world
         let right = CountryFacts.capital(of: target.name) ?? target.name
         var chosen: [String] = []
         let same = world.filter { $0.quizzable && $0.region == target.region && $0.name != target.name }.shuffled()

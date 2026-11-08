@@ -111,6 +111,13 @@ final class HomeModel: ObservableObject {
         didSet { if !loading { settings.requirePerfect = requirePerfect; onChange() } }
     }
 
+    @Published var unlockUsesCustom = false {
+        didSet { if !loading { settings.unlockUsesCustom = unlockUsesCustom; onChange() } }
+    }
+
+    /// Bumps when the custom country set changes, so the start buttons refresh.
+    @Published var customRevision = 0
+
     @Published var subject: QuizSubject = .countries {
         didSet { if !loading { settings.subject = subject; onChange() } }
     }
@@ -209,6 +216,7 @@ final class HomeModel: ObservableObject {
         cursorPrompt = settings.cursorPrompt
         questionCount = settings.questionCount
         requirePerfect = settings.requirePerfect
+        unlockUsesCustom = settings.unlockUsesCustom
         subject = settings.subject
         practiceSubject = settings.practiceSubject
         practiceAnswerStyle = settings.practiceStyle(for: settings.practiceSubject)
@@ -268,7 +276,15 @@ final class HomeModel: ObservableObject {
     }
 
     func startPracticeNow() {
+        guard canStartPractice else { return }
         onPractice(practiceChoice.scope, practiceLength)
+    }
+
+    var canStartPractice: Bool {
+        if practiceChoice == .custom {
+            return CustomSets.countries().count >= 2
+        }
+        return true
     }
 
     /// Opens Practice with Speedrun on, ready for this place and answer method.
@@ -312,6 +328,11 @@ final class HomeModel: ObservableObject {
         switch practiceChoice.scope {
         case .world: place = "Every included country (no Oceania)."
         case .region(let r): place = "Only \(r.title): that continent map and countries only."
+        case .custom:
+            let names = CustomSets.countries()
+            place = names.count < 2
+                ? "Pick at least 2 countries."
+                : "\(CustomSets.displayTitle(countries: names)). Only those countries."
         }
         if practiceSpeedrun {
             return place + " Speedrun asks each one once."
@@ -551,6 +572,7 @@ extension View {
 private struct PracticePane: View {
     @ObservedObject var model: HomeModel
     var toolbarOverlap: CGFloat = 0
+    @State private var editingCustom = false
 
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: Theme.Space.s2)]
 
@@ -574,6 +596,7 @@ private struct PracticePane: View {
                 }
                 .buttonStyle(AppButtonStyle(kind: .primary, height: 40, fullWidth: true))
                 .padding(.top, Theme.Space.s1)
+                .disabled(!model.canStartPractice || model.customRevision < 0)
 
                 Text("Practice never locks the screen. Quiz me now (toolbar) uses Unlock quiz in Settings.")
                     .font(Theme.font(Theme.Size.xs))
@@ -591,6 +614,11 @@ private struct PracticePane: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollBelowToolbar(toolbarOverlap)
+        .sheet(isPresented: $editingCustom) {
+            CustomSetEditor {
+                model.customRevision += 1
+            }
+        }
     }
 
     private var header: some View {
@@ -684,8 +712,17 @@ private struct PracticePane: View {
                         selected: model.practiceChoice == choice
                     ) {
                         model.practiceChoice = choice
+                        if choice == .custom, CustomSets.countries().count < 2 {
+                            editingCustom = true
+                        }
                     }
                 }
+            }
+            if model.practiceChoice == .custom {
+                CustomSetSummary {
+                    editingCustom = true
+                }
+                .id(model.customRevision)
             }
             Text(model.practicePoolHint)
                 .font(Theme.font(Theme.Size.xs))
@@ -716,6 +753,7 @@ private struct PracticePane: View {
         case .europe: return "globe.europe.africa"
         case .northAmerica, .southAmerica: return "globe.americas"
         case .world: return "globe"
+        case .custom: return "checklist"
         }
     }
 }
@@ -1206,6 +1244,7 @@ private struct StatTile: View {
 private struct SettingsPane: View {
     @ObservedObject var model: HomeModel
     var toolbarOverlap: CGFloat = 0
+    @State private var editingCustom = false
 
     var body: some View {
         Form {
@@ -1288,13 +1327,27 @@ private struct SettingsPane: View {
             }
 
             Section {
+                Toggle("Use custom set", isOn: $model.unlockUsesCustom)
+                if model.unlockUsesCustom {
+                    CustomSetSummary {
+                        editingCustom = true
+                    }
+                    .id(model.customRevision)
+                }
                 ForEach($model.regionFlags) { $flag in
                     Toggle(flag.region.title, isOn: $flag.on)
                 }
             } header: {
                 Text("Regions for unlock quizzes")
             } footer: {
-                Text("At least one region stays on. Practice picks its own place.")
+                Text(model.unlockUsesCustom
+                     ? "Unlock quizzes use the custom set. At least one region stays on for when you turn that off."
+                     : "At least one region stays on. Practice picks its own place.")
+            }
+            .sheet(isPresented: $editingCustom) {
+                CustomSetEditor {
+                    model.customRevision += 1
+                }
             }
 
             Section {

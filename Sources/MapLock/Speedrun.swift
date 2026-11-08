@@ -10,6 +10,7 @@ extension PracticeScope {
         switch self {
         case .world: return "world"
         case .region(let region): return region.rawValue
+        case .custom: return "custom"
         }
     }
 
@@ -23,7 +24,11 @@ extension PracticeScope {
 /// `countries|click|Europe` style key. Older region-only bests become Country / Click map.
 enum SpeedrunKey {
     static func make(subject: QuizSubject, style: PracticeAnswerStyle, scope: StatsScopeKey) -> String {
-        "\(subject.rawValue)|\(style.rawValue)|\(scope.rawValue)"
+        make(subject: subject, style: style, place: scope.rawValue)
+    }
+
+    static func make(subject: QuizSubject, style: PracticeAnswerStyle, place: String) -> String {
+        "\(subject.rawValue)|\(style.rawValue)|\(place)"
     }
 
     static func canonical(_ key: String) -> String {
@@ -44,14 +49,19 @@ enum SpeedrunKey {
               let style = PracticeAnswerStyle(rawValue: parts[1]) else {
             return StatsScopeKey(rawValue: key)?.title ?? key
         }
-        let scope = StatsScopeKey(rawValue: parts[2]) ?? .unknown
+        let placeTitle: String
+        if parts[2].hasPrefix("custom:") {
+            placeTitle = CustomSets.displayTitle(countries: CustomSets.names(in: parts[2]))
+        } else {
+            placeTitle = (StatsScopeKey(rawValue: parts[2]) ?? .unknown).title
+        }
         let method: String
         switch style {
         case .multipleChoice: method = "Multiple choice"
         case .typeIt: method = "Type"
         case .clickMap: method = "Click map"
         }
-        return "\(subject.practiceTitle) / \(method) / \(scope.title)"
+        return "\(subject.practiceTitle) / \(method) / \(placeTitle)"
     }
 }
 
@@ -93,6 +103,8 @@ enum SpeedrunPool {
                 return country.name
             case .region(let region):
                 return country.region == region ? country.name : nil
+            case .custom(let countries):
+                return countries.contains(country.name) ? country.name : nil
             }
         }
     }

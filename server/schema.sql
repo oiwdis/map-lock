@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS races (
   created_at INTEGER NOT NULL,
   subject TEXT NOT NULL DEFAULT 'countries',
   style TEXT NOT NULL DEFAULT 'click',
-  status TEXT NOT NULL DEFAULT 'open'
+  status TEXT NOT NULL DEFAULT 'open',
+  countries TEXT
 );
 
 -- Asks a friend to join an open race. status is pending until they join, decline, or it expires.

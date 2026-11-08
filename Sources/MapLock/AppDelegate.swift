@@ -186,6 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         do {
             let data = try Data(contentsOf: url)
             world = try WorldLoader.parse(data)
+            CountryCatalog.all = world
             stats.repairQuizScopes(world: world)
         } catch {
             loadError = "Could not read map data: \(error.localizedDescription)"
@@ -202,8 +203,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func startQuiz() {
         guard !overlay.isShowing, !practice.isShowing, !races.isShowing, !world.isEmpty else { return }
-        let pool = self.pool
+        let customNames = CustomSets.countries().filter { name in
+            world.contains { $0.quizzable && $0.name == name }
+        }
+        let useCustom = settings.unlockUsesCustom && customNames.count >= 2
+        let pool = useCustom ? customNames : self.pool
         guard !pool.isEmpty else { return }
+        let mapScope: PracticeScope? = useCustom ? .custom(countries: customNames) : nil
         // Any quiz counts for a scheduled time that is due now.
         schedule.markDueAsFired()
         let count = settings.questionCount.resolve(poolSize: pool.count)
@@ -212,7 +218,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             quizType: settings.quizType, subject: settings.subject,
             stats: stats, deck: deck, count: count, kind: .lock,
             requirePerfect: settings.requirePerfect,
-            timeLimit: AppSettings.perfectTimeLimit
+            timeLimit: AppSettings.perfectTimeLimit,
+            mapScope: mapScope
         ) { [weak self] in
             self?.overlay.close()
         }
@@ -236,7 +243,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             pool = world.filter { $0.quizzable && $0.region == region }.map { $0.name }
         case .world:
             pool = world.filter { $0.quizzable }.map { $0.name }
+        case .custom(let countries):
+            let chosen = Set(countries)
+            pool = world.filter { $0.quizzable && chosen.contains($0.name) }.map { $0.name }
         }
+        if case .custom = scope, pool.count < 2 { return }
         guard !pool.isEmpty else { return }
         let practiceQuiz = settings.practiceEngine
         let speedrun = settings.practiceSpeedrun(for: practiceQuiz.subject)
@@ -446,7 +457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func openRace(_ ticket: RaceTicket, isHost: Bool) {
-        guard let scope = PracticeScope.fromServer(ticket.region),
+        guard let scope = ticket.practiceScope,
               let token = account?.sessionToken, let userId = account?.user?.id else { return }
         let session = RaceSession(ticket: ticket, world: world, scope: scope, token: token,
                                   userId: userId, isHost: isHost, stats: stats)

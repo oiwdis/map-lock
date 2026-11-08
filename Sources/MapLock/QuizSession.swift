@@ -283,8 +283,12 @@ final class QuizSession: ObservableObject {
     }
 
     private func appendQuestion(for target: Country) {
+        let allowed: Set<String>? = {
+            if case .custom = mapScope { return Set(pool) }
+            return nil
+        }()
         let q = QuizEngine.makeQuestion(target: target, number: questions.count, world: world, mode: mode,
-                                       type: quizType, subject: subject, stats: stats)
+                                       type: quizType, subject: subject, stats: stats, allowed: allowed)
         questions.append(q)
     }
 
@@ -575,8 +579,8 @@ final class QuizSession: ObservableObject {
             speedrunRawText = SpeedrunClock.format(raw)
             speedrunFinalTime = SpeedrunClock.format(final)
             if recordsResult {
-                let scopeKey = statsScope
-                let key = SpeedrunKey.make(subject: subject, style: speedrunStyle, scope: scopeKey)
+                let place = mapScope?.placeKey ?? statsScope.rawValue
+                let key = SpeedrunKey.make(subject: subject, style: speedrunStyle, place: place)
                 let saved = stats.recordSpeedrun(key: key, duration: final, misses: speedrunWrongs,
                                                  countries: score, now: now)
                 speedrunIsNewBest = saved.isNewBest
@@ -592,10 +596,14 @@ final class QuizSession: ObservableObject {
         let duration = Date().timeIntervalSince(startedAt)
         streak = stats.finishSession()
         let scopeKey = statsScope
+        let placeName: String? = {
+            if case .custom(let countries) = mapScope { return CustomSets.displayTitle(countries: countries) }
+            return nil
+        }()
         stats.recordQuiz(score: score, total: askedCount, duration: duration,
                          missed: Array(Set(pendingRetry)),
                          kind: kind == .practice ? .practice : .lock,
-                         subject: subject, scope: scopeKey, asked: askedPlaces)
+                         subject: subject, scope: scopeKey, asked: askedPlaces, placeName: placeName)
         phase = .finished
         updateRound()
     }

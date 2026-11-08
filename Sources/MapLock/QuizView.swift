@@ -277,8 +277,8 @@ private struct QuestionView: View {
     private var promptText: String { question.prompt }
 
     private func clickAspect(for question: Question) -> Double {
-        if case .some(.world) = session.mapScope {
-            return 2.0
+        if let scope = session.mapScope {
+            return MapViews.clickAspect(scope: scope, world: session.world)
         }
         return MapViews.clickAspect(for: question.target, world: session.world)
     }
@@ -716,8 +716,10 @@ private struct FinishedView: View {
                     .padding(.vertical, Theme.Space.s1)
                     .background(Capsule().fill(Theme.accent.opacity(0.14)))
             }
-            Text(SpeedrunKey.title(SpeedrunKey.make(subject: session.subject, style: session.speedrunStyle,
-                                                    scope: session.statsScope)))
+            Text(SpeedrunKey.title(SpeedrunKey.make(
+                subject: session.subject, style: session.speedrunStyle,
+                place: session.mapScope?.placeKey ?? session.statsScope.rawValue
+            )))
                 .font(Theme.font(Theme.Size.sm))
                 .foregroundStyle(Theme.text2)
                 .multilineTextAlignment(.center)

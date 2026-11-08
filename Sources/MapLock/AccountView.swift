@@ -9,6 +9,7 @@ struct AccountPane: View {
     @State private var raceCopyToken = 0
     @State private var raceOptionsOpen = false
     @State private var confirmCancelLobby = false
+    @State private var editingCustom = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var focus: SignInField?
 
@@ -413,8 +414,17 @@ struct AccountPane: View {
                             selected: account.raceRegion == choice
                         ) {
                             account.raceRegion = choice
+                            if choice == .custom, CustomSets.countries().count < 2 {
+                                editingCustom = true
+                            }
                         }
                     }
+                }
+                if account.raceRegion == .custom {
+                    CustomSetSummary {
+                        editingCustom = true
+                    }
+                    .id(home.customRevision)
                 }
             }
 
@@ -471,7 +481,12 @@ struct AccountPane: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(AppButtonStyle(kind: .primary, height: 32, fullWidth: true))
-            .disabled(account.busy)
+            .disabled(account.busy || (account.raceRegion == .custom && home.customRevision >= 0 && CustomSets.countries().count < 2))
+            .sheet(isPresented: $editingCustom) {
+                CustomSetEditor {
+                    home.customRevision += 1
+                }
+            }
 
             if let race = account.lastRace {
                 raceLobby(race)
@@ -573,6 +588,7 @@ struct AccountPane: View {
         case .asia: return "globe.asia.australia"
         case .northAmerica, .southAmerica: return "globe.americas"
         case .world: return "globe"
+        case .custom: return "checklist"
         }
     }
 

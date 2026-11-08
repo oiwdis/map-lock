@@ -157,8 +157,7 @@ private struct SpeedrunQuestionView: View {
     }
 
     private var clickAspect: Double {
-        if case .world = session.scope { return 2.0 }
-        return MapViews.clickAspect(for: country, world: session.world)
+        MapViews.clickAspect(scope: session.scope, world: session.world)
     }
 }
 

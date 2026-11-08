@@ -14,22 +14,33 @@ enum Region: String, CaseIterable, Codable, Hashable {
     var title: String { rawValue }
 }
 
-/// A practice test over one continent or the whole world (no Oceania).
+/// A practice test over one continent, the whole world, or a custom list (no Oceania).
 enum PracticeScope: Equatable, Hashable {
     case region(Region)
     case world
+    case custom(countries: [String])
 
     var title: String {
         switch self {
         case .region(let r): return r.title
         case .world: return "Whole world"
+        case .custom(let countries): return CustomSets.displayTitle(countries: countries)
+        }
+    }
+
+    /// Third part of a speedrun best key. A custom set is `custom:` plus the sorted names.
+    var placeKey: String {
+        switch self {
+        case .world: return "world"
+        case .region(let region): return region.rawValue
+        case .custom(let countries): return CustomSets.placeKey(countries)
         }
     }
 }
 
 /// Flat list for the practice picker (regions + whole world).
 enum PracticeChoice: String, CaseIterable, Identifiable {
-    case africa, asia, europe, northAmerica, southAmerica, world
+    case africa, asia, europe, northAmerica, southAmerica, world, custom
 
     var id: String { rawValue }
 
@@ -41,6 +52,7 @@ enum PracticeChoice: String, CaseIterable, Identifiable {
         case .northAmerica: return "North America"
         case .southAmerica: return "South America"
         case .world: return "Whole world"
+        case .custom: return "Custom"
         }
     }
 
@@ -52,6 +64,7 @@ enum PracticeChoice: String, CaseIterable, Identifiable {
         case .northAmerica: return .region(.northAmerica)
         case .southAmerica: return .region(.southAmerica)
         case .world: return .world
+        case .custom: return .custom(countries: CustomSets.countries())
         }
     }
 }

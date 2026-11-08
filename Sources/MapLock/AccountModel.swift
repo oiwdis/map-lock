@@ -252,8 +252,10 @@ final class AccountModel: ObservableObject {
 
     func loadLeaderboard() {
         guard let token else { return }
-        let key = SpeedrunKey.make(subject: leaderboardSubject, style: leaderboardStyle,
-                                   scope: StatsScopeKey.from(practiceScope: leaderboardRegion.scope))
+        guard let key = leaderboardKey() else {
+            leaderboard = []
+            return
+        }
         Task {
             await run("Could not load the leaderboard") {
                 leaderboard = try await AccountClient.leaderboard(key: key, token: token).rows
@@ -339,12 +341,16 @@ final class AccountModel: ObservableObject {
 
     func createRace() {
         guard let token else { return }
-        let region = raceRegion.scope.serverRegion
-        let subject = raceSubject.rawValue
-        let style = raceStyle.rawValue
+        guard let request = raceRequest() else {
+            message = "Pick at least 2 countries."
+            return
+        }
         Task {
             await run("Could not create a race. Try again.") {
-                let ticket = try await AccountClient.createRace(region: region, subject: subject, style: style, token: token)
+                let ticket = try await AccountClient.createRace(
+                    region: request.region, subject: request.subject, style: request.style,
+                    countries: request.countries, token: token
+                )
                 lastRace = ticket
                 copyRaceLink(ticket)
                 message = "Link copied."
@@ -357,12 +363,16 @@ final class AccountModel: ObservableObject {
     /// Creates a race with the current options and asks this friend to join.
     func challenge(_ item: FriendItem) {
         guard let token, let name = item.username else { return }
-        let region = raceRegion.scope.serverRegion
-        let subject = raceSubject.rawValue
-        let style = raceStyle.rawValue
+        guard let request = raceRequest() else {
+            message = "Pick at least 2 countries."
+            return
+        }
         Task {
             await run("Could not create a race. Try again.") {
-                let ticket = try await AccountClient.createRace(region: region, subject: subject, style: style, token: token)
+                let ticket = try await AccountClient.createRace(
+                    region: request.region, subject: request.subject, style: request.style,
+                    countries: request.countries, token: token
+                )
                 lastRace = ticket
                 copyRaceLink(ticket)
                 page = .race
@@ -538,6 +548,36 @@ final class AccountModel: ObservableObject {
         }
     }
 
+    private func leaderboardKey() -> String? {
+        let place: String
+        switch leaderboardRegion {
+        case .custom:
+            let names = CustomSets.countries()
+            guard names.count >= 2 else { return nil }
+            place = CustomSets.placeKey(names)
+        default:
+            place = leaderboardRegion.scope.serverRegion
+        }
+        return SpeedrunKey.make(subject: leaderboardSubject, style: leaderboardStyle, place: place)
+    }
+
+    private struct RaceRequest {
+        var region: String
+        var subject: String
+        var style: String
+        var countries: [String]?
+    }
+
+    private func raceRequest() -> RaceRequest? {
+        let subject = raceSubject.rawValue
+        let style = raceStyle.rawValue
+        if case .custom(let countries) = raceRegion.scope {
+            guard countries.count >= 2 else { return nil }
+            return RaceRequest(region: "custom", subject: subject, style: style, countries: countries)
+        }
+        return RaceRequest(region: raceRegion.scope.serverRegion, subject: subject, style: style, countries: nil)
+    }
+
     private func restore() async {
         guard let token else { return }
         do {
@@ -555,9 +595,7 @@ final class AccountModel: ObservableObject {
         guard let token else { return }
         await sync(token: token)
         await reloadFriends(reportErrors: false)
-        let key = SpeedrunKey.make(subject: leaderboardSubject, style: leaderboardStyle,
-                                   scope: StatsScopeKey.from(practiceScope: leaderboardRegion.scope))
-        if let board = try? await AccountClient.leaderboard(key: key, token: token) {
+        if let key = leaderboardKey(), let board = try? await AccountClient.leaderboard(key: key, token: token) {
             leaderboard = board.rows
         }
     }
