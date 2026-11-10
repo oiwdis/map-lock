@@ -425,7 +425,7 @@ final class HomeHostingView: NSHostingView<HomeView> {
 
     /// Clicks in the toolbar band belong to the AppKit toolbar, not the pane underneath.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let window, let chrome else { return super.hitTest(point) }
+        guard window != nil, let chrome else { return super.hitTest(point) }
         let inWindow = convert(point, to: nil)
         let top = convert(bounds, to: nil).maxY
         if inWindow.y >= top - chrome.toolbarOverlap - 0.5 { return nil }

@@ -485,10 +485,10 @@ private struct ClickDotsCanvas: View {
     var body: some View {
         let layout = self.layout
         let zoom = self.zoom
-        let start = self.start
+        let flashStart = self.start
         let ticking = flashing && animate
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !ticking)) { timeline in
-            let elapsed = timeline.date.timeIntervalSince(start)
+            let elapsed = timeline.date.timeIntervalSince(flashStart)
             let paints = layout.targets.map { part in
                 (part, look(for: part.name, elapsed: elapsed, now: timeline.date))
             }
@@ -511,7 +511,7 @@ private struct ClickDotsCanvas: View {
                 }
             }
         }
-        .onAppear { start = Date() }
+        .onAppear { self.start = Date() }
     }
 
     private struct Paint {
