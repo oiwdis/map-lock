@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.8
+
+- Microstate dots follow the country they stand for: white once found, the same hover and correct or wrong flash, then green again on the next quiz.
+
 ## 1.3.7
 
 - Reset stats is in Settings and in the Stats tab menu. It clears practice and unlock scores, the streak, the unlock round, and personal bests on this Mac and, when you are signed in, on your account. Race history and friends stay.

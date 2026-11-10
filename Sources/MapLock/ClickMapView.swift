@@ -106,10 +106,15 @@ struct ClickMapView: View {
                     }
                 )
 
-                // Above every country fill. Clicks pass through to the overlay, which
-                // still asks ClickMap.hit (a dot wins over the country under it).
-                ClickDotsLayer(layout: layout, scheme: scheme, zoom: zoom)
-                    .equatable()
+                // Above every country fill, so a neighbor cannot cover a dot. Clicks pass
+                // through to the overlay, which still asks ClickMap.hit (a dot wins).
+                ClickDotsLayer(
+                    layout: layout, scheme: scheme, zoom: zoom,
+                    found: found, hovered: hovered, state: state, target: target.name,
+                    clicked: clicked, revealTarget: revealTarget, cue: speedrunCue,
+                    animate: !reduceMotion
+                )
+                .equatable()
 
                 MapPinLayer(pins: pins, reduceMotion: reduceMotion)
                     .allowsHitTesting(false)
@@ -414,40 +419,150 @@ enum ClickDots {
 /// Microstate dots and their leader lines, in one pass above every country.
 /// Practice, world zoom, unlock, and races all use this click map. Stats has no map.
 ///
-/// The found fill, the hover, the selection ring, the wrong-answer shake, and the
-/// correct-answer glow (the shadow on the result layer) are views under this one.
-/// A scale on those views, including the correct-answer pop, stays under the dots,
-/// so Malaysia cannot cover Singapore while it grows. The rising name tags and the
-/// cursor pill are the only labels above the dots. This layer does not take clicks.
-/// `ClickMap.hit` still prefers a dot over the country underneath.
+/// Country fills stay under this layer so Malaysia cannot cover Singapore. The dot
+/// itself uses the same state as that country's shape: found white, wrong or revealed
+/// flash, hover, or the default green. A new quiz passes an empty found set, so the
+/// dots go back to green. This layer does not take clicks. `ClickMap.hit` still
+/// prefers a dot over the country underneath.
 private struct ClickDotsLayer: View, Equatable {
     let layout: ClickLayout
     let scheme: ColorScheme
     let zoom: MapZoomState
+    let found: Set<String>
+    let hovered: String?
+    let state: TargetState
+    let target: String
+    let clicked: String?
+    let revealTarget: Bool
+    let cue: SpeedrunMapCue?
+    let animate: Bool
 
     nonisolated static func == (lhs: ClickDotsLayer, rhs: ClickDotsLayer) -> Bool {
         lhs.layout.key == rhs.layout.key && lhs.scheme == rhs.scheme && lhs.zoom == rhs.zoom
+            && lhs.found == rhs.found && lhs.hovered == rhs.hovered
+            && lhs.state == rhs.state && lhs.target == rhs.target && lhs.clicked == rhs.clicked
+            && lhs.revealTarget == rhs.revealTarget && lhs.cue == rhs.cue && lhs.animate == rhs.animate
+    }
+
+    /// Changes when a new flash starts, so the blink timer begins at zero again.
+    private var flashID: String {
+        if let cue, !cue.right { return "cue-\(cue.token)" }
+        if state == .wrong { return "wrong-\(clicked ?? "")-\(target)" }
+        return "steady"
+    }
+
+    var body: some View {
+        ClickDotsCanvas(
+            layout: layout, scheme: scheme, zoom: zoom, found: found, hovered: hovered,
+            state: state, target: target, clicked: clicked, revealTarget: revealTarget,
+            cue: cue, animate: animate
+        )
+        .id(flashID)
+        .allowsHitTesting(false)
+    }
+}
+
+/// Draws every dot from the country state. A flash reticks; a steady map draws once.
+private struct ClickDotsCanvas: View {
+    let layout: ClickLayout
+    let scheme: ColorScheme
+    let zoom: MapZoomState
+    let found: Set<String>
+    let hovered: String?
+    let state: TargetState
+    let target: String
+    let clicked: String?
+    let revealTarget: Bool
+    let cue: SpeedrunMapCue?
+    let animate: Bool
+    @State private var start = Date()
+
+    private var flashing: Bool {
+        if let cue, !cue.right { return true }
+        return state == .wrong
     }
 
     var body: some View {
         let layout = self.layout
         let zoom = self.zoom
-        Canvas { context, size in
-            var mapContext = context
-            mapContext.beginMapZoom(zoom, size: size)
-            let inv = max(zoom.scale, 0.001)
-            for t in layout.targets {
-                guard t.needsLeader, let anchor = t.anchor, let dot = t.dot else { continue }
-                ClickDots.leader(from: anchor, to: dot, in: &mapContext, color: Theme.leader, scale: inv)
+        let start = self.start
+        let ticking = flashing && animate
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !ticking)) { timeline in
+            let elapsed = timeline.date.timeIntervalSince(start)
+            let paints = layout.targets.map { part in
+                (part, look(for: part.name, elapsed: elapsed, now: timeline.date))
             }
-            for t in layout.targets {
-                guard let dot = t.dot else { continue }
-                let circle = Path(ellipseIn: ClickDots.rect(at: dot, scale: inv))
-                mapContext.fill(circle, with: .color(Theme.dotFill))
-                mapContext.stroke(circle, with: .color(Theme.dotStroke), lineWidth: 1.5 / inv)
+            Canvas { context, size in
+                var mapContext = context
+                mapContext.beginMapZoom(zoom, size: size)
+                let inv = max(zoom.scale, 0.001)
+                for (part, paint) in paints {
+                    guard part.needsLeader, let anchor = part.anchor, let dot = part.dot else { continue }
+                    ClickDots.leader(from: anchor, to: dot, in: &mapContext, color: paint.leader, scale: inv)
+                }
+                for (part, paint) in paints {
+                    guard let dot = part.dot else { continue }
+                    let circle = Path(ellipseIn: ClickDots.rect(at: dot, scale: inv))
+                    mapContext.fill(circle, with: .color(paint.fill))
+                    if paint.wash {
+                        mapContext.fill(circle, with: .color(Theme.hover))
+                    }
+                    mapContext.stroke(circle, with: .color(paint.stroke), lineWidth: 1.5 / inv)
+                }
             }
         }
-        .allowsHitTesting(false)
+        .onAppear { start = Date() }
+    }
+
+    private struct Paint {
+        var fill: Color
+        var stroke: Color
+        var leader: Color
+        var wash = false
+    }
+
+    /// Same colors the country shape is showing, top layer first.
+    private func look(for name: String, elapsed: TimeInterval, now: Date) -> Paint {
+        if let cue, !cue.right {
+            if name == cue.wrongName {
+                return Paint(fill: Theme.mapBad.opacity(0.9), stroke: Theme.mapBadOutline, leader: Theme.ringBad)
+            }
+            if cue.revealsCorrect, name == cue.correctName, !animate || elapsed > 0.22 {
+                return revealed(at: now)
+            }
+        } else if state == .wrong {
+            if let clicked, name == clicked, name != target {
+                return Paint(fill: Theme.mapBad.opacity(0.9), stroke: Theme.mapBadOutline, leader: Theme.ringBad)
+            }
+            if revealTarget, name == target, !animate || elapsed > 0.22 {
+                return revealed(at: now)
+            }
+        }
+        if found.contains(name) {
+            // White, like the found country. A darker edge keeps the disk visible on the sea.
+            let edge = Color(white: scheme == .dark ? 0.28 : 0.42)
+            return Paint(fill: FoundMark.fill(scheme), stroke: edge, leader: edge)
+        }
+        if name == hovered {
+            return Paint(fill: Theme.dotFill, stroke: Theme.text, leader: Theme.text, wash: true)
+        }
+        return Paint(fill: Theme.dotFill, stroke: Theme.dotStroke, leader: Theme.leader)
+    }
+
+    /// The revealed answer blinks yellow and green, on the same clock as WrongMapFlash.
+    private func revealed(at now: Date) -> Paint {
+        let yellow = animate && sin(now.timeIntervalSinceReferenceDate * 14) > 0
+        if yellow {
+            return Paint(fill: Theme.mapTarget.opacity(0.9), stroke: Theme.mapTargetOutline, leader: Theme.ringTiny)
+        }
+        return Paint(fill: Theme.mapGood.opacity(0.85), stroke: Theme.mapGoodOutline, leader: Theme.ringGood)
+    }
+}
+
+/// The white used for a country that has already been found.
+enum FoundMark {
+    static func fill(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(hex: 0xF2F2F7) : Color.white
     }
 }
 
@@ -546,7 +661,7 @@ private struct FoundCountriesLayer: View {
     let scheme: ColorScheme
 
     var body: some View {
-        let fill = scheme == .dark ? Color(hex: 0xF2F2F7) : Color.white
+        let fill = FoundMark.fill(scheme)
         Canvas { context, size in
             var ctx = context
             ctx.beginMapZoom(zoom, size: size)
@@ -617,7 +732,7 @@ private struct WrongMapFlash: View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animate)) { timeline in
             let t = timeline.date.timeIntervalSince(start)
             let shake: CGFloat = animate && t < 0.35 ? CGFloat(sin(t / 0.35 * .pi * 4)) * 5 * (1 - t / 0.35) : 0
-            let yellow = animate && sin(t * 14) > 0
+            let yellow = animate && sin(timeline.date.timeIntervalSinceReferenceDate * 14) > 0
             ZStack {
                 if let wrongName {
                     Canvas { context, size in
