@@ -54,6 +54,9 @@ struct UIPreview {
             }
             model.homeTab = .practice
             try await capture(HomeView(model: model, account: account, chrome: WindowChrome()),
+                              size: NSSize(width: 1040, height: 760), name: "practice-options-\(suffix)",
+                              output: output, scrollToBottom: true)
+            try await capture(HomeView(model: model, account: account, chrome: WindowChrome()),
                               size: NSSize(width: 680, height: 460), name: "practice-compact-\(suffix)", output: output)
             for type in [QuizType.name, .click] {
                 let session = QuizSession(world: world, pool: pool, mode: .multipleChoice, quizType: type,
@@ -71,7 +74,8 @@ struct UIPreview {
         }
     }
 
-    static func capture<Content: View>(_ content: Content, size: NSSize, name: String, output: URL) async throws {
+    static func capture<Content: View>(_ content: Content, size: NSSize, name: String, output: URL,
+                                       scrollToBottom: Bool = false) async throws {
         let hosting = NSHostingView(rootView: content)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
@@ -83,6 +87,18 @@ struct UIPreview {
         NSApp.activate(ignoringOtherApps: true)
         try await Task.sleep(nanoseconds: 1_000_000_000)
         hosting.layoutSubtreeIfNeeded()
+        if scrollToBottom {
+            let scrolls = scrollViews(in: hosting)
+            guard let scroll = scrolls.max(by: { $0.bounds.width < $1.bounds.width }),
+                  let document = scroll.documentView else {
+                throw NSError(domain: "UIPreview", code: 3,
+                              userInfo: [NSLocalizedDescriptionKey: "No setup scroll view for \(name)"])
+            }
+            let bottom = document.isFlipped ? max(0, document.bounds.height - scroll.contentView.bounds.height) : 0
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: bottom))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            try await Task.sleep(nanoseconds: 250_000_000)
+        }
         hosting.displayIfNeeded()
         guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
             throw NSError(domain: "UIPreview", code: 1, userInfo: [NSLocalizedDescriptionKey: "No bitmap for \(name)"])
@@ -95,4 +111,10 @@ struct UIPreview {
         print("Captured \(name): \(bitmap.pixelsWide) × \(bitmap.pixelsHigh)")
         window.close()
     }
+
+    static func scrollViews(in view: NSView) -> [NSScrollView] {
+        let own = (view as? NSScrollView).map { [$0] } ?? []
+        return own + view.subviews.flatMap { scrollViews(in: $0) }
+    }
+
 }
