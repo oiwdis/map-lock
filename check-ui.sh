@@ -12,5 +12,5 @@ for source in Sources/MapLock/*.swift; do
     *) sources+=("$source") ;;
   esac
 done
-swiftc -parse-as-library -o "$build/preview" "${sources[@]}" Checks/ui/main.swift
+swiftc -target "$(uname -m)-apple-macosx14.0" -parse-as-library -o "$build/preview" "${sources[@]}" Checks/ui/main.swift
 "$build/preview" "$output" Sources/MapLock/Resources/countries.geojson

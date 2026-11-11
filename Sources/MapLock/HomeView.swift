@@ -1497,8 +1497,7 @@ private struct SettingsPane: View {
                     CustomSetEditor {
                         model.customRevision += 1
                     }
-            }
-
+                }
             }
 
             if category == .experience {
@@ -1542,7 +1541,7 @@ private struct SettingsPane: View {
                     Text("General")
                 } footer: {
                     Text("Hide keeps Map Lock running so quizzes still show. Force Quit is the only way to quit.")
-            }
+                }
             }
 
             if category == .data {
@@ -1552,8 +1551,7 @@ private struct SettingsPane: View {
                     Text("Stats")
                 } footer: {
                     Text("Clears practice and unlock scores and personal bests. Races and friends are kept.")
-            }
-
+                }
             }
         }
         .formStyle(.grouped)

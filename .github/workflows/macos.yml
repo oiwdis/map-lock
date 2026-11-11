@@ -5,6 +5,10 @@ on:
   push:
     branches: [main, codex/ui-ux-redesign]
 
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
