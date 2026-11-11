@@ -1230,7 +1230,6 @@ private struct AppleSignInLabel: View {
 
 private extension View {
     func accountCardChrome() -> some View {
-        background(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous).strokeBorder(Theme.hairline2, lineWidth: 1))
+        self
     }
 }

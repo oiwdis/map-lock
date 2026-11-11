@@ -30,32 +30,6 @@ struct PageHeading: View {
     }
 }
 
-struct SetupSection<Content: View>: View {
-    let number: String
-    let title: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s4) {
-            HStack(spacing: 10) {
-                Text(number)
-                    .font(Theme.font(Theme.Size.xs, .bold))
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 26, height: 26)
-                    .background(Circle().fill(Theme.accent.opacity(0.10)))
-                    .accessibilityHidden(true)
-                Text(title)
-                    .font(Theme.font(Theme.Size.md, .semibold))
-                    .accessibilityAddTraits(.isHeader)
-            }
-            content
-        }
-        .padding(Theme.Space.s5)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glass(radius: Theme.Radius.lg, shadow: false)
-    }
-}
-
 struct LearningEmptyState: View {
     let symbol: String
     let title: String
