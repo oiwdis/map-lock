@@ -71,8 +71,11 @@ CREATE TABLE IF NOT EXISTS races (
   subject TEXT NOT NULL DEFAULT 'countries',
   style TEXT NOT NULL DEFAULT 'click',
   status TEXT NOT NULL DEFAULT 'open',
-  countries TEXT
+  countries TEXT,
+  rematch_of TEXT
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS races_rematch_of ON races(rematch_of);
 
 -- Asks a friend to join an open race. status is pending until they join, decline, or it expires.
 CREATE TABLE IF NOT EXISTS race_invites (

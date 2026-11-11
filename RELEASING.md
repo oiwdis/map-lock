@@ -53,7 +53,7 @@ The EdDSA private key is already in the login keychain. `sign_update` reads it f
 
 1. Make the zip (pick the new version number):
    ```
-   VERSION=1.3.13 ./release.sh
+   VERSION=1.3.14 ./release.sh
    ```
    It builds, copies `Sparkle.framework` into `Contents/Frameworks`, sets the executable rpath to `@executable_path/../Frameworks`, and signs inside-out with Developer ID and the hardened runtime: `Autoupdate`, `Updater.app`, `Downloader.xpc`, `Installer.xpc`, the framework, then the app. Map Lock is not sandboxed, so those XPC services are not launched. They are signed because notarization rejects an unsigned bundle nested in the framework.
    It sends the app to Apple, waits (usually a few minutes), staples the result, and checks it.

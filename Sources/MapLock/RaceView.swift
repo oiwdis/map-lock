@@ -730,8 +730,29 @@ private struct RaceResultView: View {
                 .padding(.vertical, Theme.Space.s3)
                 .background(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous).fill(Theme.fill))
                 VStack(spacing: Theme.Space.s2) {
-                    Button("Rematch") { session.rematch() }
+                    Button(session.rematchTitle) { session.voteRematch() }
                         .buttonStyle(AppButtonStyle(kind: .primary, height: 40, fullWidth: true))
+                        .disabled(!session.canVoteRematch)
+                    if session.youWantRematch, !session.rematchClosed {
+                        Text(session.rematchWaitText)
+                            .font(Theme.font(Theme.Size.sm, .semibold))
+                            .foregroundStyle(Theme.good)
+                            .multilineTextAlignment(.center)
+                        Button("Cancel") { session.unvoteRematch() }
+                            .buttonStyle(AppButtonStyle(kind: .ghost, height: 36, fullWidth: true))
+                    }
+                    if session.rematchClosed {
+                        Text(session.rematchClosedText)
+                            .font(Theme.font(Theme.Size.sm, .semibold))
+                            .foregroundStyle(Theme.bad)
+                            .multilineTextAlignment(.center)
+                    }
+                    if let note = session.rematchNote {
+                        Text(note)
+                            .font(Theme.font(Theme.Size.sm))
+                            .foregroundStyle(session.rematchNoteIsError ? Theme.bad : Theme.good)
+                            .multilineTextAlignment(.center)
+                    }
                     HStack(spacing: Theme.Space.s2) {
                         Button("Change region") { session.changeRegion() }
                             .buttonStyle(AppButtonStyle(kind: .ghost, height: 36, fullWidth: true))

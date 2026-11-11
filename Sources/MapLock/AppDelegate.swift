@@ -493,9 +493,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         session.onFinished = { [weak self] code in
             self?.account?.noteSawResult(code)
         }
-        session.onRematch = { [weak self] ticket in
+        session.onRematch = { [weak self] ticket, isHost in
             self?.account?.rememberRace(ticket)
-            self?.openRace(ticket, isHost: true)
+            self?.openRace(ticket, isHost: isHost)
         }
         session.onChangeRegion = { [weak self] in
             self?.races.close()

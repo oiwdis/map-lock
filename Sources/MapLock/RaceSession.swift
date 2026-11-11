@@ -15,7 +15,24 @@ struct RaceWireState: Decodable {
     var reason: String?
     var notice: String?
     var noticeName: String?
+    var rematchVotes: Int?
+    var rematchTotal: Int?
+    var rematchClosed: Bool?
+    var rematchError: String?
+    var rematch: RaceRematchWire?
     var players: [RaceWirePlayer]
+}
+
+struct RaceRematchWire: Decodable {
+    var code: String
+    var region: String
+    var seed: String
+    var subject: String
+    var style: String
+    var countries: [String]?
+    var hostId: String
+    var webUrl: String
+    var appUrl: String
 }
 
 enum ChallengeEnd: Equatable {
@@ -106,16 +123,25 @@ final class RaceSession: ObservableObject {
     @Published private(set) var lobbyNote: String?
     @Published private(set) var lobbyNoteIsError = false
     @Published private(set) var opponentJoined = false
+    @Published private(set) var rematchVotes = 0
+    @Published private(set) var rematchTotal = 2
+    @Published private(set) var youWantRematch = false
+    @Published private(set) var rematchClosed = false
+    @Published private(set) var rematchNote: String?
+    @Published private(set) var rematchNoteIsError = false
 
     var onClose: () -> Void = {}
     var onCancelled: () -> Void = {}
     var onLeft: (String) -> Void = { _ in }
-    var onRematch: (RaceTicket) -> Void = { _ in }
+    var onRematch: (RaceTicket, Bool) -> Void = { _, _ in }
     var onChangeRegion: () -> Void = {}
     var onGiveUp: () -> Void = {}
     var onFinished: (String) -> Void = { _ in }
     private var waitPoll: Task<Void, Never>?
     private var lobbyNoteTask: Task<Void, Never>?
+    private var rematchNoteTask: Task<Void, Never>?
+    private var handedOff = false
+    private var lastRematchError: String?
     private var clockStart: Date?
     private var recordedTime = false
     private var notedFinish = false
@@ -135,6 +161,18 @@ final class RaceSession: ObservableObject {
             } catch {
                 showLobbyNote("Could not send the invite.", error: true)
             }
+        }
+    }
+
+    private func showRematchNote(_ text: String, error: Bool) {
+        rematchNote = text
+        rematchNoteIsError = error
+        rematchNoteTask?.cancel()
+        let wait: UInt64 = error ? 6_000_000_000 : 3_000_000_000
+        rematchNoteTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: wait)
+            guard !Task.isCancelled, self?.rematchNote == text else { return }
+            self?.rematchNote = nil
         }
     }
 
@@ -186,21 +224,34 @@ final class RaceSession: ObservableObject {
         sendJSON(("type", "forfeit"))
     }
 
-    func rematch() {
-        Task {
-            do {
-                let created = try await AccountClient.createRace(
-                    region: ticket.region, subject: ticket.subject, style: ticket.style,
-                    countries: ticket.countries, token: token
-                )
-                try await AccountClient.inviteToRace(code: created.code, username: opponentName, token: token)
-                onRematch(created)
-            } catch let error as APIFailure {
-                status = error.message
-            } catch {
-                status = "Could not start a rematch."
-            }
-        }
+    var rematchTitle: String { "Rematch (\(rematchVotes)/\(rematchTotal))" }
+
+    var canVoteRematch: Bool {
+        phase == "finished" && !rematchClosed && !youWantRematch && !handedOff
+    }
+
+    var rematchWaitText: String {
+        if rematchVotes >= rematchTotal { return "Starting the rematch" }
+        if rematchTotal <= 2 { return "Waiting for \(opponentName)" }
+        let waiting = rematchTotal - rematchVotes
+        return waiting == 1 ? "Waiting for 1 player" : "Waiting for \(waiting) players"
+    }
+
+    var rematchClosedText: String {
+        rematchTotal > 2 ? "A player left" : "Opponent left"
+    }
+
+    /// Ask the server to count this player. The button label comes back on the socket.
+    func voteRematch() {
+        guard canVoteRematch else { return }
+        sendJSON(("type", "rematch"))
+    }
+
+    /// Take the vote back before everyone has voted.
+    func unvoteRematch() {
+        guard phase == "finished", youWantRematch, !rematchClosed, !handedOff else { return }
+        sendJSON(("type", "unrematch"))
+        showRematchNote("Rematch cancelled", error: false)
     }
 
     func changeRegion() {
@@ -216,7 +267,7 @@ final class RaceSession: ObservableObject {
                     countries: ticket.countries, token: token
                 )
                 try await AccountClient.inviteToRace(code: created.code, username: name, token: token)
-                onRematch(created)
+                onRematch(created, true)
             } catch let error as APIFailure {
                 status = error.message
             } catch {
@@ -249,6 +300,9 @@ final class RaceSession: ObservableObject {
     }
 
     func dropSocket() {
+        if phase == "finished", !handedOff {
+            sendJSON(("type", "leave"))
+        }
         waitPoll?.cancel()
         waitPoll = nil
         socket?.cancel(with: .goingAway, reason: nil)
@@ -321,6 +375,11 @@ final class RaceSession: ObservableObject {
             recordedTime = false
             notedFinish = false
             clockStart = nil
+            youWantRematch = false
+            rematchVotes = 0
+            rematchClosed = false
+            rematchNote = nil
+            lastRematchError = nil
             opponentFound = 0
             opponentMisses = 0
             opponentSkips = 0
@@ -402,6 +461,28 @@ final class RaceSession: ObservableObject {
             if !notedFinish {
                 notedFinish = true
                 onFinished(ticket.code)
+            }
+            let total = race.rematchTotal ?? race.players.count
+            rematchTotal = total >= 2 ? total : 2
+            rematchVotes = race.rematchVotes ?? race.players.filter(\.wantsRematch).count
+            youWantRematch = mine?.wantsRematch ?? false
+            if let closed = race.rematchClosed {
+                rematchClosed = closed
+            } else {
+                rematchClosed = race.players.contains { $0.userId != myUserId && !$0.connected }
+            }
+            if race.rematchError != lastRematchError {
+                lastRematchError = race.rematchError
+                if let problem = race.rematchError, !problem.isEmpty {
+                    showRematchNote(problem, error: true)
+                }
+            }
+            if let next = race.rematch, next.code != ticket.code, !handedOff {
+                handedOff = true
+                onRematch(RaceTicket(
+                    code: next.code, region: next.region, seed: next.seed, subject: next.subject,
+                    style: next.style, countries: next.countries, webUrl: next.webUrl, appUrl: next.appUrl
+                ), next.hostId == myUserId)
             }
         } else if race.phase == "cancelled" {
             ended = true

@@ -46,8 +46,9 @@ From this `server/` directory:
    `migrations/0005_race_invites.sql` creates `race_invites`. It is not on production yet. Run it once. Do not edit it after that.
    `migrations/0006_race_results.sql` creates `race_results`. It is not on production yet. Run it once. Do not edit it after that.
    `migrations/0007_race_countries.sql` adds `races.countries` for a custom set. It is not on production yet. Run it once. Do not run it twice.
+   `migrations/0008_race_rematch.sql` adds `races.rematch_of` and a unique index so a finished race can start only one rematch. It is not on production yet. Run it once, after 0007. Do not run it twice. Do not run it on a database created from `schema.sql` after this column was added.
 
-   Applying 0001 through 0007 builds the same database as `schema.sql`.
+   Applying 0001 through 0008 builds the same database as `schema.sql`.
 
 5. Check the project: `npm run check`
 6. Deploy: `npx wrangler deploy`
@@ -97,4 +98,4 @@ The race page at `/race/<code>` tells people to open Map Lock or download it. It
 
 Both players connect to the Durable Object. Each sends `{ "type": "ready", "total" }`. When both are ready there is a 3-2-1 countdown, then the same `seed`. The app sorts the region's countries and shuffles them with that seed, so both maps use one order.
 
-Progress messages are `{ "type": "progress", "found", "total", "misses", "finished" }`. The first finish wins. The official time is measured on the server from the start of the race. `{ "type": "forfeit" }` gives the other player the win. If a player drops during the countdown or the race and does not reconnect within 20 seconds, they forfeit. `{ "type": "rematch" }` from both players starts a new seed with the same two players.
+Progress messages are `{ "type": "progress", "found", "total", "misses", "finished" }`. The first finish wins. The official time is measured on the server from the start of the race. `{ "type": "forfeit" }` gives the other player the win. If a player drops during the countdown or the race and does not reconnect within 20 seconds, they forfeit. On the results screen, `{ "type": "rematch" }` votes and `{ "type": "unrematch" }` takes the vote back. The state broadcast includes `rematchVotes`, `rematchTotal`, and `rematchClosed`. When every player who is still connected has voted, the finished race inserts one successor row (`rematch_of` is unique) and both clients join that race with the same roster and settings. A player who leaves or disconnects sets `rematchClosed`, and no second lobby is created.

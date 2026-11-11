@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.14
+
+- Rematch is a shared vote. The results button shows Rematch (1/2) after the first player taps it, either player can cancel, and both start the next race together when everyone has voted. If the other player leaves, the rematch stops.
+
 ## 1.3.13
 
 - The lock quiz is an accessory panel, so it can appear on top of a fullscreen app after wake. The Dock icon comes back when the quiz closes.
