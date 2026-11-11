@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.9
+
+- Finishing the unlock quiz and choosing Back to desktop leaves the desktop. A dismissed lock cannot come back as an empty white screen.
+
 ## 1.3.8
 
 - Microstate dots follow the country they stand for: white once found, the same hover and correct or wrong flash, then green again on the next quiz.
