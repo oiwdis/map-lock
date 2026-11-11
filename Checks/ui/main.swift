@@ -94,7 +94,7 @@ struct UIPreview {
                 throw NSError(domain: "UIPreview", code: 3,
                               userInfo: [NSLocalizedDescriptionKey: "No setup scroll view for \(name)"])
             }
-            let bottom = document.isFlipped ? max(0, document.bounds.height - scroll.contentView.bounds.height) : 0
+            let bottom = document.isFlipped ? document.bounds.maxY : 0
             scroll.contentView.scroll(to: NSPoint(x: 0, y: bottom))
             scroll.reflectScrolledClipView(scroll.contentView)
             try await Task.sleep(nanoseconds: 250_000_000)

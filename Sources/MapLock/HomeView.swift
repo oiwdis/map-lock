@@ -938,218 +938,218 @@ private struct StatsPane: View {
     private var snap: StatsSnapshot { model.statsSnapshot }
 
     var body: some View {
-        Form {
-            if !snap.practice.hasData && !snap.unlock.hasData && snap.speedrunRuns.isEmpty {
-                Section {
-                    LearningEmptyState(symbol: "chart.bar.xaxis", title: "Your first discovery starts here",
-                                       message: "Finish a practice session to see your accuracy and the countries to revisit.")
-                    Button("Set up a practice session") { model.homeTab = .practice }
-                        .buttonStyle(AppButtonStyle(fullWidth: true))
-                }
-            }
-            Section {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
-                          spacing: Theme.Space.s3) {
-                    StatOverviewCard(title: "Accuracy", value: snap.overallAccuracyText,
-                                     symbol: "target", help: "Right answers out of every question asked")
-                    StatOverviewCard(title: "Questions", value: snap.totalQuestionsText,
-                                     symbol: "questionmark.circle", help: "Practice and unlock combined")
-                    StatOverviewCard(title: "Streak", value: snap.currentStreakText,
-                                     symbol: "flame.fill", help: "Days in a row with a finished quiz")
-                    StatOverviewCard(title: "Best streak", value: snap.bestStreakText,
-                                     symbol: "flame", help: "Your longest streak on this Mac")
-                }
-                .listRowInsets(EdgeInsets(top: Theme.Space.s3, leading: Theme.Space.s3,
-                                          bottom: Theme.Space.s3, trailing: Theme.Space.s3))
-                .listRowBackground(Color.clear)
-
-                HStack(spacing: Theme.Space.s3) {
-                    StatMiniPill(title: "Best score", value: snap.bestPercentText, symbol: "star.fill")
-                    StatMiniPill(title: "Best time", value: snap.bestTimeText, symbol: "timer")
-                    StatMiniPill(title: "Round", value: snap.roundText, symbol: "arrow.triangle.2.circlepath")
-                }
-                .listRowInsets(EdgeInsets(top: Theme.Space.s2, leading: Theme.Space.s3,
-                                          bottom: Theme.Space.s3, trailing: Theme.Space.s3))
-                .listRowBackground(Color.clear)
-            } header: {
-                HStack {
-                    Text("Overview")
-                    Spacer()
-                    Menu {
-                        Button("Reset stats…", role: .destructive) { confirmReset = true }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Theme.text2)
-                    }
-                    .accessibilityLabel("Stats options")
-                    .menuIndicator(.hidden)
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                }
-            } footer: {
-                Text("Practice and unlock quizzes both count here. Sign in from Account to sync your progress.")
-            }
-
-            kindSection(title: "Practice", summary: snap.practice, empty: "Finish a practice test to see numbers here.")
-            kindSection(title: "Unlock", summary: snap.unlock, empty: "Finish an unlock quiz to see numbers here.", unlock: true)
-
-            Section {
-                ForEach(snap.speedrunBests) { row in
-                    HStack {
-                        Text(row.scopeTitle)
-                        Spacer()
-                        Text(row.timeText)
-                            .foregroundStyle(row.timeText == "-" ? Theme.text3 : Theme.text)
-                            .monospacedDigit()
-                    }
-                }
-            } header: {
-                Label("Speedrun bests", systemImage: "timer")
-            } footer: {
-                Text("Fastest time for each place, including time penalties for misses.")
-            }
-
-            Section {
-                if snap.speedrunRuns.isEmpty {
-                    Text("Ready for a timed challenge? Turn on Speedrun in Practice to record your first time.")
-                        .foregroundStyle(Theme.text2)
-                } else {
-                    ForEach(snap.speedrunRuns) { row in
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(row.scopeTitle)
-                                    .font(Theme.font(Theme.Size.sm, .semibold))
-                                Spacer()
-                                Text(row.timeText)
-                                    .font(Theme.font(Theme.Size.body, .semibold))
-                                    .monospacedDigit()
-                            }
-                            HStack {
-                                Text(row.misses == 1 ? "1 miss" : "\(row.misses) misses")
-                                    .font(Theme.font(Theme.Size.xs))
-                                    .foregroundStyle(Theme.text3)
-                                Text("·")
-                                    .foregroundStyle(Theme.text3)
-                                Text(row.accuracyText)
-                                    .font(Theme.font(Theme.Size.xs))
-                                    .foregroundStyle(Theme.text3)
-                                    .monospacedDigit()
-                                Spacer()
-                                Text(row.date, style: .date)
-                                    .font(Theme.font(Theme.Size.xs))
-                                    .foregroundStyle(Theme.text3)
-                                Text(row.date, style: .time)
-                                    .font(Theme.font(Theme.Size.xs))
-                                    .foregroundStyle(Theme.text3)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-            } header: {
-                Label("Recent speedruns", systemImage: "stopwatch")
-            } footer: {
-                Text("Newest first. Time, misses, and accuracy. Up to the last 12 runs.")
-            }
-
-            Section {
-                if snap.mostMissed.isEmpty {
-                    Text("No misses yet. Keep practicing.")
-                        .foregroundStyle(Theme.text2)
-                } else {
-                    ForEach(snap.mostMissed, id: \.name) { row in
-                        HStack {
-                            Text(row.name)
-                            Spacer()
-                            Text("\(row.wrong)")
-                                .foregroundStyle(Theme.text2)
-                                .monospacedDigit()
-                        }
-                    }
-                }
-            } header: {
-                Label("Most missed", systemImage: "exclamationmark.triangle")
-            } footer: {
-                Text("Countries you got wrong the most, across practice and unlock.")
-            }
-
-            Section {
-                if snap.dayHistory.isEmpty {
-                    Text("No recent days yet.")
-                        .foregroundStyle(Theme.text2)
-                } else {
-                    ForEach(snap.dayHistory) { row in
-                        HStack {
-                            Text(row.label)
-                            Spacer()
-                            Text(row.percentText)
-                                .foregroundStyle(Theme.text2)
-                                .monospacedDigit()
-                            Text(row.detailText)
-                                .font(Theme.font(Theme.Size.xs))
-                                .foregroundStyle(Theme.text3)
-                                .frame(minWidth: 120, alignment: .trailing)
-                        }
-                    }
-                }
-            } header: {
-                Label("Recent days", systemImage: "calendar")
-            } footer: {
-                Text("Days you finished at least one quiz.")
-            }
-
-            Section {
-                if snap.history.isEmpty {
-                    Text("No quiz history yet.")
-                        .foregroundStyle(Theme.text2)
-                } else {
-                    ForEach(snap.history) { row in
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(row.kindTitle)
-                                    .font(Theme.font(Theme.Size.sm, .semibold))
-                                    .foregroundStyle(row.isPractice ? Theme.accent : Theme.text2)
-                                Text("·")
-                                    .foregroundStyle(Theme.text3)
-                                Text(row.subjectTitle)
-                                    .foregroundStyle(Theme.text2)
-                                Spacer()
-                                Text(row.scoreText)
-                                    .font(Theme.font(Theme.Size.body, .semibold))
-                                    .monospacedDigit()
-                            }
-                            HStack {
-                                Text(row.scopeTitle)
-                                    .font(Theme.font(Theme.Size.xs))
-                                    .foregroundStyle(Theme.text3)
-                                Spacer()
-                                Text(row.date, style: .date)
-                                    .font(Theme.font(Theme.Size.xs))
-                                    .foregroundStyle(Theme.text3)
-                                Text(row.date, style: .time)
-                                    .font(Theme.font(Theme.Size.xs))
-                                    .foregroundStyle(Theme.text3)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-            } header: {
-                Label("Recent quizzes", systemImage: "clock")
-            } footer: {
-                Text("Newest first. Up to the last 12 finished quizzes.")
-            }
-        }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .safeAreaInset(edge: .top, spacing: 0) {
+        VStack(spacing: 0) {
             PageHeading(eyebrow: "Stats", title: "See how far you’ve come.",
                         subtitle: "Your progress, personal bests, and what to practice next.")
                 .frame(maxWidth: 600, alignment: .leading)
                 .padding(Theme.Space.s6)
                 .frame(maxWidth: .infinity)
                 .background(Theme.background)
+            Form {
+                if !snap.practice.hasData && !snap.unlock.hasData && snap.speedrunRuns.isEmpty {
+                    Section {
+                        LearningEmptyState(symbol: "chart.bar.xaxis", title: "Your first discovery starts here",
+                                           message: "Finish a practice session to see your accuracy and the countries to revisit.")
+                        Button("Set up a practice session") { model.homeTab = .practice }
+                            .buttonStyle(AppButtonStyle(fullWidth: true))
+                    }
+                }
+                Section {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
+                              spacing: Theme.Space.s3) {
+                        StatOverviewCard(title: "Accuracy", value: snap.overallAccuracyText,
+                                         symbol: "target", help: "Right answers out of every question asked")
+                        StatOverviewCard(title: "Questions", value: snap.totalQuestionsText,
+                                         symbol: "questionmark.circle", help: "Practice and unlock combined")
+                        StatOverviewCard(title: "Streak", value: snap.currentStreakText,
+                                         symbol: "flame.fill", help: "Days in a row with a finished quiz")
+                        StatOverviewCard(title: "Best streak", value: snap.bestStreakText,
+                                         symbol: "flame", help: "Your longest streak on this Mac")
+                    }
+                    .listRowInsets(EdgeInsets(top: Theme.Space.s3, leading: Theme.Space.s3,
+                                              bottom: Theme.Space.s3, trailing: Theme.Space.s3))
+                    .listRowBackground(Color.clear)
+
+                    HStack(spacing: Theme.Space.s3) {
+                        StatMiniPill(title: "Best score", value: snap.bestPercentText, symbol: "star.fill")
+                        StatMiniPill(title: "Best time", value: snap.bestTimeText, symbol: "timer")
+                        StatMiniPill(title: "Round", value: snap.roundText, symbol: "arrow.triangle.2.circlepath")
+                    }
+                    .listRowInsets(EdgeInsets(top: Theme.Space.s2, leading: Theme.Space.s3,
+                                              bottom: Theme.Space.s3, trailing: Theme.Space.s3))
+                    .listRowBackground(Color.clear)
+                } header: {
+                    HStack {
+                        Text("Overview")
+                        Spacer()
+                        Menu {
+                            Button("Reset stats…", role: .destructive) { confirmReset = true }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Theme.text2)
+                        }
+                        .accessibilityLabel("Stats options")
+                        .menuIndicator(.hidden)
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                    }
+                } footer: {
+                    Text("Practice and unlock quizzes both count here. Sign in from Account to sync your progress.")
+                }
+
+                kindSection(title: "Practice", summary: snap.practice, empty: "Finish a practice test to see numbers here.")
+                kindSection(title: "Unlock", summary: snap.unlock, empty: "Finish an unlock quiz to see numbers here.", unlock: true)
+
+                Section {
+                    ForEach(snap.speedrunBests) { row in
+                        HStack {
+                            Text(row.scopeTitle)
+                            Spacer()
+                            Text(row.timeText)
+                                .foregroundStyle(row.timeText == "-" ? Theme.text3 : Theme.text)
+                                .monospacedDigit()
+                        }
+                    }
+                } header: {
+                    Label("Speedrun bests", systemImage: "timer")
+                } footer: {
+                    Text("Fastest time for each place, including time penalties for misses.")
+                }
+
+                Section {
+                    if snap.speedrunRuns.isEmpty {
+                        Text("Ready for a timed challenge? Turn on Speedrun in Practice to record your first time.")
+                            .foregroundStyle(Theme.text2)
+                    } else {
+                        ForEach(snap.speedrunRuns) { row in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(row.scopeTitle)
+                                        .font(Theme.font(Theme.Size.sm, .semibold))
+                                    Spacer()
+                                    Text(row.timeText)
+                                        .font(Theme.font(Theme.Size.body, .semibold))
+                                        .monospacedDigit()
+                                }
+                                HStack {
+                                    Text(row.misses == 1 ? "1 miss" : "\(row.misses) misses")
+                                        .font(Theme.font(Theme.Size.xs))
+                                        .foregroundStyle(Theme.text3)
+                                    Text("·")
+                                        .foregroundStyle(Theme.text3)
+                                    Text(row.accuracyText)
+                                        .font(Theme.font(Theme.Size.xs))
+                                        .foregroundStyle(Theme.text3)
+                                        .monospacedDigit()
+                                    Spacer()
+                                    Text(row.date, style: .date)
+                                        .font(Theme.font(Theme.Size.xs))
+                                        .foregroundStyle(Theme.text3)
+                                    Text(row.date, style: .time)
+                                        .font(Theme.font(Theme.Size.xs))
+                                        .foregroundStyle(Theme.text3)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                } header: {
+                    Label("Recent speedruns", systemImage: "stopwatch")
+                } footer: {
+                    Text("Newest first. Time, misses, and accuracy. Up to the last 12 runs.")
+                }
+
+                Section {
+                    if snap.mostMissed.isEmpty {
+                        Text("No misses yet. Keep practicing.")
+                            .foregroundStyle(Theme.text2)
+                    } else {
+                        ForEach(snap.mostMissed, id: \.name) { row in
+                            HStack {
+                                Text(row.name)
+                                Spacer()
+                                Text("\(row.wrong)")
+                                    .foregroundStyle(Theme.text2)
+                                    .monospacedDigit()
+                            }
+                        }
+                    }
+                } header: {
+                    Label("Most missed", systemImage: "exclamationmark.triangle")
+                } footer: {
+                    Text("Countries you got wrong the most, across practice and unlock.")
+                }
+
+                Section {
+                    if snap.dayHistory.isEmpty {
+                        Text("No recent days yet.")
+                            .foregroundStyle(Theme.text2)
+                    } else {
+                        ForEach(snap.dayHistory) { row in
+                            HStack {
+                                Text(row.label)
+                                Spacer()
+                                Text(row.percentText)
+                                    .foregroundStyle(Theme.text2)
+                                    .monospacedDigit()
+                                Text(row.detailText)
+                                    .font(Theme.font(Theme.Size.xs))
+                                    .foregroundStyle(Theme.text3)
+                                    .frame(minWidth: 120, alignment: .trailing)
+                            }
+                        }
+                    }
+                } header: {
+                    Label("Recent days", systemImage: "calendar")
+                } footer: {
+                    Text("Days you finished at least one quiz.")
+                }
+
+                Section {
+                    if snap.history.isEmpty {
+                        Text("No quiz history yet.")
+                            .foregroundStyle(Theme.text2)
+                    } else {
+                        ForEach(snap.history) { row in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(row.kindTitle)
+                                        .font(Theme.font(Theme.Size.sm, .semibold))
+                                        .foregroundStyle(row.isPractice ? Theme.accent : Theme.text2)
+                                    Text("·")
+                                        .foregroundStyle(Theme.text3)
+                                    Text(row.subjectTitle)
+                                        .foregroundStyle(Theme.text2)
+                                    Spacer()
+                                    Text(row.scoreText)
+                                        .font(Theme.font(Theme.Size.body, .semibold))
+                                        .monospacedDigit()
+                                }
+                                HStack {
+                                    Text(row.scopeTitle)
+                                        .font(Theme.font(Theme.Size.xs))
+                                        .foregroundStyle(Theme.text3)
+                                    Spacer()
+                                    Text(row.date, style: .date)
+                                        .font(Theme.font(Theme.Size.xs))
+                                        .foregroundStyle(Theme.text3)
+                                    Text(row.date, style: .time)
+                                        .font(Theme.font(Theme.Size.xs))
+                                        .foregroundStyle(Theme.text3)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                } header: {
+                    Label("Recent quizzes", systemImage: "clock")
+                } footer: {
+                    Text("Newest first. Up to the last 12 finished quizzes.")
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
         }
         .confirmationDialog(
             "Reset stats?",
@@ -1393,169 +1393,7 @@ private struct SettingsPane: View {
     @State private var swipeAccess = TrackpadSwipeGuard.accessibilityTrusted
 
     var body: some View {
-        Form {
-            if category == .quizzes {
-                Section {
-                    Toggle("Every unlock", isOn: $model.quizOnUnlock)
-                    Toggle("Also on wake from sleep", isOn: $model.quizOnWake)
-                    Picker("Scheduled quiz", selection: $model.scheduleKind) {
-                        ForEach(ScheduleKind.allCases, id: \.self) { kind in
-                            Text(kind.title).tag(kind)
-                        }
-                    }
-                    if model.scheduleKind == .fixed {
-                        ForEach($model.fixedSlots) { $slot in
-                            HStack {
-                                DatePicker("Every day at", selection: $slot.date, displayedComponents: .hourAndMinute)
-                                Button {
-                                    model.removeTime(slot.id)
-                                } label: {
-                                    Image(systemName: "minus.circle.fill")
-                                }
-                                .buttonStyle(.borderless)
-                                .disabled(model.fixedSlots.count <= 1)
-                                .help("Remove this time")
-                                .accessibilityLabel("Remove scheduled quiz time")
-                            }
-                        }
-                        SettingsRowButton(title: "Add a time") { model.addTime() }
-                    }
-                    if model.scheduleKind == .random {
-                        DatePicker("From", selection: $model.randomStart, displayedComponents: .hourAndMinute)
-                        DatePicker("To", selection: $model.randomEnd, displayedComponents: .hourAndMinute)
-                        if let warning = model.windowWarning {
-                            Text(warning).foregroundStyle(Theme.warn)
-                        }
-                        Toggle("Keep it a surprise", isOn: $model.surprise)
-                    }
-                    if model.scheduleKind != .off {
-                        Text(model.statusText)
-                            .foregroundStyle(Theme.text2)
-                        Text("If your Mac is asleep or locked at that time, the quiz shows when you come back that day.")
-                            .font(Theme.font(Theme.Size.xs))
-                            .foregroundStyle(Theme.text3)
-                    }
-                } header: {
-                    Text("When to quiz")
-                }
-
-                Section {
-                    Picker("Unlock questions", selection: $model.questionCount) {
-                        ForEach(QuestionCount.allCases, id: \.self) { c in
-                            Text(c.title).tag(c)
-                        }
-                    }
-                    Toggle("Require 100% to unlock", isOn: $model.requirePerfect)
-                    if model.requirePerfect {
-                        Text("Missed countries are re-asked until all are right. After 10 minutes you can unlock anyway.")
-                            .font(Theme.font(Theme.Size.xs))
-                            .foregroundStyle(Theme.text3)
-                    }
-                    Picker("Ask about", selection: $model.subject) {
-                        ForEach(QuizSubject.allCases, id: \.self) { s in
-                            Text(s.title).tag(s)
-                        }
-                    }
-                    Picker("Quiz type", selection: $model.quizType) {
-                        ForEach(QuizType.allCases, id: \.self) { type in
-                            Text(type.title).tag(type)
-                        }
-                    }
-                    Picker("Answer style", selection: $model.mode) {
-                        ForEach(QuizMode.allCases, id: \.self) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                    .disabled(model.quizType == .click)
-                } header: {
-                    Text("Unlock quiz")
-                } footer: {
-                    Text(model.settingsUnlockSummary)
-                        .font(Theme.font(Theme.Size.xs))
-                }
-
-                Section {
-                    Toggle("Use custom set", isOn: $model.unlockUsesCustom)
-                    if model.unlockUsesCustom {
-                        CustomSetSummary {
-                            editingCustom = true
-                        }
-                        .id(model.customRevision)
-                    }
-                    ForEach($model.regionFlags) { $flag in
-                        Toggle(flag.region.title, isOn: $flag.on)
-                    }
-                } header: {
-                    Text("Regions for unlock quizzes")
-                } footer: {
-                    Text(model.unlockUsesCustom && CustomSets.countries().count >= 2
-                         ? "Unlock can use the custom set alone, or together with any continents you leave on."
-                         : "At least one region stays on. Practice picks its own place.")
-                }
-                .sheet(isPresented: $editingCustom) {
-                    CustomSetEditor {
-                        model.customRevision += 1
-                    }
-                }
-            }
-
-            if category == .experience {
-                Section {
-                    Picker("Appearance", selection: $model.appearance) {
-                        ForEach(AppearanceMode.allCases, id: \.self) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                } header: {
-                    Text("Appearance")
-                }
-
-                Section {
-                    Toggle("Answer sounds", isOn: $model.answerSounds)
-                    Toggle("Friend request notifications", isOn: $model.friendRequestNotifications)
-                    Toggle("Show prompt next to cursor", isOn: $model.cursorPrompt)
-                    Toggle("Block trackpad swipes while locked", isOn: $model.blockTrackpadSwipes)
-                    Text("Space, Mission Control, and App Exposé swipes pause during a lock quiz, then go back to how you had them.")
-                        .font(Theme.font(Theme.Size.xs))
-                        .foregroundStyle(Theme.text3)
-                    if model.blockTrackpadSwipes && !swipeAccess {
-                        Text("Allow Map Lock in Accessibility so it can stop the swipe on this Mac. The setting change alone does not.")
-                            .font(Theme.font(Theme.Size.xs))
-                            .foregroundStyle(Theme.text3)
-                        SettingsRowButton(title: "Allow Accessibility Access…") {
-                            TrackpadSwipeGuard.promptAccessibility()
-                            swipeAccess = TrackpadSwipeGuard.accessibilityTrusted
-                        }
-                    }
-                    Toggle("Open at login", isOn: $model.openAtLogin)
-                        .disabled(!model.canUseLoginItem)
-                    if let message = model.loginMessage {
-                        Text(message).foregroundStyle(Theme.warn)
-                    }
-                    if model.needsApproval {
-                        SettingsRowButton(title: "Open Login Items...") { model.openLoginItems() }
-                    }
-                    SettingsRowButton(title: "Hide Map Lock") { NSApp.terminate(nil) }
-                } header: {
-                    Text("General")
-                } footer: {
-                    Text("Hide keeps Map Lock running so quizzes still show. Force Quit is the only way to quit.")
-                }
-            }
-
-            if category == .data {
-                Section {
-                    SettingsRowButton(title: "Reset stats…", destructive: true) { confirmReset = true }
-                } header: {
-                    Text("Stats")
-                } footer: {
-                    Text("Clears practice and unlock scores and personal bests. Races and friends are kept.")
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .safeAreaInset(edge: .top, spacing: 0) {
+        VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: Theme.Space.s4) {
                 PageHeading(eyebrow: "Settings", title: "A routine that fits you.",
                             subtitle: "Changes save automatically. Practice has its own session options.")
@@ -1571,6 +1409,168 @@ private struct SettingsPane: View {
             .padding(Theme.Space.s6)
             .frame(maxWidth: .infinity)
             .background(Theme.background)
+            Form {
+                if category == .quizzes {
+                    Section {
+                        Toggle("Every unlock", isOn: $model.quizOnUnlock)
+                        Toggle("Also on wake from sleep", isOn: $model.quizOnWake)
+                        Picker("Scheduled quiz", selection: $model.scheduleKind) {
+                            ForEach(ScheduleKind.allCases, id: \.self) { kind in
+                                Text(kind.title).tag(kind)
+                            }
+                        }
+                        if model.scheduleKind == .fixed {
+                            ForEach($model.fixedSlots) { $slot in
+                                HStack {
+                                    DatePicker("Every day at", selection: $slot.date, displayedComponents: .hourAndMinute)
+                                    Button {
+                                        model.removeTime(slot.id)
+                                    } label: {
+                                        Image(systemName: "minus.circle.fill")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .disabled(model.fixedSlots.count <= 1)
+                                    .help("Remove this time")
+                                    .accessibilityLabel("Remove scheduled quiz time")
+                                }
+                            }
+                            SettingsRowButton(title: "Add a time") { model.addTime() }
+                        }
+                        if model.scheduleKind == .random {
+                            DatePicker("From", selection: $model.randomStart, displayedComponents: .hourAndMinute)
+                            DatePicker("To", selection: $model.randomEnd, displayedComponents: .hourAndMinute)
+                            if let warning = model.windowWarning {
+                                Text(warning).foregroundStyle(Theme.warn)
+                            }
+                            Toggle("Keep it a surprise", isOn: $model.surprise)
+                        }
+                        if model.scheduleKind != .off {
+                            Text(model.statusText)
+                                .foregroundStyle(Theme.text2)
+                            Text("If your Mac is asleep or locked at that time, the quiz shows when you come back that day.")
+                                .font(Theme.font(Theme.Size.xs))
+                                .foregroundStyle(Theme.text3)
+                        }
+                    } header: {
+                        Text("When to quiz")
+                    }
+
+                    Section {
+                        Picker("Unlock questions", selection: $model.questionCount) {
+                            ForEach(QuestionCount.allCases, id: \.self) { c in
+                                Text(c.title).tag(c)
+                            }
+                        }
+                        Toggle("Require 100% to unlock", isOn: $model.requirePerfect)
+                        if model.requirePerfect {
+                            Text("Missed countries are re-asked until all are right. After 10 minutes you can unlock anyway.")
+                                .font(Theme.font(Theme.Size.xs))
+                                .foregroundStyle(Theme.text3)
+                        }
+                        Picker("Ask about", selection: $model.subject) {
+                            ForEach(QuizSubject.allCases, id: \.self) { s in
+                                Text(s.title).tag(s)
+                            }
+                        }
+                        Picker("Quiz type", selection: $model.quizType) {
+                            ForEach(QuizType.allCases, id: \.self) { type in
+                                Text(type.title).tag(type)
+                            }
+                        }
+                        Picker("Answer style", selection: $model.mode) {
+                            ForEach(QuizMode.allCases, id: \.self) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                        .disabled(model.quizType == .click)
+                    } header: {
+                        Text("Unlock quiz")
+                    } footer: {
+                        Text(model.settingsUnlockSummary)
+                            .font(Theme.font(Theme.Size.xs))
+                    }
+
+                    Section {
+                        Toggle("Use custom set", isOn: $model.unlockUsesCustom)
+                        if model.unlockUsesCustom {
+                            CustomSetSummary {
+                                editingCustom = true
+                            }
+                            .id(model.customRevision)
+                        }
+                        ForEach($model.regionFlags) { $flag in
+                            Toggle(flag.region.title, isOn: $flag.on)
+                        }
+                    } header: {
+                        Text("Regions for unlock quizzes")
+                    } footer: {
+                        Text(model.unlockUsesCustom && CustomSets.countries().count >= 2
+                             ? "Unlock can use the custom set alone, or together with any continents you leave on."
+                             : "At least one region stays on. Practice picks its own place.")
+                    }
+                    .sheet(isPresented: $editingCustom) {
+                        CustomSetEditor {
+                            model.customRevision += 1
+                        }
+                    }
+                }
+
+                if category == .experience {
+                    Section {
+                        Picker("Appearance", selection: $model.appearance) {
+                            ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                    } header: {
+                        Text("Appearance")
+                    }
+
+                    Section {
+                        Toggle("Answer sounds", isOn: $model.answerSounds)
+                        Toggle("Friend request notifications", isOn: $model.friendRequestNotifications)
+                        Toggle("Show prompt next to cursor", isOn: $model.cursorPrompt)
+                        Toggle("Block trackpad swipes while locked", isOn: $model.blockTrackpadSwipes)
+                        Text("Space, Mission Control, and App Exposé swipes pause during a lock quiz, then go back to how you had them.")
+                            .font(Theme.font(Theme.Size.xs))
+                            .foregroundStyle(Theme.text3)
+                        if model.blockTrackpadSwipes && !swipeAccess {
+                            Text("Allow Map Lock in Accessibility so it can stop the swipe on this Mac. The setting change alone does not.")
+                                .font(Theme.font(Theme.Size.xs))
+                                .foregroundStyle(Theme.text3)
+                            SettingsRowButton(title: "Allow Accessibility Access…") {
+                                TrackpadSwipeGuard.promptAccessibility()
+                                swipeAccess = TrackpadSwipeGuard.accessibilityTrusted
+                            }
+                        }
+                        Toggle("Open at login", isOn: $model.openAtLogin)
+                            .disabled(!model.canUseLoginItem)
+                        if let message = model.loginMessage {
+                            Text(message).foregroundStyle(Theme.warn)
+                        }
+                        if model.needsApproval {
+                            SettingsRowButton(title: "Open Login Items...") { model.openLoginItems() }
+                        }
+                        SettingsRowButton(title: "Hide Map Lock") { NSApp.terminate(nil) }
+                    } header: {
+                        Text("General")
+                    } footer: {
+                        Text("Hide keeps Map Lock running so quizzes still show. Force Quit is the only way to quit.")
+                    }
+                }
+
+                if category == .data {
+                    Section {
+                        SettingsRowButton(title: "Reset stats…", destructive: true) { confirmReset = true }
+                    } header: {
+                        Text("Stats")
+                    } footer: {
+                        Text("Clears practice and unlock scores and personal bests. Races and friends are kept.")
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
         }
         .toggleStyle(.switch)
         .onAppear { swipeAccess = TrackpadSwipeGuard.accessibilityTrusted }
