@@ -26,6 +26,7 @@ for dark in [false, true] {
 
     for (n, b) in backs + dialogBacks {
         check("\(m) text on \(n)", v(Palette.text), b, min: 4.5)
+        check("\(m) accent text on \(n)", v(Palette.accent), b, min: 4.5)
         check("\(m) text2 on \(n)", v(Palette.text2), b, min: 4.5)
         check("\(m) text3 on \(n)", v(Palette.text3), b, min: 4.5)
         check("\(m) correct text on \(n)", v(Palette.goodText), b, min: 4.5)
@@ -42,7 +43,7 @@ for dark in [false, true] {
     check("\(m) badge text on correct", v(Palette.onTint), v(Palette.goodText), min: 4.5)
     check("\(m) badge text on wrong", v(Palette.onTint), v(Palette.badText), min: 4.5)
     // Map (non-text: 3:1)
-    check("\(m) land vs sea", land, sea, min: dark ? 3 : 2.9)  // light is the web / Seterra pair, 2.96
+    check("\(m) land vs sea", land, sea, min: 3)
     check("\(m) tiny ring vs sea", v(Palette.ringTiny), sea, min: 3)
     check("\(m) correct ring vs sea", v(Palette.correctRing), sea, min: 3)
     check("\(m) wrong ring vs sea", v(Palette.wrongRing), sea, min: 3, info: true)
@@ -53,7 +54,7 @@ for dark in [false, true] {
     check("\(m) wrong fill vs land", v(Palette.wrongFill), land, min: 3, info: true)
     check("\(m) wrong outline vs wrong fill", v(Palette.wrongOutline), v(Palette.wrongFill), min: 3)
     check("\(m) wrong outline vs land", v(Palette.wrongOutline), land, min: 3)
-    check("\(m) dot fill vs sea", v(Palette.dotFill), sea, min: dark ? 3 : 2.9)
+    check("\(m) dot fill vs sea", v(Palette.dotFill), sea, min: 3)
     check("\(m) dot outline vs dot", v(Palette.dotStroke), v(Palette.dotFill), min: 3)
     check("\(m) leader vs sea", v(Palette.leader), sea, min: 3)
     check("\(m) map frame vs page", v(Palette.mapFrame), page, min: 1.5, info: true)

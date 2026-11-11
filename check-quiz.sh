@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 out="$(mktemp -d)/quiz"
 swiftc -O -o "$out" \
   Sources/MapLock/Countries.swift \
+  Sources/MapLock/CustomSetStore.swift \
   Sources/MapLock/Answers.swift \
   Sources/MapLock/CountryFacts.swift \
   Sources/MapLock/Settings.swift \

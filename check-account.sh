@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 out="$(mktemp -d)/account"
 swiftc -O -o "$out" \
   Sources/MapLock/Countries.swift \
+  Sources/MapLock/CustomSetStore.swift \
   Sources/MapLock/Settings.swift \
   Sources/MapLock/AccountName.swift \
   Sources/MapLock/Speedrun.swift \

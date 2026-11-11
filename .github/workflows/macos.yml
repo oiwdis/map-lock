@@ -19,6 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build the native SwiftUI app
+        id: build
         run: swift build
       - name: Check palette contrast
         run: ./check-contrast.sh
@@ -31,6 +32,7 @@ jobs:
           ./check-zoom.sh
           ./check-move.sh
       - name: Capture native screens in light and dark mode
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ./check-ui.sh /tmp/map-lock-ui
       - uses: actions/upload-artifact@v4
         if: always()
