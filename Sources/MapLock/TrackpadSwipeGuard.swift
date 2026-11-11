@@ -113,7 +113,8 @@ enum TrackpadSwipeGuard {
 
     /// Shows the system Accessibility prompt. The user still turns Map Lock on in System Settings.
     static func promptAccessibility() {
-        let options = [kAXTrustedCheckOptionPrompt: true] as CFDictionary
+        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        let options = [promptKey: true] as CFDictionary
         let trusted = AXIsProcessTrustedWithOptions(options)
         log.info("accessibility prompt trusted=\(trusted, privacy: .public)")
     }
@@ -372,7 +373,7 @@ enum TrackpadSwipeGuard {
             return
         }
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEventTapEnable(port, true)
+        CGEvent.tapEnable(tap: port, enable: true)
         tapPort = port
         tapSource = source
         trackingDockSwipe = false
@@ -382,7 +383,7 @@ enum TrackpadSwipeGuard {
     private static func stopTap() {
         let wasActive = tapPort != nil
         if let port = tapPort {
-            CGEventTapEnable(port, false)
+            CGEvent.tapEnable(tap: port, enable: false)
         }
         if let source = tapSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
@@ -398,7 +399,7 @@ enum TrackpadSwipeGuard {
     fileprivate static func handleTap(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let port = tapPort {
-                CGEventTapEnable(port, true)
+                CGEvent.tapEnable(tap: port, enable: true)
                 log.info("event tap re-enabled type=\(type.rawValue, privacy: .public)")
             }
             return Unmanaged.passUnretained(event)
@@ -433,7 +434,11 @@ enum TrackpadSwipeGuard {
     }
 
     private static func field(_ raw: UInt32) -> CGEventField {
-        CGEventField(rawValue: raw)
+        // Private gesture fields are plain integers. The macOS 26 SDK makes this initializer optional.
+        guard let field = CGEventField(rawValue: raw) else {
+            preconditionFailure("gesture field \(raw)")
+        }
+        return field
     }
 
     // MARK: Space snap-back
