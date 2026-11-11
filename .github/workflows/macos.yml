@@ -1,0 +1,28 @@
+name: macOS app checks
+
+on:
+  pull_request:
+  push:
+    branches: [main, codex/ui-ux-redesign]
+
+permissions:
+  contents: read
+
+jobs:
+  native-app:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the native SwiftUI app
+        run: swift build
+      - name: Check palette contrast
+        run: ./check-contrast.sh
+      - name: Check existing app behavior
+        run: |
+          ./check-quiz.sh
+          ./check-stats.sh
+          ./check-speedrun.sh
+          ./check-account.sh
+          ./check-zoom.sh
+          ./check-move.sh

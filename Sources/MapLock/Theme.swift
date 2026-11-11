@@ -1,10 +1,10 @@
 import SwiftUI
 import AppKit
 
-/// Design tokens ported from the web mockup (DESIGN.md / index.html).
+/// Shared design tokens for the native app.
 /// Every color has a light and a dark value and follows the window's appearance
 /// (set from the Appearance setting through NSApp.appearance).
-/// Light is Seterra-like: green land on a light blue sea, light panels, dark text.
+/// Solid surfaces and restrained color keep maps and learning feedback in focus.
 enum Theme {
     // All values live in Palette.swift (shared with the Linux contrast test) and match
     // the web demo. Every color follows the window's appearance, so a Light / Dark /
@@ -69,7 +69,7 @@ enum Theme {
     static let hairline = dyn(0x000000, 0xFFFFFF, lightOpacity: 0.08, darkOpacity: 0.08)
     static let hairline2 = dyn(0x000000, 0xFFFFFF, lightOpacity: 0.12, darkOpacity: 0.14)
     static let highlight = dyn(0xFFFFFF, 0xFFFFFF, lightOpacity: 0.6, darkOpacity: 0.10)
-    static let shadow = dyn(0x000000, 0x000000, lightOpacity: 0.14, darkOpacity: 0.45)
+    static let shadow = dyn(0x102A22, 0x000000, lightOpacity: 0.07, darkOpacity: 0.24)
     static let scrim = dyn(Palette.scrim)
     /// Window background behind the SwiftUI content (home window, overlay).
     static var windowBackground: NSColor { dynNS(Palette.page) }
@@ -220,7 +220,6 @@ struct GlassPanel: ViewModifier {
                 ZStack {
                     // Dialogs use a near-solid themed fill, not a material, so they always
                     // match Light / Dark and their text never sits on a dark blur in Light.
-                    if !strong { shape.fill(.ultraThinMaterial) }
                     shape.fill(strong ? Theme.dialog : Theme.glass)
                 }
             )
@@ -231,7 +230,7 @@ struct GlassPanel: ViewModifier {
                     lineWidth: 0.5
                 )
             )
-            .shadow(color: shadow ? Theme.shadow : .clear, radius: 28, x: 0, y: 18)
+            .shadow(color: shadow ? Theme.shadow : .clear, radius: 16, x: 0, y: 6)
     }
 }
 
@@ -254,9 +253,12 @@ struct AppButtonStyle: PrimitiveButtonStyle {
     var fullWidth = false
 
     func makeBody(configuration: Configuration) -> some View {
-        AppButtonBody(label: configuration.label, kind: kind, height: height, fullWidth: fullWidth) {
-            configuration.trigger()
+        Button { configuration.trigger() } label: {
+            AppButtonBody(label: configuration.label, kind: kind, height: height, fullWidth: fullWidth) {
+                configuration.trigger()
+            }
         }
+        .buttonStyle(.plain)
     }
 }
 
@@ -268,6 +270,7 @@ private struct AppButtonBody<Label: View>: View {
     let trigger: () -> Void
     @State private var hovering = false
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         label
@@ -284,8 +287,8 @@ private struct AppButtonBody<Label: View>: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
             .opacity(isEnabled ? 1 : 0.5)
-            .animation(Theme.Motion.medium, value: hovering)
-            .overlay(HitTarget(enabled: isEnabled, action: trigger, hover: { hovering = $0 }))
+            .animation(reduceMotion ? nil : Theme.Motion.medium, value: hovering)
+            .overlay(HitTarget(enabled: isEnabled, action: trigger, hover: { hovering = $0 }).accessibilityHidden(true))
     }
 
     private var fillColor: Color {
@@ -300,9 +303,10 @@ private struct AppButtonBody<Label: View>: View {
 /// Small quiet text button, like "Emergency skip".
 struct QuietButtonStyle: PrimitiveButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        QuietButtonBody(label: configuration.label) {
-            configuration.trigger()
+        Button { configuration.trigger() } label: {
+            QuietButtonBody(label: configuration.label) { configuration.trigger() }
         }
+        .buttonStyle(.plain)
     }
 }
 
@@ -311,6 +315,7 @@ private struct QuietButtonBody<Label: View>: View {
     let trigger: () -> Void
     @State private var hovering = false
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         label
@@ -318,10 +323,10 @@ private struct QuietButtonBody<Label: View>: View {
             .foregroundStyle(hovering ? Theme.text2 : Theme.text3)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .frame(minHeight: 28)
+            .frame(minHeight: 32)
             .contentShape(Rectangle())
             .opacity(isEnabled ? 1 : 0.5)
-            .overlay(HitTarget(enabled: isEnabled, action: trigger, hover: { hovering = $0 }))
+            .overlay(HitTarget(enabled: isEnabled, action: trigger, hover: { hovering = $0 }).accessibilityHidden(true))
     }
 }
 
@@ -421,7 +426,7 @@ struct AppBadge: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
-            .fill(LinearGradient(colors: [Color(hex: 0x2A7FFF), Color(hex: 0x5B2BD6)],
+            .fill(LinearGradient(colors: [Color(hex: 0x21785B), Color(hex: 0x104C3A)],
                                  startPoint: .topLeading, endPoint: .bottomTrailing))
             .frame(width: size, height: size)
             .overlay(
@@ -429,6 +434,6 @@ struct AppBadge: View {
                     .font(.system(size: size * 0.5, weight: .regular))
                     .foregroundStyle(Color.white)
             )
-            .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 8)
+            .shadow(color: Theme.shadow, radius: 8, x: 0, y: 4)
     }
 }

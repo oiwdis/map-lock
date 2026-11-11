@@ -107,13 +107,18 @@ struct SegmentedChoice<Value: Hashable>: View {
 
 /// Draws `label` and hits the entire frame, not only the glyphs.
 struct HitButton<Label: View>: View {
+    @Environment(\.isEnabled) private var isEnabled
     var enabled: Bool = true
     var action: () -> Void
     @ViewBuilder var label: () -> Label
 
     var body: some View {
-        label()
-            .contentShape(Rectangle())
-            .overlay(HitTarget(enabled: enabled, action: action))
+        Button(action: action) {
+            label()
+                .contentShape(Rectangle())
+                .overlay(HitTarget(enabled: enabled && isEnabled, action: action).accessibilityHidden(true))
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 }

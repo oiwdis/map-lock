@@ -16,10 +16,11 @@ struct QuizView: View {
                 QuestionView(session: session, question: question)
                     .blur(radius: dialogUp ? 18 : 0)
                     .allowsHitTesting(!dialogUp)
+                    .accessibilityHidden(dialogUp)
             }
 
             // Quiet emergency exit, bottom right corner.
-            if session.phase != .finished {
+            if session.phase != .finished && !session.confirmingSkip {
                 VStack {
                     Spacer()
                     HStack {
@@ -76,7 +77,8 @@ private struct QuestionView: View {
 
     var body: some View {
         GeometryReader { geo in
-            VStack(spacing: Theme.Space.s4) {
+            let compact = geo.size.height < 650
+            VStack(spacing: compact ? Theme.Space.s2 : Theme.Space.s4) {
                 header
                     .frame(maxWidth: min(geo.size.width - Theme.Space.s8 * 2, 1100))
                 if question.subject == .flags, let flag = question.flagEmoji {
@@ -85,17 +87,22 @@ private struct QuestionView: View {
                         .padding(.vertical, Theme.Space.s2)
                         .accessibilityLabel("Flag")
                 }
+                if question.kind == .click {
+                    answerArea
+                        .frame(maxWidth: 1100)
+                }
                 if question.subject != .flags || question.kind == .click {
                     mapCard
                         .frame(maxWidth: min(geo.size.width - Theme.Space.s8 * 2, 1100))
                 }
-                answerArea
-                    // Click questions only need the name and the result line, so the map gets more room.
-                    .frame(minHeight: question.kind == .click ? 100 : 170, alignment: .top)
-                    .frame(maxWidth: min(geo.size.width - Theme.Space.s8 * 2, 1100))
+                if question.kind != .click {
+                    answerArea
+                        .frame(minHeight: 170, alignment: .top)
+                        .frame(maxWidth: min(geo.size.width - Theme.Space.s8 * 2, 1100))
+                }
             }
             .padding(.horizontal, Theme.Space.s8)
-            .padding(.top, Theme.Space.s6)
+            .padding(.top, compact ? Theme.Space.s3 : Theme.Space.s6)
             .padding(.bottom, Theme.Space.s10)
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
         }
@@ -121,38 +128,44 @@ private struct QuestionView: View {
         }
     }
 
-    // Header: title + "2 of 5", progress bar, round and streak pills.
+    // Keep status and progress on separate rows; long sessions never overlap the title.
     private var header: some View {
-        ZStack {
+        VStack(spacing: Theme.Space.s2) {
             if session.isSpeedrun {
                 speedrunHeader
             } else {
                 HStack(spacing: Theme.Space.s3) {
-                    Text("Map Lock")
-                        .font(Theme.font(Theme.Size.md, .bold))
-                        .kerning(-0.3)
+                    Label(session.locksScreen ? "Unlock quiz" : "Practice",
+                          systemImage: session.locksScreen ? "lock.open" : "map")
+                        .font(Theme.font(Theme.Size.md, .semibold))
                     Text(session.progressText)
-                        .font(Theme.font(Theme.Size.body, .medium))
+                        .font(Theme.font(Theme.Size.sm, .medium))
                         .foregroundStyle(Theme.text2)
                         .monospacedDigit()
-                    if let chip = session.answerChip {
-                        AnswerChipBanner(chip: chip, reduceMotion: reduceMotion)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                    Spacer()
-                    Pill {
-                        Text(session.roundText).monospacedDigit()
-                    }
+                    Spacer(minLength: Theme.Space.s2)
                     Pill {
                         Image(systemName: "flame.fill").foregroundStyle(Theme.warn)
                         Text("\(session.streak)").monospacedDigit()
                     }
+                    .accessibilityLabel("\(session.streak) day streak")
                 }
-                ProgressSteps(total: session.total, results: session.results, current: session.index)
+                HStack(spacing: Theme.Space.s4) {
+                    ProgressSteps(total: session.total, results: session.results, current: session.index)
+                        .frame(maxWidth: 280, alignment: .leading)
+                    Spacer(minLength: 0)
+                    Text(session.roundText)
+                        .font(Theme.font(Theme.Size.xs))
+                        .foregroundStyle(Theme.text2)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
+                if let chip = session.answerChip {
+                    AnswerChipBanner(chip: chip, reduceMotion: reduceMotion)
+                }
             }
         }
-        .animation(.easeOut(duration: 0.2), value: session.answerChip?.token)
-        .frame(minHeight: session.isSpeedrun ? 40 : 32)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: session.answerChip?.token)
+        .frame(minHeight: session.isSpeedrun ? 40 : 56)
     }
 
     private var speedrunHeader: some View {
@@ -180,7 +193,7 @@ private struct QuestionView: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
                 }
-                .animation(.easeOut(duration: 0.2), value: session.penaltyPop?.token)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: session.penaltyPop?.token)
                 .accessibilityLabel("Time \(session.speedrunTimeText(at: timeline.date))")
             }
             Button("Skip") { session.skipSpeedrun() }
@@ -203,7 +216,7 @@ private struct QuestionView: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(session.score) right, \(session.speedrunMisses) wrong")
         }
-        .animation(.easeOut(duration: 0.2), value: session.answerChip?.token)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: session.answerChip?.token)
     }
 
     private var mapCard: some View {
@@ -244,15 +257,16 @@ private struct QuestionView: View {
                 // Clicks go through to the map.
                 .allowsHitTesting(false)
             }
-            .shadow(color: Theme.shadow, radius: 12, x: 0, y: 8)
+            .shadow(color: Theme.shadow, radius: 8, x: 0, y: 3)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var answerArea: some View {
         VStack(spacing: Theme.Space.s3) {
             Text(promptText)
-                .font(Theme.font(Theme.Size.body, .medium))
-                .foregroundStyle(Theme.text2)
+                .font(Theme.font(Theme.Size.md, .semibold))
+                .foregroundStyle(Theme.text)
+                .accessibilityAddTraits(.isHeader)
 
             ZStack(alignment: .top) {
                 VStack(spacing: Theme.Space.s3) {
@@ -394,7 +408,7 @@ private struct QuestionView: View {
                     .frame(height: 56)
                     .background(
                         ZStack {
-                            RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous).fill(.ultraThinMaterial)
+                            RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous).fill(Theme.card)
                             RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous).fill(fieldFill)
                         }
                     )
@@ -472,6 +486,7 @@ private struct QuestionView: View {
 /// Segmented progress: one bar per question when the quiz is short.
 /// Long quizzes (practice All) use a single bar so the window width stays sane.
 private struct ProgressSteps: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let total: Int
     let results: [Bool]
     let current: Int
@@ -502,7 +517,10 @@ private struct ProgressSteps: View {
                 .frame(maxWidth: 280)
             }
         }
-        .animation(Theme.Motion.slow, value: results)
+        .animation(reduceMotion ? nil : Theme.Motion.slow, value: results)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Quiz progress")
+        .accessibilityValue("\(min(results.count, total)) of \(total) completed")
     }
 
     private var fraction: CGFloat {
@@ -560,7 +578,7 @@ private struct ChoiceButton: View {
             .frame(height: 52)
             .background(
                 ZStack {
-                    RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous).fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous).fill(Theme.card)
                     RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous).fill(fill)
                 }
             )
@@ -578,15 +596,17 @@ private struct ChoiceButton: View {
         .scaleEffect(look == .right && !reduceMotion ? 1.04 : 1)
         .modifier(ShakeEffect(shakes: reduceMotion ? 0 : (look == .wrong ? 1 : 0)))
         .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.55), value: look)
-        .animation(Theme.Motion.fast, value: hovering)
+        .animation(reduceMotion ? nil : Theme.Motion.fast, value: hovering)
         .onHover { hovering = $0 }
+        .accessibilityValue(look == .right ? "Correct answer" : look == .wrong ? "Your answer, incorrect" : "")
+        .accessibilityHint("Press \(number) to answer")
     }
 
     private var fill: Color {
         switch look {
         case .right: return Theme.goodBG
         case .wrong: return Theme.badBG
-        case .normal: return hovering ? Theme.fill3 : Theme.glass
+        case .normal: return hovering ? Theme.accent.opacity(0.08) : Theme.card
         case .dim: return Theme.glass
         }
     }
@@ -595,7 +615,7 @@ private struct ChoiceButton: View {
         switch look {
         case .right: return Theme.good
         case .wrong: return Theme.bad
-        default: return Theme.hairline2
+        default: return hovering ? Theme.accent : Theme.hairline2
         }
     }
 
@@ -609,10 +629,11 @@ private struct ChoiceButton: View {
 }
 
 private struct PressScaleStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(Theme.Motion.fast, value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .animation(reduceMotion ? nil : Theme.Motion.fast, value: configuration.isPressed)
     }
 }
 

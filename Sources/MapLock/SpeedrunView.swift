@@ -16,6 +16,7 @@ struct SpeedrunView: View {
                 SpeedrunQuestionView(session: session, country: country)
                     .blur(radius: dialogUp ? 18 : 0)
                     .allowsHitTesting(!dialogUp)
+                    .accessibilityHidden(dialogUp)
             }
 
             if session.phase == .asking {
@@ -74,8 +75,6 @@ private struct SpeedrunQuestionView: View {
             VStack(spacing: Theme.Space.s4) {
                 header
                     .frame(maxWidth: min(geo.size.width - Theme.Space.s8 * 2, 1100))
-                mapCard
-                    .frame(maxWidth: min(geo.size.width - Theme.Space.s8 * 2, 1100))
                 Text(country.name)
                     .font(Theme.font(Theme.Size.xl, .bold))
                     .kerning(-0.4)
@@ -84,6 +83,8 @@ private struct SpeedrunQuestionView: View {
                     .animation(reduceMotion ? nil : .linear(duration: 0.4), value: session.shakeCount)
                     .frame(maxWidth: min(geo.size.width - Theme.Space.s8 * 2, 1100))
                     .frame(minHeight: 44)
+                mapCard
+                    .frame(maxWidth: min(geo.size.width - Theme.Space.s8 * 2, 1100))
             }
             .padding(.horizontal, Theme.Space.s8)
             .padding(.top, Theme.Space.s6)
@@ -137,7 +138,7 @@ private struct SpeedrunQuestionView: View {
             RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
                 .strokeBorder(Theme.mapFrame, lineWidth: 1)
         )
-        .shadow(color: Theme.shadow, radius: 12, x: 0, y: 8)
+        .shadow(color: Theme.shadow, radius: 8, x: 0, y: 3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

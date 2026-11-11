@@ -79,6 +79,7 @@ struct CustomSetEditor: View {
     var onDone: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var countries: [String] = CustomSets.countries()
     @State private var original: [String] = CustomSets.countries()
     @State private var query = ""
@@ -101,7 +102,7 @@ struct CustomSetEditor: View {
                 Button("Cancel") { cancel() }
                     .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
                 VStack(alignment: .leading, spacing: Theme.Space.s1) {
-                    Text("Custom set")
+                    Text("Your country collection")
                         .font(Theme.font(Theme.Size.lg, .bold))
                     Text(countLine)
                         .font(Theme.font(Theme.Size.sm))
@@ -116,7 +117,7 @@ struct CustomSetEditor: View {
             SegmentedChoice(
                 selection: $pickMode,
                 choices: [
-                    SegmentChoice(value: CustomPickMode.type, title: "Type"),
+                    SegmentChoice(value: CustomPickMode.type, title: "Search countries"),
                     SegmentChoice(value: CustomPickMode.map, title: "Pick on map"),
                 ]
             )
@@ -131,7 +132,7 @@ struct CustomSetEditor: View {
         }
         .padding(Theme.Space.s6)
         .frame(width: 720)
-        .animation(.easeOut(duration: 0.22), value: pickMode)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: pickMode)
         .background(PickerKeySync(keys: keys, countries: $countries, highlight: $highlight,
                                   mode: $pickMode, query: $query, suggestions: suggestions, close: cancel))
         .onAppear { installKeys() }
@@ -198,7 +199,7 @@ struct CustomSetEditor: View {
             HStack(spacing: Theme.Space.s2) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(Theme.text3)
-                TextField("Type a country", text: $query)
+                TextField("Search by country name", text: $query)
                     .textFieldStyle(.plain)
                     .onSubmit { addHighlighted() }
                 if !query.isEmpty {
@@ -210,6 +211,7 @@ struct CustomSetEditor: View {
                             .foregroundStyle(Theme.text3)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Clear country search")
                 }
             }
             .padding(.horizontal, Theme.Space.s3)
@@ -220,7 +222,7 @@ struct CustomSetEditor: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         if suggestions.isEmpty {
-                            Text("No matches.")
+                            Text("No matching countries. Try another name or choose from the map.")
                                 .font(Theme.font(Theme.Size.sm))
                                 .foregroundStyle(Theme.text3)
                                 .frame(maxWidth: .infinity, alignment: .leading)

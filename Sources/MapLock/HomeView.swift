@@ -519,13 +519,13 @@ final class HomeWindowController: NSObject, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    /// About 760x560, or smaller if the screen is tight, centered in the visible frame.
+    /// Room for setup and its persistent action, while fitting smaller displays.
     private static func fittedFrame() -> NSRect {
         let screen = NSScreen.main?.visibleFrame
             ?? NSScreen.screens.first?.visibleFrame
             ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
-        let width = min(760, max(680, screen.width * 0.72))
-        let height = min(560, max(460, screen.height * 0.72))
+        let width = min(1040, max(680, screen.width * 0.82))
+        let height = min(780, max(460, screen.height * 0.86))
         let w = min(width, screen.width - 40)
         let h = min(height, screen.height - 40)
         return NSRect(x: screen.midX - w / 2, y: screen.midY - h / 2, width: w, height: h)
@@ -573,14 +573,26 @@ struct HomeView: View {
                     }
                 }
                 .listStyle(.sidebar)
+                .safeAreaInset(edge: .top) {
+                    HStack(spacing: 10) {
+                        AppBadge(size: 32)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Map Lock").font(Theme.font(Theme.Size.body, .bold))
+                            Text("A daily discovery").font(Theme.font(Theme.Size.xs)).foregroundStyle(Theme.text2)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(Theme.Space.s4)
+                }
                 // Keep system label colors so the selected row gets white (or vibrancy) on the blue highlight.
-                .navigationSplitViewColumnWidth(min: 150, ideal: 168, max: 200)
+                .navigationSplitViewColumnWidth(min: 150, ideal: 180, max: 220)
             } detail: {
                 detail
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Theme.background)
                     .foregroundStyle(Theme.text)
             }
+            .tint(Theme.accent)
             .navigationSplitViewStyle(.balanced)
             // Do not set foregroundStyle on the split view: it paints sidebar labels dark on the selection fill.
             // No preferredColorScheme: NSApp.appearance drives Light / Dark / Match system.
@@ -590,9 +602,9 @@ struct HomeView: View {
                     Button {
                         model.onQuizNow()
                     } label: {
-                        Label("Quiz me now", systemImage: "play.fill")
+                        Label("Unlock quiz", systemImage: "lock.open")
                     }
-                    .help("Start an unlock quiz with Unlock quiz settings")
+                    .help("Start a screen-locking quiz using your Unlock quiz settings")
                 }
             }
         }
@@ -630,147 +642,57 @@ private struct PracticePane: View {
     @ObservedObject var model: HomeModel
     @State private var editingCustom = false
 
-    private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: Theme.Space.s2)]
+    private let columns = [GridItem(.adaptive(minimum: 150), spacing: Theme.Space.s3)]
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Space.s5) {
+            VStack(alignment: .leading, spacing: Theme.Space.s6) {
                 header
-                modeSection
-                whereSection
-                if !model.practiceSpeedrun {
-                    lengthSection
+                SetupSection(number: "1", title: "Choose your destination") {
+                    whereSection
                 }
-                Button {
-                    model.startPracticeNow()
-                } label: {
-                    HStack(spacing: Theme.Space.s2) {
-                        Image(systemName: model.practiceSpeedrun ? "timer" : "play.fill")
-                        Text(model.practiceSpeedrun ? "Start speedrun" : "Start practice")
-                    }
-                    .frame(maxWidth: 280)
+                SetupSection(number: "2", title: "Make it your practice") {
+                    modeSection
                 }
-                .buttonStyle(AppButtonStyle(kind: .primary, height: 40, fullWidth: true))
-                .padding(.top, Theme.Space.s1)
-                .disabled(!model.canStartPractice || model.customRevision < 0)
-                if model.practiceChoice == .custom, !model.canStartPractice {
-                    Text("Pick at least 2 countries.")
-                        .font(Theme.font(Theme.Size.xs))
-                        .foregroundStyle(Theme.text3)
+                SetupSection(number: "3", title: "Set your pace") {
+                    paceSection
                 }
-
-                Text("Practice never locks the screen. Quiz me now (toolbar) uses Unlock quiz in Settings.")
-                    .font(Theme.font(Theme.Size.xs))
-                    .foregroundStyle(Theme.text3)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text("The crowd already has a path. Yours is the one you cut yourself.")
-                    .font(Theme.font(Theme.Size.sm))
-                    .foregroundStyle(Theme.text2)
-                    .padding(.top, Theme.Space.s3)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(Theme.Space.s6)
-            .frame(maxWidth: 720, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: 800, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            launchBar
         }
         .sheet(isPresented: $editingCustom) {
-            CustomSetEditor {
-                model.customRevision += 1
-            }
+            CustomSetEditor { model.customRevision += 1 }
         }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s2) {
-            Text("Practice")
-                .font(Theme.font(Theme.Size.xl, .bold))
-                .kerning(-0.4)
-            Text("Pick what to practice, how to answer, then a place.")
-                .font(Theme.font(Theme.Size.body))
-                .foregroundStyle(Theme.text2)
+        VStack(alignment: .leading, spacing: Theme.Space.s4) {
+            PageHeading(eyebrow: "Practice", title: "Make the world familiar.",
+                        subtitle: "A continent, a few questions, a little more confidence.")
             HStack(spacing: Theme.Space.s2) {
                 Pill {
                     Image(systemName: "flame.fill").foregroundStyle(Theme.warn)
-                    Text(model.streak == 1 ? "1 day streak" : "\(model.streak) day streak")
+                    Text(model.streak > 0 ? "\(model.streak) day streak" : "Start your streak")
                 }
                 Pill {
-                    Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(Theme.text2)
-                    Text("Round \(model.roundText)").monospacedDigit()
+                    Image(systemName: "lock.open").foregroundStyle(Theme.accent)
+                    Text("No screen lock")
                 }
             }
-            .padding(.top, Theme.Space.s1)
-        }
-    }
-
-    private var modeSection: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s2) {
-            Text("What to practice")
-                .font(Theme.font(Theme.Size.sm, .semibold))
-                .foregroundStyle(Theme.text3)
-            HStack(spacing: Theme.Space.s2) {
-                ForEach(QuizSubject.allCases) { subject in
-                    PracticeModeChip(
-                        title: subject.practiceTitle,
-                        symbol: subject.practiceSymbol,
-                        selected: model.practiceSubject == subject
-                    ) {
-                        model.selectPracticeSubject(subject)
-                    }
-                }
-            }
-            VStack(alignment: .leading, spacing: Theme.Space.s2) {
-                Text("How to answer")
-                    .font(Theme.font(Theme.Size.sm, .semibold))
-                    .foregroundStyle(Theme.text3)
-                ForEach(PracticeAnswerStyle.allCases) { style in
-                    PracticeAnswerRow(
-                        title: style.title(for: model.practiceSubject),
-                        selected: model.practiceAnswerStyle == style
-                    ) {
-                        model.selectPracticeAnswerStyle(style)
-                    }
-                }
-                Text(model.practiceHelpText)
-                    .font(Theme.font(Theme.Size.xs))
-                    .foregroundStyle(Theme.text3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, Theme.Space.s1)
-                Divider()
-                    .padding(.top, Theme.Space.s2)
-                Toggle("Speedrun", isOn: $model.practiceSpeedrun)
-                    .toggleStyle(.switch)
-                    .font(Theme.font(Theme.Size.body, .medium))
-                Text("Timer on, no pause between questions.")
-                    .font(Theme.font(Theme.Size.xs))
-                    .foregroundStyle(Theme.text3)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(Theme.Space.s3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .fill(Theme.card)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .strokeBorder(Theme.hairline2, lineWidth: 1)
-            )
         }
     }
 
     private var whereSection: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s2) {
-            Text("Where")
-                .font(Theme.font(Theme.Size.sm, .semibold))
-                .foregroundStyle(Theme.text3)
-            LazyVGrid(columns: columns, spacing: Theme.Space.s2) {
+        VStack(alignment: .leading, spacing: Theme.Space.s3) {
+            LazyVGrid(columns: columns, spacing: Theme.Space.s3) {
                 ForEach(PracticeChoice.allCases) { choice in
-                    PracticePlaceCard(
-                        title: choice.title,
-                        symbol: symbol(for: choice),
-                        selected: model.practiceChoice == choice
-                    ) {
+                    PracticePlaceCard(title: choice.title, symbol: symbol(for: choice),
+                                      selected: model.practiceChoice == choice) {
                         model.practiceChoice = choice
                         if choice == .custom, CustomSets.countries().count < 2 {
                             editingCustom = true
@@ -779,38 +701,115 @@ private struct PracticePane: View {
                 }
             }
             if model.practiceChoice == .custom {
-                CustomSetSummary {
-                    editingCustom = true
-                }
-                .id(model.customRevision)
+                CustomSetSummary { editingCustom = true }
+                    .id(model.customRevision)
             }
             Text(model.practicePoolHint)
-                .font(Theme.font(Theme.Size.xs))
-                .foregroundStyle(Theme.text3)
+                .font(Theme.font(Theme.Size.sm))
+                .foregroundStyle(Theme.text2)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private var lengthSection: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s2) {
-            Text("Questions")
-                .font(Theme.font(Theme.Size.sm, .semibold))
-                .foregroundStyle(Theme.text3)
-            Picker("Questions", selection: $model.practiceLength) {
-                ForEach(PracticeLength.allCases) { length in
-                    Text(length.title).tag(length)
+    private var modeSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s4) {
+            HStack(spacing: Theme.Space.s2) {
+                ForEach(QuizSubject.allCases) { subject in
+                    PracticeModeChip(title: subject.title, symbol: subject.practiceSymbol,
+                                     selected: model.practiceSubject == subject) {
+                        model.selectPracticeSubject(subject)
+                    }
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 320)
+            VStack(alignment: .leading, spacing: Theme.Space.s1) {
+                SectionLabel("Answer method")
+                ForEach(PracticeAnswerStyle.allCases) { style in
+                    PracticeAnswerRow(title: style.title(for: model.practiceSubject),
+                                      selected: model.practiceAnswerStyle == style) {
+                        model.selectPracticeAnswerStyle(style)
+                    }
+                }
+            }
+            Label(model.practiceHelpText, systemImage: "info.circle")
+                .font(Theme.font(Theme.Size.sm))
+                .foregroundStyle(Theme.text2)
+                .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private var paceSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s4) {
+            Toggle(isOn: $model.practiceSpeedrun) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Speedrun", systemImage: "timer")
+                        .font(Theme.font(Theme.Size.body, .semibold))
+                    Text("Every country once. Timer on, no pause between questions.")
+                        .font(Theme.font(Theme.Size.sm))
+                        .foregroundStyle(Theme.text2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+            if !model.practiceSpeedrun {
+                Divider()
+                Picker("Questions", selection: $model.practiceLength) {
+                    ForEach(PracticeLength.allCases) { length in
+                        Text(length.title).tag(length)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+        }
+    }
+
+    private var launchBar: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Theme.Space.s5) {
+                sessionSummary
+                Spacer(minLength: 0)
+                startButton
+            }
+            VStack(alignment: .leading, spacing: Theme.Space.s3) {
+                sessionSummary
+                startButton
+            }
+        }
+        .padding(.horizontal, Theme.Space.s6)
+        .padding(.vertical, Theme.Space.s4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.hairline2).frame(height: 1) }
+    }
+
+    private var sessionSummary: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(model.practiceChoice.title)
+                .font(Theme.font(Theme.Size.body, .semibold))
+                .foregroundStyle(Theme.text)
+            Text(model.canStartPractice
+                 ? "\(model.practiceSubject.title) · \(model.practiceSpeedrun ? "Every country" : model.practiceLength.title + " questions")"
+                 : "Choose at least 2 countries to begin.")
+                .font(Theme.font(Theme.Size.sm))
+                .foregroundStyle(model.canStartPractice ? Theme.text2 : Theme.warn)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var startButton: some View {
+        Button { model.startPracticeNow() } label: {
+            Label(model.practiceSpeedrun ? "Start speedrun" : "Start practice",
+                  systemImage: model.practiceSpeedrun ? "timer" : "arrow.right")
+        }
+        .buttonStyle(AppButtonStyle(kind: .primary, height: 44))
+        .disabled(!model.canStartPractice)
+        .keyboardShortcut(.return, modifiers: .command)
+        .help("Start this session (⌘Return). Practice never locks your screen.")
     }
 
     private func symbol(for choice: PracticeChoice) -> String {
         switch choice {
-        case .africa: return "globe.europe.africa"
+        case .africa, .europe: return "globe.europe.africa"
         case .asia: return "globe.asia.australia"
-        case .europe: return "globe.europe.africa"
         case .northAmerica, .southAmerica: return "globe.americas"
         case .world: return "globe"
         case .custom: return "checklist"
@@ -868,8 +867,10 @@ private struct PracticeAnswerRow: View {
                     .multilineTextAlignment(.leading)
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, Theme.Space.s2)
+            .padding(.horizontal, Theme.Space.s3)
+            .frame(minHeight: 42)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.sm).fill(selected ? Theme.accent.opacity(0.08) : .clear))
             .contentShape(Rectangle())
         }
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -885,25 +886,32 @@ private struct PracticePlaceCard: View {
     var body: some View {
         HitButton(action: action) {
             VStack(alignment: .leading, spacing: Theme.Space.s2) {
-                Image(systemName: symbol)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(selected ? Color.white : Theme.text2)
+                HStack {
+                    Image(systemName: symbol)
+                        .font(.system(size: 24, weight: .regular))
+                        .foregroundStyle(Theme.accent)
+                    Spacer()
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16))
+                        .foregroundStyle(selected ? Theme.accent : Theme.text3)
+                        .accessibilityHidden(true)
+                }
                 Text(title)
                     .font(Theme.font(Theme.Size.body, selected ? .semibold : .medium))
-                    .foregroundStyle(selected ? Color.white : Theme.text)
+                    .foregroundStyle(Theme.text)
                     .lineLimit(2)
                     .minimumScaleFactor(0.85)
                     .multilineTextAlignment(.leading)
             }
             .padding(Theme.Space.s3)
-            .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .fill(selected ? Theme.accentFill : Theme.card)
+                    .fill(selected ? Theme.accent.opacity(0.08) : Theme.background)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .strokeBorder(selected ? Theme.accentFill : Theme.hairline2, lineWidth: selected ? 1.5 : 1)
+                    .strokeBorder(selected ? Theme.accent : Theme.hairline2, lineWidth: selected ? 1.5 : 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
         }
@@ -922,6 +930,20 @@ private struct StatsPane: View {
 
     var body: some View {
         Form {
+            Section {
+                PageHeading(eyebrow: "Stats", title: "See how far you’ve come.",
+                            subtitle: "Your progress, personal bests, and what to practice next.")
+                    .padding(.vertical, Theme.Space.s2)
+            }
+            .listRowBackground(Color.clear)
+            if !snap.practice.hasData && !snap.unlock.hasData && snap.speedrunRuns.isEmpty {
+                Section {
+                    LearningEmptyState(symbol: "chart.bar.xaxis", title: "Your first discovery starts here",
+                                       message: "Finish a practice session to see your accuracy and the countries to revisit.")
+                    Button("Set up a practice session") { model.homeTab = .practice }
+                        .buttonStyle(AppButtonStyle(fullWidth: true))
+                }
+            }
             Section {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())],
                           spacing: Theme.Space.s3) {
@@ -957,12 +979,13 @@ private struct StatsPane: View {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(Theme.text2)
                     }
+                    .accessibilityLabel("Stats options")
                     .menuIndicator(.hidden)
                     .menuStyle(.borderlessButton)
                     .fixedSize()
                 }
             } footer: {
-                Text("Practice and unlock quizzes both count here. Saved on this Mac only.")
+                Text("Practice and unlock quizzes both count here. Sign in from Account to sync your progress.")
             }
 
             kindSection(title: "Practice", summary: snap.practice, empty: "Finish a practice test to see numbers here.")
@@ -981,12 +1004,12 @@ private struct StatsPane: View {
             } header: {
                 Label("Speedrun bests", systemImage: "timer")
             } footer: {
-                Text("Fastest time for each place. A miss still counts in the time. Saved on this Mac only.")
+                Text("Fastest time for each place, including time penalties for misses.")
             }
 
             Section {
                 if snap.speedrunRuns.isEmpty {
-                    Text("No speedruns yet.")
+                    Text("Ready for a timed challenge? Turn on Speedrun in Practice to record your first time.")
                         .foregroundStyle(Theme.text2)
                 } else {
                     ForEach(snap.speedrunRuns) { row in
@@ -1238,12 +1261,12 @@ private struct StatOverviewCard: View {
                 .foregroundStyle(Theme.text3)
                 .labelStyle(.titleAndIcon)
             Text(value)
-                .font(Theme.font(Theme.Size.lg, .bold))
+                .font(Theme.font(Theme.Size.xl, .bold))
                 .monospacedDigit()
                 .foregroundStyle(Theme.text)
         }
         .padding(Theme.Space.s4)
-        .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
                 .fill(Theme.card)
@@ -1342,15 +1365,37 @@ private struct SettingsRowButton: View {
 
 // MARK: Settings (grouped Form, Apple HIG)
 
+private enum SettingsCategory: String, CaseIterable, Identifiable {
+    case quizzes = "Quizzes"
+    case experience = "App & appearance"
+    case data = "Your data"
+    var id: String { rawValue }
+}
+
 private struct SettingsPane: View {
     @ObservedObject var model: HomeModel
     var onResetStats: () -> Void = {}
+    @State private var category = SettingsCategory.quizzes
     @State private var editingCustom = false
     @State private var confirmReset = false
     @State private var swipeAccess = TrackpadSwipeGuard.accessibilityTrusted
 
     var body: some View {
         Form {
+            Section {
+                PageHeading(eyebrow: "Settings", title: "A routine that fits you.",
+                            subtitle: "Changes save automatically. Practice has its own session options.")
+                Picker("Settings category", selection: $category) {
+                    ForEach(SettingsCategory.allCases) { item in
+                        Text(item.rawValue).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            .listRowBackground(Color.clear)
+
+            if category == .quizzes {
             Section {
                 Toggle("Every unlock", isOn: $model.quizOnUnlock)
                 Toggle("Also on wake from sleep", isOn: $model.quizOnWake)
@@ -1371,6 +1416,7 @@ private struct SettingsPane: View {
                             .buttonStyle(.borderless)
                             .disabled(model.fixedSlots.count <= 1)
                             .help("Remove this time")
+                            .accessibilityLabel("Remove scheduled quiz time")
                         }
                     }
                     SettingsRowButton(title: "Add a time") { model.addTime() }
@@ -1453,6 +1499,9 @@ private struct SettingsPane: View {
                 }
             }
 
+            }
+
+            if category == .experience {
             Section {
                 Picker("Appearance", selection: $model.appearance) {
                     ForEach(AppearanceMode.allCases, id: \.self) { mode in
@@ -1461,14 +1510,6 @@ private struct SettingsPane: View {
                 }
             } header: {
                 Text("Appearance")
-            }
-
-            Section {
-                SettingsRowButton(title: "Reset stats…", destructive: true) { confirmReset = true }
-            } header: {
-                Text("Stats")
-            } footer: {
-                Text("Clears practice and unlock scores and personal bests. Races and friends are kept.")
             }
 
             Section {
@@ -1501,6 +1542,18 @@ private struct SettingsPane: View {
                 Text("General")
             } footer: {
                 Text("Hide keeps Map Lock running so quizzes still show. Force Quit is the only way to quit.")
+            }
+            }
+
+            if category == .data {
+            Section {
+                SettingsRowButton(title: "Reset stats…", destructive: true) { confirmReset = true }
+            } header: {
+                Text("Stats")
+            } footer: {
+                Text("Clears practice and unlock scores and personal bests. Races and friends are kept.")
+            }
+
             }
         }
         .formStyle(.grouped)

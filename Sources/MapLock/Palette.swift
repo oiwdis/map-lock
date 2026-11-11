@@ -45,44 +45,44 @@ struct Shade: Sendable {
 }
 
 /// Every color the app uses, with no UI framework, so the Linux tests can check contrast.
-/// Matches the web demo's final colors. Theme.swift turns these into SwiftUI colors.
+/// A quiet atlas palette. Theme.swift turns these into adaptive SwiftUI colors.
 enum Palette {
     static let white = 0xFFFFFF as UInt32
 
     // Page and surfaces
-    static let page = Shade(0xEEF2F5, 0x0A0A0C)
+    static let page = Shade(0xF3F6F5, 0x101918)
     /// Results and skip dialogs: solid enough that the text never depends on what is behind.
-    static let dialog = Shade(RGBA(white, 0.97), RGBA(0x1E1E24, 0.92))
+    static let dialog = Shade(white, 0x1A2624)
     /// Settings cards and the answer buttons.
-    static let card = Shade(RGBA(white, 0.78), RGBA(0x1C1C20, 0.72))
+    static let card = Shade(white, 0x1A2624)
     static let scrim = Shade(RGBA(0x000000, 0.22), RGBA(0x000000, 0.45))
 
     /// Soft glows behind the quiz and home window (Theme.Backdrop). Kept pale enough
     /// that colored text on them still passes 4.5:1. Dark adds a veil on top.
-    static let lightGlows = [RGBA(0x9FD3E6, 0.25), RGBA(0xB7E4C7, 0.40), RGBA(0xD6EAF5, 0.60)]
-    static let darkGlows = [RGBA(0x1E3A8A, 0.75), RGBA(0x4C1D95, 0.65), RGBA(0x9D174D, 0.45)]
+    static let lightGlows = [RGBA(0xD6E8E1, 0.18), RGBA(0xE1EDE8, 0.16), RGBA(0xE8EFEC, 0.12)]
+    static let darkGlows = [RGBA(0x24483D, 0.12), RGBA(0x203D38, 0.10), RGBA(0x203D38, 0.08)]
     static let darkVeil = RGBA(0x08080C, 0.55)
 
     // Text
-    static let text = Shade(0x1C1C1E, 0xF5F5F7)
-    static let text2 = Shade(RGBA(0x1E1E28, 0.80), RGBA(0xEBEBF5, 0.72))
-    static let text3 = Shade(RGBA(0x1E1E28, 0.68), RGBA(0xEBEBF5, 0.60))
+    static let text = Shade(0x182D29, 0xEDF5F1)
+    static let text2 = Shade(0x475D56, 0xB5C8BF)
+    static let text3 = Shade(0x596D65, 0x9EB4AA)
     static let goodText = Shade(0x17702F, 0x30D158)
     static let badText = Shade(0xC62828, 0xFF6961)
     static let warnText = Shade(0xB02E00, 0xFF9F0A)
 
     // Buttons: white text on these fills.
-    static let accentFill = Shade(0x0062CC, 0x0060D6)
-    static let accentFillHover = Shade(0x0057B8, 0x006CF0)
+    static let accentFill = Shade(0x176B52, 0x23765D)
+    static let accentFillHover = Shade(0x11563F, 0x277A61)
     static let dangerFill = Shade(0xC62828, 0xC4262B)
     /// Text on a green or red key badge (the badge uses goodText / badText as its fill).
     static let onTint = Shade(0xFFFFFF, 0x0A0A0C)
     /// Accent for icons and focus rings.
-    static let accent = Shade(0x0062CC, 0x0A84FF)
+    static let accent = Shade(0x176B52, 0x79D6B2)
 
     // Map
-    static let sea = Shade(0xA8D4E0, 0x0B1220)
-    static let land = Shade(0x1F8447, 0x526B8F)
+    static let sea = Shade(0xDCEBE7, 0x101E24)
+    static let land = Shade(0x477761, 0x648675)
     static let border = Shade(RGBA(white, 0.85), RGBA(white, 0.60))
     static let highlight = Shade(0xFFD60A, 0xFFD60A)
     static let highlightOutline = Shade(0x7A5A00, 0xFFD60A)

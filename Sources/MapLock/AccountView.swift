@@ -19,6 +19,8 @@ struct AccountPane: View {
             ScrollView {
                 VStack(spacing: Theme.Space.s4) {
                     if showsRace {
+                        PageHeading(eyebrow: "Race", title: "A friendly race around the world.",
+                                    subtitle: "Challenge a friend, share a link, or join with a code.")
                         raceHub
                     } else if !account.isSignedIn {
                         signedOut
@@ -27,15 +29,17 @@ struct AccountPane: View {
                         usernameForm
                             .frame(maxWidth: 420)
                     } else {
+                        PageHeading(eyebrow: "Account", title: "Better with a little company.",
+                                    subtitle: "Your friends, shared progress, and friendly competition.")
                         accountProfile
                     }
                 }
                 .padding(.horizontal, Theme.Space.s6)
                 .padding(.vertical, Theme.Space.s5)
-                .frame(maxWidth: 640)
+                .frame(maxWidth: 800)
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: account.isSignedIn && !account.needsUsername ? CGFloat(0) : max(0, geo.size.height - Theme.Space.s6),
-                       alignment: .center)
+                       alignment: .top)
             }
         }
         .onAppear {
@@ -84,7 +88,7 @@ struct AccountPane: View {
                     .background(Circle().fill(Theme.accent.opacity(0.12)))
                     .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
-                Text("Map Lock Account")
+                Text(account.creatingAccount ? "Create your account" : "Welcome back")
                     .font(Theme.font(Theme.Size.xl, .bold))
                     .kerning(-0.4)
                     .foregroundStyle(Theme.text)
@@ -161,7 +165,7 @@ struct AccountPane: View {
             }
             .opacity(account.busy ? 0.6 : 1)
 
-            Text("Optional. Everything works without an account.")
+            Text("Practice and unlock quizzes work without an account. Sign in for races, friends, and sync.")
                 .font(Theme.font(Theme.Size.xs))
                 .foregroundStyle(Theme.text3)
                 .multilineTextAlignment(.center)
@@ -413,6 +417,7 @@ struct AccountPane: View {
                 .background(Circle().fill(Theme.fill2))
             }
             .help("Sync now")
+            .accessibilityLabel("Sync now")
             .opacity(account.busy ? 0.5 : 1)
             Menu {
                 Button("Sign Out") { account.signOut() }
@@ -427,6 +432,7 @@ struct AccountPane: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .help("Account")
+            .accessibilityLabel("Account")
         }
     }
 
@@ -509,7 +515,7 @@ struct AccountPane: View {
                 Text("Race a friend")
                     .font(Theme.font(Theme.Size.lg, .bold))
                     .foregroundStyle(Theme.text)
-                Text("Pick a place, then send the link.")
+                Text("Choose a destination and a mode, then invite your opponent.")
                     .font(Theme.font(Theme.Size.sm))
                     .foregroundStyle(Theme.text2)
             }
@@ -553,7 +559,7 @@ struct AccountPane: View {
                             .font(.system(size: 11, weight: .bold))
                             .rotationEffect(.degrees(raceOptionsOpen ? 90 : 0))
                             .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: raceOptionsOpen)
-                        Text("Options")
+                        Text("Race settings")
                             .font(Theme.font(Theme.Size.body, .semibold))
                         Spacer(minLength: Theme.Space.s2)
                         if !raceOptionsOpen {
@@ -568,7 +574,7 @@ struct AccountPane: View {
                     .frame(minHeight: 32)
                     .contentShape(Rectangle())
                 }
-                .accessibilityLabel("Options")
+                .accessibilityLabel("Race settings")
                 .accessibilityValue(raceOptionsOpen ? "Expanded" : raceOptionsSummary)
                 if raceOptionsOpen {
                     VStack(alignment: .leading, spacing: Theme.Space.s3) {
@@ -589,10 +595,10 @@ struct AccountPane: View {
             }
 
             Button { account.createRace() } label: {
-                Text("Create race")
+                Label("Create race", systemImage: "flag.checkered")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(AppButtonStyle(kind: .primary, height: 32, fullWidth: true))
+            .buttonStyle(AppButtonStyle(kind: .primary, height: 44, fullWidth: true))
             .disabled(account.busy || (account.raceRegion == .custom && home.customRevision >= 0 && CustomSets.countries().count < 2))
             .sheet(isPresented: $editingCustom) {
                 CustomSetEditor {
@@ -611,7 +617,7 @@ struct AccountPane: View {
 
             Divider().overlay(Theme.hairline2)
 
-            Text("Have a code?")
+            Text("Join an existing race")
                 .font(Theme.font(Theme.Size.sm, .semibold))
                 .foregroundStyle(Theme.text)
             HStack(alignment: .center, spacing: Theme.Space.s2) {
@@ -814,10 +820,8 @@ struct AccountPane: View {
 
             if !hasTimes {
                 VStack(spacing: Theme.Space.s3) {
-                    Text("Finish a speedrun to post a time")
-                        .font(Theme.font(Theme.Size.sm))
-                        .foregroundStyle(Theme.text2)
-                        .multilineTextAlignment(.center)
+                    LearningEmptyState(symbol: "timer", title: "Set the first time",
+                                       message: "Finish a speedrun with these settings to join the leaderboard.")
                     Button("Start a speedrun") { account.beginSpeedrun() }
                         .buttonStyle(AppButtonStyle(kind: .primary, height: 36))
                 }
@@ -903,7 +907,7 @@ struct AccountPane: View {
                     Text("Friends")
                         .font(Theme.font(Theme.Size.lg, .bold))
                         .foregroundStyle(Theme.text)
-                    Text("They have to accept before you can race.")
+                    Text("Add a friend by username. Once they accept, you can challenge them to a race.")
                         .font(Theme.font(Theme.Size.sm))
                         .foregroundStyle(Theme.text2)
                 }
@@ -919,6 +923,7 @@ struct AccountPane: View {
                         .contentShape(Rectangle())
                 }
                 .help("Refresh")
+            .accessibilityLabel("Refresh")
                 .opacity(account.busy ? 0.5 : 1)
             }
 
@@ -951,6 +956,7 @@ struct AccountPane: View {
                         .background(Circle().fill(Theme.accentFill))
                 }
                 .help("Add friend")
+            .accessibilityLabel("Add friend")
                 .opacity(account.busy ? 0.5 : 1)
             }
 
