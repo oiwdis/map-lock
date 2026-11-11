@@ -731,7 +731,7 @@ private struct WrongMapFlash: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animate)) { timeline in
             let t = timeline.date.timeIntervalSince(start)
-            let shake: CGFloat = animate && t < 0.35 ? CGFloat(sin(t / 0.35 * .pi * 4)) * 5 * (1 - t / 0.35) : 0
+            let shake: CGFloat = animate && t < 0.35 ? CGFloat(sin(t / 0.35 * .pi * 4) * 5 * (1 - t / 0.35)) : 0
             let yellow = animate && sin(timeline.date.timeIntervalSinceReferenceDate * 14) > 0
             ZStack {
                 if let wrongName {
