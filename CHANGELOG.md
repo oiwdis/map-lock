@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.11
+
+- Waking the Mac no longer crashes Map Lock while the lock quiz is coming on screen, and finishing the quiz still clears the full-screen cover.
+
 ## 1.3.10
 
 - Finishing the lock quiz closes the full-screen cover. It no longer stays on the desktop as a blank window.

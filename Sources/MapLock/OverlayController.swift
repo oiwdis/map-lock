@@ -17,14 +17,17 @@ final class OverlayController: NSObject {
     private var previousApp: NSRunningApplication?
     /// Stops a screen-change notice from rebuilding the windows while a rebuild is already running.
     private var adjusting = false
-    /// True while the quiz window is being swapped, so a nested order-front cannot revive the old one.
-    private var replacing = false
     /// True only while a quiz session should be covering the screen. Cleared before teardown.
     private var lockActive = false
     private var closing = false
     private var followUp: Task<Void, Never>?
+    private var reinforceTask: Task<Void, Never>?
+    private var wantRelayout = false
+    private var wantActivate = false
     private var escapeMonitor: Any?
     private var escapeMonitorInstalled = false
+    /// Shields taken off screen. Held so a window animation can finish before dealloc.
+    private var retired: [NSWindow] = []
     /// Every shield we created, so dismiss can release one that a rebuild swapped in.
     private var covers: [KioskWindow] = []
     var onClosed: (() -> Void)?
@@ -98,12 +101,33 @@ final class OverlayController: NSObject {
     }
 
     /// Wake, unlock, or a Space change while the quiz is already up.
-    /// A Space change does not activate the app: activation would jump back to another Space.
+    /// Several of those notices arrive together; doing the work once avoids
+    /// tearing a window down while AppKit is still animating it on screen.
     func reinforce(relayoutScreens: Bool, activateApp: Bool = true) {
         guard !closing else { return }
-        if adjusting || replacing { return }
         guard lockActive else {
-            destroyShields()
+            parkStrays()
+            return
+        }
+        wantRelayout = wantRelayout || relayoutScreens
+        wantActivate = wantActivate || activateApp
+        reinforceTask?.cancel()
+        reinforceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard let self, !Task.isCancelled, !self.closing else { return }
+            let relayoutNow = self.wantRelayout
+            let activateNow = self.wantActivate
+            self.wantRelayout = false
+            self.wantActivate = false
+            self.performReinforce(relayoutScreens: relayoutNow, activateApp: activateNow)
+        }
+    }
+
+    private func performReinforce(relayoutScreens: Bool, activateApp: Bool) {
+        guard !closing else { return }
+        if adjusting { return }
+        guard lockActive else {
+            parkStrays()
             return
         }
         guard session != nil, window?.contentView != nil else {
@@ -112,7 +136,7 @@ final class OverlayController: NSObject {
         }
         adjusting = true
         defer { adjusting = false }
-        if relayoutScreens { relayout() }
+        if relayoutScreens { fitExistingWindows() }
         guard lockActive else { return }
         bringToFront(activateApp: activateApp)
     }
@@ -120,7 +144,8 @@ final class OverlayController: NSObject {
     private func makeCoverWindow(frame: NSRect) -> KioskWindow? {
         guard lockActive, !closing else { return nil }
         let w = KioskWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        w.isReleasedWhenClosed = true
+        w.isReleasedWhenClosed = false
+        w.animationBehavior = .none
         w.backgroundColor = Theme.windowBackground
         w.isOpaque = true
         w.hasShadow = false
@@ -146,8 +171,7 @@ final class OverlayController: NSObject {
         let old = blankWindows
         blankWindows = []
         for blank in old {
-            covers.removeAll { $0 === blank }
-            releaseWindow(blank)
+            park(blank)
         }
         guard lockActive else { return }
         for other in NSScreen.screens where other != screen {
@@ -156,42 +180,54 @@ final class OverlayController: NSObject {
         }
     }
 
-    private func relayout() {
-        guard lockActive, let existing = window, let content = existing.contentView, session != nil else {
+    /// Move the windows we already have. Creating a new one here was freeing the
+    /// previous window while its order-on animation still had KVO on it.
+    private func fitExistingWindows() {
+        guard lockActive, let existing = window, existing.contentView != nil, session != nil else {
             close()
             return
         }
-        let screens = NSScreen.screens
-        guard let screen = NSScreen.main ?? screens.first else { return }
-        covers.removeAll { $0 === existing }
-        replacing = true
-        existing.orderOut(nil)
-        guard lockActive, let w = makeCoverWindow(frame: screen.frame) else {
-            replacing = false
-            releaseWindow(existing)
-            return
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        applyLockBehavior(to: existing)
+        existing.setFrame(screen.frame, display: true)
+        var spare = blankWindows
+        var kept: [NSWindow] = []
+        for other in NSScreen.screens where other != screen {
+            if let index = spare.firstIndex(where: { framesClose($0.frame, other.frame) }) {
+                let blank = spare.remove(at: index)
+                applyLockBehavior(to: blank)
+                blank.setFrame(other.frame, display: true)
+                kept.append(blank)
+            } else if let blank = makeCoverWindow(frame: other.frame) {
+                kept.append(blank)
+            }
         }
-        w.contentView = content
-        window = w
-        releaseWindow(existing)
-        replacing = false
-        rebuildBlankWindows(except: screen)
+        blankWindows = kept
+        for extra in spare {
+            park(extra)
+        }
     }
 
-    /// Hide and release a shield. Do not lower its level first: that leaves a normal
-    /// full-screen window on screen when orderOut does not stick.
-    private func releaseWindow(_ w: NSWindow) {
+    private func framesClose(_ a: NSRect, _ b: NSRect) -> Bool {
+        abs(a.width - b.width) < 4 && abs(a.height - b.height) < 4
+            && abs(a.origin.x - b.origin.x) < 4 && abs(a.origin.y - b.origin.y) < 4
+    }
+
+    /// Hide a shield and keep it alive until its AppKit animation has finished.
+    private func park(_ w: NSWindow) {
+        covers.removeAll { $0 === w }
+        blankWindows.removeAll { $0 === w }
+        if window === w { window = nil }
         w.orderOut(nil)
-        w.isReleasedWhenClosed = true
-        w.close()
-        guard w.isVisible else { return }
-        w.contentView = nil
-        w.orderOut(nil)
-        w.close()
+        if retired.contains(where: { $0 === w }) { return }
+        retired.append(w)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            self?.retired.removeAll { $0 === w }
+        }
     }
 
     private func bringToFront(activateApp: Bool) {
-        guard !replacing else { return }
         guard lockActive, let w = window, w.contentView != nil, session != nil else {
             if window != nil || !covers.isEmpty { close() }
             return
@@ -274,7 +310,7 @@ final class OverlayController: NSObject {
 
     func close() {
         guard !closing else { return }
-        let shieldsLeft = !leftoverShields().isEmpty
+        let shieldsLeft = !visibleShields().isEmpty
         guard lockActive || window != nil || !covers.isEmpty || shieldsLeft else { return }
         closing = true
         // Clear this before any window or Space change, so a notification from
@@ -282,6 +318,10 @@ final class OverlayController: NSObject {
         lockActive = false
         followUp?.cancel()
         followUp = nil
+        reinforceTask?.cancel()
+        reinforceTask = nil
+        wantRelayout = false
+        wantActivate = false
         stopWatching()
 
         let restore = savedOptions == Self.kioskOptions ? [] : savedOptions
@@ -303,11 +343,9 @@ final class OverlayController: NSObject {
         onClosed?()
     }
 
-    /// Order out and close every shield, including one a callback recreated or left at normal level.
+    /// Order out every shield we created. Only KioskWindow instances, never another AppKit window.
     private func destroyShields() {
-        let doomed = covers + leftoverShields()
-        covers = []
-        blankWindows = []
+        let doomed = covers + visibleShields()
         window = nil
         session = nil
         var seen = Set<ObjectIdentifier>()
@@ -315,28 +353,26 @@ final class OverlayController: NSObject {
             let id = ObjectIdentifier(w)
             if seen.contains(id) { continue }
             seen.insert(id)
-            releaseWindow(w)
+            park(w)
         }
     }
 
-    /// Borderless window the size of a display. The home, practice, and race windows are titled.
-    private func leftoverShields() -> [NSWindow] {
-        NSApp.windows.filter { candidate in
-            guard candidate.isVisible else { return false }
-            if candidate is KioskWindow { return true }
-            guard candidate.styleMask.contains(.borderless),
-                  !candidate.styleMask.contains(.titled) else { return false }
-            let size = candidate.frame.size
-            return NSScreen.screens.contains { screen in
-                abs(screen.frame.width - size.width) < 4 && abs(screen.frame.height - size.height) < 4
-            }
+    /// Shields still on screen. Other borderless windows (toasts, menus) are left alone.
+    private func visibleShields() -> [NSWindow] {
+        NSApp.windows.filter { $0 is KioskWindow && $0.isVisible }
+    }
+
+    private func parkStrays() {
+        guard !lockActive, !closing else { return }
+        for candidate in visibleShields() {
+            park(candidate)
         }
     }
 
     /// True when a shield is up but it is not a live quiz. Clicks and Escape may dismiss it.
     private var stuckShield: Bool {
-        if adjusting || closing || replacing || lockActive { return false }
-        return !leftoverShields().isEmpty || window != nil || !covers.isEmpty
+        if adjusting || closing || lockActive { return false }
+        return !visibleShields().isEmpty || window != nil || !covers.isEmpty
     }
 
     private func startEscapeMonitor() {
