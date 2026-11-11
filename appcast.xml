@@ -6,6 +6,15 @@
     <description>Map Lock updates.</description>
     <language>en</language>
     <item>
+      <title>Version 1.3.9</title>
+      <pubDate>Wed, 11 Nov 2026 02:07:00 +0000</pubDate>
+      <sparkle:version>1.3.9</sparkle:version>
+      <sparkle:shortVersionString>1.3.9</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description>Fixes a white screen that could stay up after finishing the lock quiz in 1.3.8.</description>
+      <enclosure url="https://github.com/oiwdis/map-lock/releases/download/v1.3.9/MapLock.zip" sparkle:edSignature="15Epdeug7B4P4vQVGiZiT1HC+r2XrIPK/iXSG05/c/nP+xDt0MSJy1LB+zXC5hQ7i+yBhyMqdL6lyspVP6rjDg==" length="3907203" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.3.8</title>
       <pubDate>Wed, 11 Nov 2026 01:17:00 +0000</pubDate>
       <sparkle:version>1.3.8</sparkle:version>
