@@ -38,6 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let launchedBeforeKey = "maplock.launchedBefore"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // A force quit during a quiz may have left trackpad swipes turned off.
+        TrackpadSwipeGuard.restore()
         UNUserNotificationCenter.current().delegate = self
         FriendAlerts.registerCategories()
         NSApp.setActivationPolicy(.regular)
@@ -150,6 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         overlay.close()
+        TrackpadSwipeGuard.restore()
     }
 
     // MARK: Map data

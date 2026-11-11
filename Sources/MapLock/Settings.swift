@@ -208,6 +208,7 @@ final class AppSettings {
         static let answerSounds = "maplock.answerSounds"
         static let friendRequestNotifications = "maplock.friendRequestNotifications"
         static let cursorPrompt = "maplock.cursorPrompt"
+        static let blockTrackpadSwipes = "maplock.blockTrackpadSwipes"
         static let questionCount = "maplock.questionCount"
         static let requirePerfect = "maplock.requirePerfect"
         static let unlockUsesCustom = "maplock.unlockUsesCustom"
@@ -294,6 +295,12 @@ final class AppSettings {
     var cursorPrompt: Bool {
         get { defaults.object(forKey: Keys.cursorPrompt) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Keys.cursorPrompt) }
+    }
+
+    /// Pause Space and Mission Control trackpad swipes during a lock quiz. On unless turned off.
+    var blockTrackpadSwipes: Bool {
+        get { defaults.object(forKey: Keys.blockTrackpadSwipes) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Keys.blockTrackpadSwipes) }
     }
 
     var quizOnUnlock: Bool {

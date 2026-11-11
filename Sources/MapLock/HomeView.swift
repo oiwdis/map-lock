@@ -107,6 +107,10 @@ final class HomeModel: ObservableObject {
         didSet { if !loading { settings.cursorPrompt = cursorPrompt; onChange() } }
     }
 
+    @Published var blockTrackpadSwipes = true {
+        didSet { if !loading { settings.blockTrackpadSwipes = blockTrackpadSwipes; onChange() } }
+    }
+
     @Published var questionCount: QuestionCount = .five {
         didSet { if !loading { settings.questionCount = questionCount; onChange() } }
     }
@@ -236,6 +240,7 @@ final class HomeModel: ObservableObject {
         answerSounds = settings.answerSounds
         friendRequestNotifications = settings.friendRequestNotifications
         cursorPrompt = settings.cursorPrompt
+        blockTrackpadSwipes = settings.blockTrackpadSwipes
         questionCount = settings.questionCount
         requirePerfect = settings.requirePerfect
         unlockUsesCustom = settings.unlockUsesCustom
@@ -1469,6 +1474,10 @@ private struct SettingsPane: View {
                 Toggle("Answer sounds", isOn: $model.answerSounds)
                 Toggle("Friend request notifications", isOn: $model.friendRequestNotifications)
                 Toggle("Show prompt next to cursor", isOn: $model.cursorPrompt)
+                Toggle("Block trackpad swipes while locked", isOn: $model.blockTrackpadSwipes)
+                Text("Space, Mission Control, and App Exposé swipes pause during a lock quiz, then go back to how you had them.")
+                    .font(Theme.font(Theme.Size.xs))
+                    .foregroundStyle(Theme.text3)
                 Toggle("Open at login", isOn: $model.openAtLogin)
                     .disabled(!model.canUseLoginItem)
                 if let message = model.loginMessage {

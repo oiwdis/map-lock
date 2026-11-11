@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.15
+
+- While a lock quiz is up, trackpad swipes that change Space or open Mission Control and App Exposé are turned off. The previous setting is saved first and put back when the quiz closes, or the next time Map Lock opens if it quit during the quiz. The switch is in Settings.
+
 ## 1.3.14
 
 - Rematch is a shared vote. The results button shows Rematch (1/2) after the first player taps it, either player can cancel, and both start the next race together when everyone has voted. If the other player leaves, the rematch stops.

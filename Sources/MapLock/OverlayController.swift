@@ -49,18 +49,32 @@ final class OverlayController: NSObject {
     func show(session: QuizSession) {
         if !lockActive { destroyShields() }
         guard !lockActive, window == nil, covers.isEmpty else { return }
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
 
         lockActive = true
-        becomeAccessory()
         self.session = session
         previousApp = NSWorkspace.shared.frontmostApplication
         if previousApp?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
             previousApp = nil
         }
+        // Watch before the Dock restart, so a Space change from it still rebuilds the shield.
+        startWatching()
+        TrackpadSwipeGuard.suspend()
 
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+            lockActive = false
+            self.session = nil
+            reinforceTask?.cancel()
+            stopWatching()
+            TrackpadSwipeGuard.restore()
+            return
+        }
+        becomeAccessory()
         guard let w = makeCoverWindow(frame: screen.frame) else {
             lockActive = false
+            self.session = nil
+            reinforceTask?.cancel()
+            stopWatching()
+            TrackpadSwipeGuard.restore()
             if NSApp.activationPolicy() != .regular {
                 NSApp.setActivationPolicy(.regular)
             }
@@ -71,7 +85,6 @@ final class OverlayController: NSObject {
         rebuildBlankWindows(except: screen)
 
         savedOptions = NSApp.presentationOptions
-        startWatching()
         startEscapeMonitor()
         bringToFront(activateApp: true)
         scheduleLateRejoin()
@@ -96,7 +109,9 @@ final class OverlayController: NSObject {
         guard !closing, lockActive, !adjusting else { return }
         becomeAccessory()
         guard session != nil, window?.contentView != nil else {
-            if lockActive { close() }
+            // The shield is still being built, often after the Dock restart. Don't end the lock.
+            if lockActive { return }
+            close()
             return
         }
         adjusting = true
@@ -138,6 +153,7 @@ final class OverlayController: NSObject {
             return
         }
         guard session != nil, window?.contentView != nil else {
+            if lockActive { return }
             close()
             return
         }
@@ -316,7 +332,11 @@ final class OverlayController: NSObject {
     func close() {
         guard !closing else { return }
         let shieldsLeft = !visibleShields().isEmpty
-        guard lockActive || window != nil || !covers.isEmpty || shieldsLeft else { return }
+        guard lockActive || window != nil || !covers.isEmpty || shieldsLeft else {
+            // A crash during a quiz leaves the backup even when no shield is up.
+            TrackpadSwipeGuard.restore()
+            return
+        }
         closing = true
         // Clear this before any window or Space change, so a notification from
         // teardown cannot build a new empty shield.
@@ -334,6 +354,7 @@ final class OverlayController: NSObject {
         }
 
         destroyShields()
+        TrackpadSwipeGuard.restore()
         if NSApp.activationPolicy() != .regular {
             NSApp.setActivationPolicy(.regular)
         }
