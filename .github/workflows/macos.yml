@@ -34,7 +34,8 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ./check-ui.sh /tmp/map-lock-ui
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ !cancelled() }}
+        timeout-minutes: 3
         with:
           name: native-ui-previews
           path: /tmp/map-lock-ui/*.png

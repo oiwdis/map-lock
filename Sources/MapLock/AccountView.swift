@@ -923,7 +923,7 @@ struct AccountPane: View {
                         .contentShape(Rectangle())
                 }
                 .help("Refresh")
-            .accessibilityLabel("Refresh")
+                .accessibilityLabel("Refresh")
                 .opacity(account.busy ? 0.5 : 1)
             }
 
@@ -956,7 +956,7 @@ struct AccountPane: View {
                         .background(Circle().fill(Theme.accentFill))
                 }
                 .help("Add friend")
-            .accessibilityLabel("Add friend")
+                .accessibilityLabel("Add friend")
                 .opacity(account.busy ? 0.5 : 1)
             }
 
