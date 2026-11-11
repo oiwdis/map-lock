@@ -779,7 +779,7 @@ private struct FinishedView: View {
         if session.unlockedByTimeLimit {
             return "Time limit reached. You got \(session.score) of \(total) right and can unlock now."
         }
-        if session.score == total { return "You got all \(total) right. Nice work!" }
+        if session.score == total { return "You got all \(total) right." }
         return "You got \(session.score) of \(total) right. Missed ones will come back soon."
     }
 }

@@ -587,7 +587,6 @@ struct HomeView: View {
                         AppBadge(size: 32)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Map Lock").font(Theme.font(Theme.Size.body, .bold))
-                            Text("A daily discovery").font(Theme.font(Theme.Size.xs)).foregroundStyle(Theme.text2)
                         }
                         Spacer(minLength: 0)
                     }
@@ -681,12 +680,11 @@ private struct PracticePane: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s4) {
-            PageHeading(eyebrow: "Practice", title: "Make the world familiar.",
-                        subtitle: "A continent, a few questions, a little more confidence.")
+            PageHeading(title: "Practice")
             HStack(spacing: Theme.Space.s2) {
                 Pill {
                     Image(systemName: "flame.fill").foregroundStyle(Theme.warn)
-                    Text(model.streak > 0 ? "\(model.streak) day streak" : "Start your streak")
+                    Text(model.streak > 0 ? "\(model.streak) day streak" : "No streak")
                 }
                 Pill {
                     Image(systemName: "lock.open").foregroundStyle(Theme.accent)
@@ -939,8 +937,7 @@ private struct StatsPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PageHeading(eyebrow: "Stats", title: "See how far you’ve come.",
-                        subtitle: "Your progress, personal bests, and what to practice next.")
+            PageHeading(title: "Stats")
                 .frame(maxWidth: 600, alignment: .leading)
                 .padding(Theme.Space.s6)
                 .frame(maxWidth: .infinity)
@@ -948,8 +945,8 @@ private struct StatsPane: View {
             Form {
                 if !snap.practice.hasData && !snap.unlock.hasData && snap.speedrunRuns.isEmpty {
                     Section {
-                        LearningEmptyState(symbol: "chart.bar.xaxis", title: "Your first discovery starts here",
-                                           message: "Finish a practice session to see your accuracy and the countries to revisit.")
+                        LearningEmptyState(symbol: "chart.bar.xaxis", title: "No stats yet",
+                                           message: "Finish a practice test to see numbers here.")
                         Button("Set up a practice session") { model.homeTab = .practice }
                             .buttonStyle(AppButtonStyle(fullWidth: true))
                     }
@@ -1019,7 +1016,7 @@ private struct StatsPane: View {
 
                 Section {
                     if snap.speedrunRuns.isEmpty {
-                        Text("Ready for a timed challenge? Turn on Speedrun in Practice to record your first time.")
+                        Text("No speedruns yet.")
                             .foregroundStyle(Theme.text2)
                     } else {
                         ForEach(snap.speedrunRuns) { row in
@@ -1062,7 +1059,7 @@ private struct StatsPane: View {
 
                 Section {
                     if snap.mostMissed.isEmpty {
-                        Text("No misses yet. Keep practicing.")
+                        Text("No misses yet.")
                             .foregroundStyle(Theme.text2)
                     } else {
                         ForEach(snap.mostMissed, id: \.name) { row in
@@ -1395,8 +1392,7 @@ private struct SettingsPane: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: Theme.Space.s4) {
-                PageHeading(eyebrow: "Settings", title: "A routine that fits you.",
-                            subtitle: "Changes save automatically. Practice has its own session options.")
+                PageHeading(title: "Settings", subtitle: "Changes save automatically.")
                 Picker("Settings category", selection: $category) {
                     ForEach(SettingsCategory.allCases) { item in
                         Text(item.rawValue).tag(item)

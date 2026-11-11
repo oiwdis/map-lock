@@ -1,26 +1,30 @@
 import SwiftUI
 
-/// A consistent landmark at the top of each destination.
+/// A plain title at the top of each page. Eyebrow and subtitle are optional.
 struct PageHeading: View {
-    let eyebrow: String
-    let title: String
-    let subtitle: String
+    var eyebrow: String? = nil
+    var title: String
+    var subtitle: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(eyebrow.uppercased())
-                .font(Theme.font(Theme.Size.xs, .semibold))
-                .tracking(1.4)
-                .foregroundStyle(Theme.accent)
+            if let eyebrow, !eyebrow.isEmpty {
+                Text(eyebrow.uppercased())
+                    .font(Theme.font(Theme.Size.xs, .semibold))
+                    .tracking(1.4)
+                    .foregroundStyle(Theme.accent)
+            }
             Text(title)
                 .font(Theme.font(Theme.Size.xl, .bold))
                 .tracking(-0.7)
                 .foregroundStyle(Theme.text)
                 .accessibilityAddTraits(.isHeader)
-            Text(subtitle)
-                .font(Theme.font(Theme.Size.body))
-                .foregroundStyle(Theme.text2)
-                .fixedSize(horizontal: false, vertical: true)
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(Theme.font(Theme.Size.body))
+                    .foregroundStyle(Theme.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

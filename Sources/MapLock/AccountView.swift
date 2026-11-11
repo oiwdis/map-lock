@@ -19,8 +19,7 @@ struct AccountPane: View {
             ScrollView {
                 VStack(spacing: Theme.Space.s4) {
                     if showsRace {
-                        PageHeading(eyebrow: "Race", title: "A friendly race around the world.",
-                                    subtitle: "Challenge a friend, share a link, or join with a code.")
+                        PageHeading(title: "Race")
                         raceHub
                     } else if !account.isSignedIn {
                         signedOut
@@ -29,8 +28,7 @@ struct AccountPane: View {
                         usernameForm
                             .frame(maxWidth: 420)
                     } else {
-                        PageHeading(eyebrow: "Account", title: "Better with a little company.",
-                                    subtitle: "Your friends, shared progress, and friendly competition.")
+                        PageHeading(title: "Account")
                         accountProfile
                     }
                 }
@@ -88,15 +86,10 @@ struct AccountPane: View {
                     .background(Circle().fill(Theme.accent.opacity(0.12)))
                     .frame(maxWidth: .infinity)
                     .accessibilityHidden(true)
-                Text(account.creatingAccount ? "Create your account" : "Welcome back")
+                Text(account.creatingAccount ? "Create account" : "Sign in")
                     .font(Theme.font(Theme.Size.xl, .bold))
                     .kerning(-0.4)
                     .foregroundStyle(Theme.text)
-                    .frame(maxWidth: .infinity)
-                Text("Race a friend, or keep your stats on every Mac.")
-                    .font(Theme.font(Theme.Size.body))
-                    .foregroundStyle(Theme.text2)
-                    .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
             }
 
@@ -282,10 +275,10 @@ struct AccountPane: View {
 
     private var raceSignInPrompt: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s3) {
-            Text("Race a friend")
+            Text("Sign in")
                 .font(Theme.font(Theme.Size.lg, .bold))
                 .foregroundStyle(Theme.text)
-            Text("Sign in to challenge a friend, or to join with a code.")
+            Text("Sign in to start or join a race.")
                 .font(Theme.font(Theme.Size.sm))
                 .foregroundStyle(Theme.text2)
             Button("Go to Account") { home.homeTab = .account }
@@ -512,10 +505,10 @@ struct AccountPane: View {
                 .accountCardChrome()
             }
             VStack(alignment: .leading, spacing: Theme.Space.s1) {
-                Text("Race a friend")
+                Text("New race")
                     .font(Theme.font(Theme.Size.lg, .bold))
                     .foregroundStyle(Theme.text)
-                Text("Choose a destination and a mode, then invite your opponent.")
+                Text("Pick a place and an answer method.")
                     .font(Theme.font(Theme.Size.sm))
                     .foregroundStyle(Theme.text2)
             }
@@ -791,7 +784,7 @@ struct AccountPane: View {
     private var boardPage: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s4) {
             VStack(alignment: .leading, spacing: Theme.Space.s1) {
-                Text("How you compare")
+                Text("Leaderboard")
                     .font(Theme.font(Theme.Size.lg, .bold))
                     .foregroundStyle(Theme.text)
                 Text("Fastest final time for this speedrun.")
@@ -820,7 +813,7 @@ struct AccountPane: View {
 
             if !hasTimes {
                 VStack(spacing: Theme.Space.s3) {
-                    LearningEmptyState(symbol: "timer", title: "Set the first time",
+                    LearningEmptyState(symbol: "timer", title: "No times yet",
                                        message: "Finish a speedrun with these settings to join the leaderboard.")
                     Button("Start a speedrun") { account.beginSpeedrun() }
                         .buttonStyle(AppButtonStyle(kind: .primary, height: 36))
@@ -907,7 +900,7 @@ struct AccountPane: View {
                     Text("Friends")
                         .font(Theme.font(Theme.Size.lg, .bold))
                         .foregroundStyle(Theme.text)
-                    Text("Add a friend by username. Once they accept, you can challenge them to a race.")
+                    Text("Add a friend by username.")
                         .font(Theme.font(Theme.Size.sm))
                         .foregroundStyle(Theme.text2)
                 }

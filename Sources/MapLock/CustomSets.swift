@@ -48,7 +48,7 @@ struct CustomSetEditor: View {
                 Button("Cancel") { cancel() }
                     .buttonStyle(AppButtonStyle(kind: .ghost, height: 32))
                 VStack(alignment: .leading, spacing: Theme.Space.s1) {
-                    Text("Your country collection")
+                    Text("Custom countries")
                         .font(Theme.font(Theme.Size.lg, .bold))
                     Text(countLine)
                         .font(Theme.font(Theme.Size.sm))

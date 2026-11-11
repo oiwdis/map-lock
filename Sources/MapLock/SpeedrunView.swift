@@ -209,7 +209,7 @@ private struct SpeedrunFinishedView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("SPEEDRUN COMPLETE")
+            Text("Speedrun complete")
                 .font(Theme.font(Theme.Size.xs, .semibold))
                 .tracking(1.4)
                 .foregroundStyle(Theme.accent)
