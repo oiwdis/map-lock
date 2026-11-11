@@ -3,7 +3,7 @@ name: macOS app checks
 on:
   pull_request:
   push:
-    branches: [main, codex/ui-ux-redesign]
+    branches: [main]
 
 concurrency:
   group: macos-${{ github.ref }}
@@ -25,12 +25,11 @@ jobs:
         run: ./check-contrast.sh
       - name: Check existing app behavior
         run: |
-          ./check-quiz.sh
-          ./check-stats.sh
-          ./check-speedrun.sh
-          ./check-account.sh
-          ./check-zoom.sh
-          ./check-move.sh
+          result=0
+          for check in quiz stats speedrun account zoom move; do
+            "./check-$check.sh" || result=1
+          done
+          exit "$result"
       - name: Capture native screens in light and dark mode
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ./check-ui.sh /tmp/map-lock-ui

@@ -13,10 +13,23 @@ enum KeychainStore {
 @main
 @MainActor
 struct UIPreview {
-    static func main() async throws {
+    static func main() {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
-        app.finishLaunching()
+        Task { @MainActor in
+            do {
+                try await renderAll()
+                exit(0)
+            } catch {
+                fputs("UI preview failed: \(error)\n", stderr)
+                exit(1)
+            }
+        }
+        app.run()
+    }
+
+    static func renderAll() async throws {
+        let app = NSApplication.shared
         let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let world = try WorldLoader.parse(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2])))

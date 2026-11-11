@@ -37,7 +37,8 @@ model stores. The workflow uploads the PNGs as `native-ui-previews`.
 CI also exposed two existing verification problems fixed here: mixed Double/CGFloat
 arithmetic in a map-feedback animation, and portable checks missing the custom-set
 storage dependency. Storage has been moved unchanged to a Foundation-only file so
-those checks can compile without SwiftUI.
+those checks can compile without SwiftUI. The stale unlock-stats assertion now checks the
+existing question-based continent breakdown and the explanatory note for legacy records.
 
 ## Manual release checks
 

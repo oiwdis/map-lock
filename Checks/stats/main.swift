@@ -37,7 +37,8 @@ expect("practice quizzes 2", snap.practice.quizzes == 2)
 expect("unlock quizzes 1", snap.unlock.quizzes == 1)
 expect("practice has flag mode", snap.practice.bySubject.contains(where: { $0.label == "Flag" }))
 expect("practice has africa place", snap.practice.byScope.contains(where: { $0.label == "Africa" }))
-expect("unlock has asia", snap.unlock.byScope.contains(where: { $0.label == "Asia" }))
+expect("legacy unlock has no invented continent counts", snap.unlock.byContinent.isEmpty)
+expect("legacy unlock explains missing continent detail", snap.unlock.continentNote != nil)
 expect("history has rows", snap.history.count == 3)
 expect("most missed includes Chad", snap.mostMissed.contains(where: { $0.name == "Chad" }))
 expect("day history non-empty", !snap.dayHistory.isEmpty)
@@ -75,6 +76,19 @@ expect("infer several from two places",
 expect("infer other when nothing matches",
        StatsScopeKey.infer(missed: [], total: 7, regionOf: { _ in nil },
                            counts: counts, worldCount: 190) == .other)
+
+// Current unlock records use the countries actually asked, rather than the selected pool.
+let japan = Country(name: "Japan", region: .asia, polygons: [], quizzable: true,
+                    rawBounds: .zero, focusBounds: .zero)
+store.repairQuizScopes(world: [japan])
+store.recordQuiz(score: 1, total: 1, duration: 5, missed: [], kind: .lock,
+                 subject: .countries, scope: .asia,
+                 asked: [AskedCountry(name: "Japan", correct: true)], now: day)
+let unlockDetail = store.snapshot(roundText: "1 of 1", now: day).unlock
+expect("unlock counts actual Asia questions", unlockDetail.byContinent.contains {
+    $0.label == "Asia" && $0.correct == 1 && $0.total == 1
+})
+expect("unlock does not duplicate scope summaries", unlockDetail.byScope.isEmpty)
 
 print(fails.isEmpty ? "stats: all pass" : "stats FAILS: \(fails)")
 exit(fails.isEmpty ? 0 : 1)
