@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.13
+
+- The lock quiz is an accessory panel, so it can appear on top of a fullscreen app after wake. The Dock icon comes back when the quiz closes.
+
 ## 1.3.12
 
 - After wake or unlock, the lock quiz appears on a fullscreen app's Space, not only on the desktop behind it.

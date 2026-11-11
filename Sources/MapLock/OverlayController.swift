@@ -2,16 +2,16 @@ import AppKit
 import CoreGraphics
 import SwiftUI
 
-/// Borderless windows cannot take keyboard input unless they say they can.
-final class KioskWindow: NSWindow {
+/// A non-activating panel can sit on another app's fullscreen Space. A normal window cannot.
+final class KioskPanel: NSPanel {
     override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
+    override var canBecomeMain: Bool { false }
 }
 
 /// Shows the quiz as a full screen "kiosk" overlay and puts things back when done.
 @MainActor
 final class OverlayController: NSObject {
-    private var window: KioskWindow?
+    private var window: KioskPanel?
     private var blankWindows: [NSWindow] = []
     private var savedOptions: NSApplication.PresentationOptions = []
     private var previousApp: NSRunningApplication?
@@ -29,7 +29,7 @@ final class OverlayController: NSObject {
     /// Shields taken off screen. Held so a window animation can finish before dealloc.
     private var retired: [NSWindow] = []
     /// Every shield we created, so dismiss can release one that a rebuild swapped in.
-    private var covers: [KioskWindow] = []
+    private var covers: [KioskPanel] = []
     var onClosed: (() -> Void)?
     private(set) var session: QuizSession?
 
@@ -46,26 +46,13 @@ final class OverlayController: NSObject {
         .ignoresCycle,
     ]
 
-    /// Kiosk options. This combination follows Apple's rules:
-    /// hideMenuBar needs hideDock, disableAppleMenu needs hideMenuBar,
-    /// and the disable options need hideDock (or autoHideDock).
-    private static let kioskOptions: NSApplication.PresentationOptions = [
-        .hideDock,
-        .hideMenuBar,
-        .disableAppleMenu,
-        .disableProcessSwitching,
-        .disableForceQuit,
-        .disableSessionTermination,
-        .disableHideApplication,
-        .disableMenuBarTransparency,
-    ]
-
     func show(session: QuizSession) {
         if !lockActive { destroyShields() }
         guard !lockActive, window == nil, covers.isEmpty else { return }
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
 
         lockActive = true
+        becomeAccessory()
         self.session = session
         previousApp = NSWorkspace.shared.frontmostApplication
         if previousApp?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
@@ -74,6 +61,9 @@ final class OverlayController: NSObject {
 
         guard let w = makeCoverWindow(frame: screen.frame) else {
             lockActive = false
+            if NSApp.activationPolicy() != .regular {
+                NSApp.setActivationPolicy(.regular)
+            }
             return
         }
         w.contentView = NSHostingView(rootView: QuizView(session: session))
@@ -104,6 +94,7 @@ final class OverlayController: NSObject {
     /// New shield windows on the Space that is active right now, then order them front.
     private func rejoinCurrentSpace() {
         guard !closing, lockActive, !adjusting else { return }
+        becomeAccessory()
         guard session != nil, window?.contentView != nil else {
             if lockActive { close() }
             return
@@ -141,6 +132,7 @@ final class OverlayController: NSObject {
     private func performReinforce(relayoutScreens: Bool, activateApp: Bool) {
         guard !closing else { return }
         if adjusting { return }
+        if lockActive { becomeAccessory() }
         guard lockActive else {
             parkStrays()
             return
@@ -156,9 +148,14 @@ final class OverlayController: NSObject {
         bringToFront(activateApp: activateApp)
     }
 
-    private func makeCoverWindow(frame: NSRect) -> KioskWindow? {
+    private func makeCoverWindow(frame: NSRect) -> KioskPanel? {
         guard lockActive, !closing else { return nil }
-        let w = KioskWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        let w = KioskPanel(
+            contentRect: frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
         w.isReleasedWhenClosed = false
         w.animationBehavior = .none
         w.backgroundColor = Theme.windowBackground
@@ -238,30 +235,27 @@ final class OverlayController: NSObject {
             if window != nil || !covers.isEmpty { close() }
             return
         }
+        becomeAccessory()
         applyLockBehavior(to: w)
         for blank in blankWindows {
             applyLockBehavior(to: blank)
             blank.orderFrontRegardless()
         }
-        // Order onto the current Space before activating, so activation does not
-        // pull the user off a fullscreen Space and leave that Space uncovered.
+        // The panel has to be on this Space before the app activates, or macOS
+        // switches to the desktop Space where a regular app's window lives.
         w.orderFrontRegardless()
-        applyKioskOptions()
-        if activateApp {
-            if NSApp.isHidden { NSApp.unhide(nil) }
-            if NSApp.activationPolicy() != .regular {
-                NSApp.setActivationPolicy(.regular)
-            }
-            NSApp.activate(ignoringOtherApps: true)
-        }
         w.makeKey()
+        guard activateApp else { return }
+        if NSApp.isHidden { NSApp.unhide(nil) }
+        NSApp.activate(ignoringOtherApps: true)
         w.orderFrontRegardless()
     }
 
-    private func applyKioskOptions() {
-        guard window != nil else { return }
-        if NSApp.presentationOptions != Self.kioskOptions {
-            NSApp.presentationOptions = Self.kioskOptions
+    /// Accessory apps are the ones macOS will draw over another app's fullscreen Space.
+    private func becomeAccessory() {
+        guard lockActive, !closing else { return }
+        if NSApp.activationPolicy() != .accessory {
+            NSApp.setActivationPolicy(.accessory)
         }
     }
 
@@ -335,14 +329,21 @@ final class OverlayController: NSObject {
         wantActivate = false
         stopWatching()
 
-        let restore = savedOptions == Self.kioskOptions ? [] : savedOptions
-        NSApp.presentationOptions = restore
+        if NSApp.presentationOptions != savedOptions {
+            NSApp.presentationOptions = savedOptions
+        }
 
         destroyShields()
-        // AppKit can order the same window back on at the end of this event, at normal level.
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
+        // AppKit can order the same window back on at the end of this event.
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.lockActive, !self.closing else { return }
             self.destroyShields()
+            if NSApp.activationPolicy() != .regular {
+                NSApp.setActivationPolicy(.regular)
+            }
         }
 
         let app = previousApp
@@ -354,7 +355,7 @@ final class OverlayController: NSObject {
         onClosed?()
     }
 
-    /// Order out every shield we created. Only KioskWindow instances, never another AppKit window.
+    /// Order out every shield we created. Only KioskPanel instances, never another AppKit window.
     private func destroyShields() {
         let doomed = covers + visibleShields()
         window = nil
@@ -370,7 +371,7 @@ final class OverlayController: NSObject {
 
     /// Shields still on screen. Other borderless windows (toasts, menus) are left alone.
     private func visibleShields() -> [NSWindow] {
-        NSApp.windows.filter { $0 is KioskWindow && $0.isVisible }
+        NSApp.windows.filter { $0 is KioskPanel && $0.isVisible }
     }
 
     private func parkStrays() {
