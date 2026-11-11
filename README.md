@@ -49,7 +49,7 @@ When you first open it, Map Lock offers to move itself to your Applications fold
 
 Click the Map Lock icon in the Dock to open the home window. There you can:
 
-- **Quiz me now**: start a short unlock-style quiz any time.
+- **Unlock quiz**: start a short screen-locking quiz any time.
 - The home window uses a macOS **sidebar**: **Practice**, **Race**, **Stats**, **Account**, and **Settings**.
 - **Practice**: choose a destination, subject and answer method, then your pace (10 / 20 / 50 / All,
   or Speedrun). The session summary and **Start practice** stay visible as you scroll. Press **⌘Return**

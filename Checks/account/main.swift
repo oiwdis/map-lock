@@ -30,13 +30,14 @@ let left = SyncPayload(
 let right = SyncPayload(
     quizzes: [QuizRecord(date: day.addingTimeInterval(10), score: 2, total: 2, duration: 4, missed: [], kind: .lock, subject: .countries, scope: .asia, id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!)],
     speedruns: [],
-    speedrunBests: ["Europe": 25],
+    speedrunBests: ["Europe": 25, "countries|click|Europe": 30],
     countries: ["France": CountryStat(seen: 1, correct: 1, wrong: 0, box: 0, lastSeen: day.addingTimeInterval(5))]
 )
 let merged = left.merged(with: right)
 expect("union keeps both quizzes", merged.quizzes.count == 2)
-expect("faster europe best", merged.speedrunBests["Europe"] == 25)
-expect("world best kept", merged.speedrunBests["world"] == 90)
+expect("faster europe best migrates and deduplicates", merged.speedrunBests["countries|click|Europe"] == 25)
+expect("world best migrates", merged.speedrunBests["countries|click|world"] == 90)
+expect("legacy best keys are removed", merged.speedrunBests["Europe"] == nil && merged.speedrunBests["world"] == nil)
 expect("country counts take the max", merged.countries["France"]?.seen == 2 && merged.countries["France"]?.wrong == 1)
 
 let suite = "maplock.check.account.tmp"

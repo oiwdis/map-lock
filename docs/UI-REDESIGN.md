@@ -39,6 +39,8 @@ arithmetic in a map-feedback animation, and portable checks missing the custom-s
 storage dependency. Storage has been moved unchanged to a Foundation-only file so
 those checks can compile without SwiftUI. The stale unlock-stats assertion now checks the
 existing question-based continent breakdown and the explanatory note for legacy records.
+Account checks likewise verify the existing migration from legacy speedrun keys to
+subject/method/place keys, including deduplication.
 
 ## Manual release checks
 
