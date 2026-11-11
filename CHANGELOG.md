@@ -3,6 +3,7 @@
 ## 1.3.8
 
 - Microstate dots follow the country they stand for: white once found, the same hover and correct or wrong flash, then green again on the next quiz.
+- After the Mac wakes or unlocks, the lock quiz covers the current Space, including a fullscreen app, on every display. Switching Spaces does not leave the quiz behind.
 
 ## 1.3.7
 
