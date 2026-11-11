@@ -5,7 +5,7 @@
 # Options (used by release.sh):
 #   NO_INSTALL=1   only build build/Map Lock.app, do not install or quit the running copy
 #   NO_SIGN=1      skip the ad hoc signature (release.sh signs with Developer ID instead)
-#   VERSION=1.3.11  version number shown in Finder (default 1.3.11)
+#   VERSION=1.3.12  version number shown in Finder (default 1.3.12)
 set -euo pipefail
 
 # Always work from the folder this script is in.
@@ -13,7 +13,7 @@ cd "$(dirname "$0")"
 ROOT="$(pwd)"
 
 APP_NAME="Map Lock"
-VERSION="${VERSION:-1.3.11}"
+VERSION="${VERSION:-1.3.12}"
 # Sparkle compares CFBundleVersion. Keep it equal to the marketing version
 # unless a release explicitly overrides BUILD_NUMBER.
 BUILD_NUMBER="${BUILD_NUMBER:-$VERSION}"

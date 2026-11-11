@@ -84,20 +84,35 @@ final class OverlayController: NSObject {
         startWatching()
         startEscapeMonitor()
         bringToFront(activateApp: true)
+        scheduleLateRejoin()
+    }
 
-        // The fullscreen Space often finishes activating after unlock. Try again.
+    /// The fullscreen Space often becomes active after the quiz window already exists.
+    /// A window kept from the desktop Space does not follow it, so these rebuild the shield.
+    private func scheduleLateRejoin() {
         followUp?.cancel()
         followUp = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            try? await Task.sleep(nanoseconds: 500_000_000)
             guard let self, !Task.isCancelled, self.lockActive else { return }
-            self.bringToFront(activateApp: true)
-            try? await Task.sleep(nanoseconds: 700_000_000)
+            self.rejoinCurrentSpace()
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
             guard !Task.isCancelled, self.lockActive else { return }
-            self.bringToFront(activateApp: true)
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            guard !Task.isCancelled, self.lockActive else { return }
-            self.bringToFront(activateApp: true)
+            self.rejoinCurrentSpace()
         }
+    }
+
+    /// New shield windows on the Space that is active right now, then order them front.
+    private func rejoinCurrentSpace() {
+        guard !closing, lockActive, !adjusting else { return }
+        guard session != nil, window?.contentView != nil else {
+            if lockActive { close() }
+            return
+        }
+        adjusting = true
+        defer { adjusting = false }
+        recreateShields()
+        guard lockActive else { return }
+        bringToFront(activateApp: true)
     }
 
     /// Wake, unlock, or a Space change while the quiz is already up.
@@ -136,7 +151,7 @@ final class OverlayController: NSObject {
         }
         adjusting = true
         defer { adjusting = false }
-        if relayoutScreens { fitExistingWindows() }
+        if relayoutScreens { recreateShields() }
         guard lockActive else { return }
         bringToFront(activateApp: activateApp)
     }
@@ -180,37 +195,28 @@ final class OverlayController: NSObject {
         }
     }
 
-    /// Move the windows we already have. Creating a new one here was freeing the
-    /// previous window while its order-on animation still had KVO on it.
-    private func fitExistingWindows() {
-        guard lockActive, let existing = window, existing.contentView != nil, session != nil else {
-            close()
+    /// A reused window stays glued to the desktop Space it was born on, so a fullscreen
+    /// app's Space never sees it. Build a new one while that Space is active, and keep
+    /// the old one alive until AppKit is done with it.
+    private func recreateShields() {
+        guard lockActive, let existing = window, let content = existing.contentView, session != nil else {
             return
         }
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
-        applyLockBehavior(to: existing)
-        existing.setFrame(screen.frame, display: true)
-        var spare = blankWindows
-        var kept: [NSWindow] = []
+        guard let w = makeCoverWindow(frame: screen.frame) else { return }
+        w.contentView = content
+        window = w
+        let oldBlanks = blankWindows
+        blankWindows = []
+        park(existing)
+        for blank in oldBlanks {
+            park(blank)
+        }
+        guard lockActive else { return }
         for other in NSScreen.screens where other != screen {
-            if let index = spare.firstIndex(where: { framesClose($0.frame, other.frame) }) {
-                let blank = spare.remove(at: index)
-                applyLockBehavior(to: blank)
-                blank.setFrame(other.frame, display: true)
-                kept.append(blank)
-            } else if let blank = makeCoverWindow(frame: other.frame) {
-                kept.append(blank)
-            }
+            guard let blank = makeCoverWindow(frame: other.frame) else { continue }
+            blankWindows.append(blank)
         }
-        blankWindows = kept
-        for extra in spare {
-            park(extra)
-        }
-    }
-
-    private func framesClose(_ a: NSRect, _ b: NSRect) -> Bool {
-        abs(a.width - b.width) < 4 && abs(a.height - b.height) < 4
-            && abs(a.origin.x - b.origin.x) < 4 && abs(a.origin.y - b.origin.y) < 4
     }
 
     /// Hide a shield and keep it alive until its AppKit animation has finished.
@@ -243,6 +249,9 @@ final class OverlayController: NSObject {
         applyKioskOptions()
         if activateApp {
             if NSApp.isHidden { NSApp.unhide(nil) }
+            if NSApp.activationPolicy() != .regular {
+                NSApp.setActivationPolicy(.regular)
+            }
             NSApp.activate(ignoringOtherApps: true)
         }
         w.makeKey()
@@ -264,10 +273,9 @@ final class OverlayController: NSObject {
         reinforce(relayoutScreens: true)
     }
 
-    /// A Space swipe. Re-show the cover on the Space that just became active, without
-    /// activating the app (that would jump back to the Space the window was created on).
+    /// A Space swipe, including into a fullscreen app. Rebuild so the shield is born on that Space.
     @objc private func spaceChanged(_ note: Notification) {
-        reinforce(relayoutScreens: false, activateApp: false)
+        reinforce(relayoutScreens: true, activateApp: true)
     }
 
     private func startWatching() {
@@ -291,15 +299,18 @@ final class OverlayController: NSObject {
     }
 
     @objc private func screensWoke(_ note: Notification) {
-        reinforce(relayoutScreens: true)
+        reinforce(relayoutScreens: true, activateApp: true)
+        scheduleLateRejoin()
     }
 
     @objc private func sessionBack(_ note: Notification) {
-        reinforce(relayoutScreens: false)
+        reinforce(relayoutScreens: true, activateApp: true)
+        scheduleLateRejoin()
     }
 
     @objc private func screenUnlocked(_ note: Notification) {
-        reinforce(relayoutScreens: false)
+        reinforce(relayoutScreens: true, activateApp: true)
+        scheduleLateRejoin()
     }
 
     private func stopWatching() {

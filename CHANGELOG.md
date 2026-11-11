@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.12
+
+- After wake or unlock, the lock quiz appears on a fullscreen app's Space, not only on the desktop behind it.
+
 ## 1.3.11
 
 - Waking the Mac no longer crashes Map Lock while the lock quiz is coming on screen, and finishing the quiz still clears the full-screen cover.
