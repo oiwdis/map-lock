@@ -1396,162 +1396,162 @@ private struct SettingsPane: View {
             .listRowBackground(Color.clear)
 
             if category == .quizzes {
-            Section {
-                Toggle("Every unlock", isOn: $model.quizOnUnlock)
-                Toggle("Also on wake from sleep", isOn: $model.quizOnWake)
-                Picker("Scheduled quiz", selection: $model.scheduleKind) {
-                    ForEach(ScheduleKind.allCases, id: \.self) { kind in
-                        Text(kind.title).tag(kind)
-                    }
-                }
-                if model.scheduleKind == .fixed {
-                    ForEach($model.fixedSlots) { $slot in
-                        HStack {
-                            DatePicker("Every day at", selection: $slot.date, displayedComponents: .hourAndMinute)
-                            Button {
-                                model.removeTime(slot.id)
-                            } label: {
-                                Image(systemName: "minus.circle.fill")
-                            }
-                            .buttonStyle(.borderless)
-                            .disabled(model.fixedSlots.count <= 1)
-                            .help("Remove this time")
-                            .accessibilityLabel("Remove scheduled quiz time")
+                Section {
+                    Toggle("Every unlock", isOn: $model.quizOnUnlock)
+                    Toggle("Also on wake from sleep", isOn: $model.quizOnWake)
+                    Picker("Scheduled quiz", selection: $model.scheduleKind) {
+                        ForEach(ScheduleKind.allCases, id: \.self) { kind in
+                            Text(kind.title).tag(kind)
                         }
                     }
-                    SettingsRowButton(title: "Add a time") { model.addTime() }
-                }
-                if model.scheduleKind == .random {
-                    DatePicker("From", selection: $model.randomStart, displayedComponents: .hourAndMinute)
-                    DatePicker("To", selection: $model.randomEnd, displayedComponents: .hourAndMinute)
-                    if let warning = model.windowWarning {
-                        Text(warning).foregroundStyle(Theme.warn)
+                    if model.scheduleKind == .fixed {
+                        ForEach($model.fixedSlots) { $slot in
+                            HStack {
+                                DatePicker("Every day at", selection: $slot.date, displayedComponents: .hourAndMinute)
+                                Button {
+                                    model.removeTime(slot.id)
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                }
+                                .buttonStyle(.borderless)
+                                .disabled(model.fixedSlots.count <= 1)
+                                .help("Remove this time")
+                                .accessibilityLabel("Remove scheduled quiz time")
+                            }
+                        }
+                        SettingsRowButton(title: "Add a time") { model.addTime() }
                     }
-                    Toggle("Keep it a surprise", isOn: $model.surprise)
+                    if model.scheduleKind == .random {
+                        DatePicker("From", selection: $model.randomStart, displayedComponents: .hourAndMinute)
+                        DatePicker("To", selection: $model.randomEnd, displayedComponents: .hourAndMinute)
+                        if let warning = model.windowWarning {
+                            Text(warning).foregroundStyle(Theme.warn)
+                        }
+                        Toggle("Keep it a surprise", isOn: $model.surprise)
+                    }
+                    if model.scheduleKind != .off {
+                        Text(model.statusText)
+                            .foregroundStyle(Theme.text2)
+                        Text("If your Mac is asleep or locked at that time, the quiz shows when you come back that day.")
+                            .font(Theme.font(Theme.Size.xs))
+                            .foregroundStyle(Theme.text3)
+                    }
+                } header: {
+                    Text("When to quiz")
                 }
-                if model.scheduleKind != .off {
-                    Text(model.statusText)
-                        .foregroundStyle(Theme.text2)
-                    Text("If your Mac is asleep or locked at that time, the quiz shows when you come back that day.")
-                        .font(Theme.font(Theme.Size.xs))
-                        .foregroundStyle(Theme.text3)
-                }
-            } header: {
-                Text("When to quiz")
-            }
 
-            Section {
-                Picker("Unlock questions", selection: $model.questionCount) {
-                    ForEach(QuestionCount.allCases, id: \.self) { c in
-                        Text(c.title).tag(c)
+                Section {
+                    Picker("Unlock questions", selection: $model.questionCount) {
+                        ForEach(QuestionCount.allCases, id: \.self) { c in
+                            Text(c.title).tag(c)
+                        }
                     }
-                }
-                Toggle("Require 100% to unlock", isOn: $model.requirePerfect)
-                if model.requirePerfect {
-                    Text("Missed countries are re-asked until all are right. After 10 minutes you can unlock anyway.")
+                    Toggle("Require 100% to unlock", isOn: $model.requirePerfect)
+                    if model.requirePerfect {
+                        Text("Missed countries are re-asked until all are right. After 10 minutes you can unlock anyway.")
+                            .font(Theme.font(Theme.Size.xs))
+                            .foregroundStyle(Theme.text3)
+                    }
+                    Picker("Ask about", selection: $model.subject) {
+                        ForEach(QuizSubject.allCases, id: \.self) { s in
+                            Text(s.title).tag(s)
+                        }
+                    }
+                    Picker("Quiz type", selection: $model.quizType) {
+                        ForEach(QuizType.allCases, id: \.self) { type in
+                            Text(type.title).tag(type)
+                        }
+                    }
+                    Picker("Answer style", selection: $model.mode) {
+                        ForEach(QuizMode.allCases, id: \.self) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .disabled(model.quizType == .click)
+                } header: {
+                    Text("Unlock quiz")
+                } footer: {
+                    Text(model.settingsUnlockSummary)
                         .font(Theme.font(Theme.Size.xs))
-                        .foregroundStyle(Theme.text3)
                 }
-                Picker("Ask about", selection: $model.subject) {
-                    ForEach(QuizSubject.allCases, id: \.self) { s in
-                        Text(s.title).tag(s)
-                    }
-                }
-                Picker("Quiz type", selection: $model.quizType) {
-                    ForEach(QuizType.allCases, id: \.self) { type in
-                        Text(type.title).tag(type)
-                    }
-                }
-                Picker("Answer style", selection: $model.mode) {
-                    ForEach(QuizMode.allCases, id: \.self) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .disabled(model.quizType == .click)
-            } header: {
-                Text("Unlock quiz")
-            } footer: {
-                Text(model.settingsUnlockSummary)
-                    .font(Theme.font(Theme.Size.xs))
-            }
 
-            Section {
-                Toggle("Use custom set", isOn: $model.unlockUsesCustom)
-                if model.unlockUsesCustom {
-                    CustomSetSummary {
-                        editingCustom = true
+                Section {
+                    Toggle("Use custom set", isOn: $model.unlockUsesCustom)
+                    if model.unlockUsesCustom {
+                        CustomSetSummary {
+                            editingCustom = true
+                        }
+                        .id(model.customRevision)
                     }
-                    .id(model.customRevision)
+                    ForEach($model.regionFlags) { $flag in
+                        Toggle(flag.region.title, isOn: $flag.on)
+                    }
+                } header: {
+                    Text("Regions for unlock quizzes")
+                } footer: {
+                    Text(model.unlockUsesCustom && CustomSets.countries().count >= 2
+                         ? "Unlock can use the custom set alone, or together with any continents you leave on."
+                         : "At least one region stays on. Practice picks its own place.")
                 }
-                ForEach($model.regionFlags) { $flag in
-                    Toggle(flag.region.title, isOn: $flag.on)
-                }
-            } header: {
-                Text("Regions for unlock quizzes")
-            } footer: {
-                Text(model.unlockUsesCustom && CustomSets.countries().count >= 2
-                     ? "Unlock can use the custom set alone, or together with any continents you leave on."
-                     : "At least one region stays on. Practice picks its own place.")
-            }
-            .sheet(isPresented: $editingCustom) {
-                CustomSetEditor {
-                    model.customRevision += 1
-                }
+                .sheet(isPresented: $editingCustom) {
+                    CustomSetEditor {
+                        model.customRevision += 1
+                    }
             }
 
             }
 
             if category == .experience {
-            Section {
-                Picker("Appearance", selection: $model.appearance) {
-                    ForEach(AppearanceMode.allCases, id: \.self) { mode in
-                        Text(mode.title).tag(mode)
+                Section {
+                    Picker("Appearance", selection: $model.appearance) {
+                        ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                            Text(mode.title).tag(mode)
+                        }
                     }
+                } header: {
+                    Text("Appearance")
                 }
-            } header: {
-                Text("Appearance")
-            }
 
-            Section {
-                Toggle("Answer sounds", isOn: $model.answerSounds)
-                Toggle("Friend request notifications", isOn: $model.friendRequestNotifications)
-                Toggle("Show prompt next to cursor", isOn: $model.cursorPrompt)
-                Toggle("Block trackpad swipes while locked", isOn: $model.blockTrackpadSwipes)
-                Text("Space, Mission Control, and App Exposé swipes pause during a lock quiz, then go back to how you had them.")
-                    .font(Theme.font(Theme.Size.xs))
-                    .foregroundStyle(Theme.text3)
-                if model.blockTrackpadSwipes && !swipeAccess {
-                    Text("Allow Map Lock in Accessibility so it can stop the swipe on this Mac. The setting change alone does not.")
+                Section {
+                    Toggle("Answer sounds", isOn: $model.answerSounds)
+                    Toggle("Friend request notifications", isOn: $model.friendRequestNotifications)
+                    Toggle("Show prompt next to cursor", isOn: $model.cursorPrompt)
+                    Toggle("Block trackpad swipes while locked", isOn: $model.blockTrackpadSwipes)
+                    Text("Space, Mission Control, and App Exposé swipes pause during a lock quiz, then go back to how you had them.")
                         .font(Theme.font(Theme.Size.xs))
                         .foregroundStyle(Theme.text3)
-                    SettingsRowButton(title: "Allow Accessibility Access…") {
-                        TrackpadSwipeGuard.promptAccessibility()
-                        swipeAccess = TrackpadSwipeGuard.accessibilityTrusted
+                    if model.blockTrackpadSwipes && !swipeAccess {
+                        Text("Allow Map Lock in Accessibility so it can stop the swipe on this Mac. The setting change alone does not.")
+                            .font(Theme.font(Theme.Size.xs))
+                            .foregroundStyle(Theme.text3)
+                        SettingsRowButton(title: "Allow Accessibility Access…") {
+                            TrackpadSwipeGuard.promptAccessibility()
+                            swipeAccess = TrackpadSwipeGuard.accessibilityTrusted
+                        }
                     }
-                }
-                Toggle("Open at login", isOn: $model.openAtLogin)
-                    .disabled(!model.canUseLoginItem)
-                if let message = model.loginMessage {
-                    Text(message).foregroundStyle(Theme.warn)
-                }
-                if model.needsApproval {
-                    SettingsRowButton(title: "Open Login Items...") { model.openLoginItems() }
-                }
-                SettingsRowButton(title: "Hide Map Lock") { NSApp.terminate(nil) }
-            } header: {
-                Text("General")
-            } footer: {
-                Text("Hide keeps Map Lock running so quizzes still show. Force Quit is the only way to quit.")
+                    Toggle("Open at login", isOn: $model.openAtLogin)
+                        .disabled(!model.canUseLoginItem)
+                    if let message = model.loginMessage {
+                        Text(message).foregroundStyle(Theme.warn)
+                    }
+                    if model.needsApproval {
+                        SettingsRowButton(title: "Open Login Items...") { model.openLoginItems() }
+                    }
+                    SettingsRowButton(title: "Hide Map Lock") { NSApp.terminate(nil) }
+                } header: {
+                    Text("General")
+                } footer: {
+                    Text("Hide keeps Map Lock running so quizzes still show. Force Quit is the only way to quit.")
             }
             }
 
             if category == .data {
-            Section {
-                SettingsRowButton(title: "Reset stats…", destructive: true) { confirmReset = true }
-            } header: {
-                Text("Stats")
-            } footer: {
-                Text("Clears practice and unlock scores and personal bests. Races and friends are kept.")
+                Section {
+                    SettingsRowButton(title: "Reset stats…", destructive: true) { confirmReset = true }
+                } header: {
+                    Text("Stats")
+                } footer: {
+                    Text("Clears practice and unlock scores and personal bests. Races and friends are kept.")
             }
 
             }

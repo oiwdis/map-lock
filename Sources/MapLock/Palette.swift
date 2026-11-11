@@ -82,7 +82,7 @@ enum Palette {
 
     // Map
     static let sea = Shade(0xDCEBE7, 0x101E24)
-    static let land = Shade(0x477761, 0x648675)
+    static let land = Shade(0x477761, 0x5B7C6A)
     static let border = Shade(RGBA(white, 0.85), RGBA(white, 0.60))
     static let highlight = Shade(0xFFD60A, 0xFFD60A)
     static let highlightOutline = Shade(0x7A5A00, 0xFFD60A)

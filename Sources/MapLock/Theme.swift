@@ -6,8 +6,7 @@ import AppKit
 /// (set from the Appearance setting through NSApp.appearance).
 /// Solid surfaces and restrained color keep maps and learning feedback in focus.
 enum Theme {
-    // All values live in Palette.swift (shared with the Linux contrast test) and match
-    // the web demo. Every color follows the window's appearance, so a Light / Dark /
+    // All values live in Palette.swift (shared with the portable contrast check). Every color follows the window's appearance, so a Light / Dark /
     // Match system switch takes effect at once in every window.
 
     // Base and map
@@ -183,8 +182,7 @@ extension Color {
 
 // MARK: Backgrounds
 
-/// The softly colored backdrop behind the quiz (like a blurred wallpaper).
-/// Dark: deep blue and purple glows. Light: pale sky and mint glows.
+/// A restrained atlas backdrop that keeps attention on the learning task.
 struct Backdrop: View {
     @Environment(\.colorScheme) private var scheme
 
@@ -207,7 +205,7 @@ struct Backdrop: View {
     }
 }
 
-/// Glass panel: material, dark tint, 1px hairline border, soft inner highlight.
+/// Solid, adaptive panel with a fine border and optional soft elevation.
 struct GlassPanel: ViewModifier {
     var radius: CGFloat = Theme.Radius.xl
     var strong = false
@@ -216,13 +214,7 @@ struct GlassPanel: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         return content
-            .background(
-                ZStack {
-                    // Dialogs use a near-solid themed fill, not a material, so they always
-                    // match Light / Dark and their text never sits on a dark blur in Light.
-                    shape.fill(strong ? Theme.dialog : Theme.glass)
-                }
-            )
+            .background(shape.fill(strong ? Theme.dialog : Theme.glass))
             .overlay(shape.strokeBorder(Theme.hairline2, lineWidth: 1))
             .overlay(
                 shape.strokeBorder(
@@ -315,7 +307,6 @@ private struct QuietButtonBody<Label: View>: View {
     let trigger: () -> Void
     @State private var hovering = false
     @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         label
