@@ -556,7 +556,16 @@ struct HomeView: View {
                     Section {
                         ForEach(HomeTab.allCases) { tab in
                             HStack(spacing: Theme.Space.s2) {
-                                Label(tab.title, systemImage: tab.symbol)
+                                Label {
+                                    Text(tab.title)
+                                } icon: {
+                                    if model.homeTab == tab {
+                                        Image(systemName: tab.symbol)
+                                    } else {
+                                        Image(systemName: tab.symbol)
+                                            .foregroundStyle(Theme.text2)
+                                    }
+                                }
                                 Spacer(minLength: 4)
                                 if tab == .race && account.raceInvites.count > 0 {
                                     FriendCountBadge(count: account.raceInvites.count, noun: "race invites")
@@ -930,12 +939,6 @@ private struct StatsPane: View {
 
     var body: some View {
         Form {
-            Section {
-                PageHeading(eyebrow: "Stats", title: "See how far you’ve come.",
-                            subtitle: "Your progress, personal bests, and what to practice next.")
-                    .padding(.vertical, Theme.Space.s2)
-            }
-            .listRowBackground(Color.clear)
             if !snap.practice.hasData && !snap.unlock.hasData && snap.speedrunRuns.isEmpty {
                 Section {
                     LearningEmptyState(symbol: "chart.bar.xaxis", title: "Your first discovery starts here",
@@ -1139,6 +1142,15 @@ private struct StatsPane: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            PageHeading(eyebrow: "Stats", title: "See how far you’ve come.",
+                        subtitle: "Your progress, personal bests, and what to practice next.")
+                .frame(maxWidth: 600, alignment: .leading)
+                .padding(Theme.Space.s6)
+                .frame(maxWidth: .infinity)
+                .background(Theme.background)
+        }
         .confirmationDialog(
             "Reset stats?",
             isPresented: $confirmReset,
@@ -1382,19 +1394,6 @@ private struct SettingsPane: View {
 
     var body: some View {
         Form {
-            Section {
-                PageHeading(eyebrow: "Settings", title: "A routine that fits you.",
-                            subtitle: "Changes save automatically. Practice has its own session options.")
-                Picker("Settings category", selection: $category) {
-                    ForEach(SettingsCategory.allCases) { item in
-                        Text(item.rawValue).tag(item)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-            .listRowBackground(Color.clear)
-
             if category == .quizzes {
                 Section {
                     Toggle("Every unlock", isOn: $model.quizOnUnlock)
@@ -1555,6 +1554,24 @@ private struct SettingsPane: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: Theme.Space.s4) {
+                PageHeading(eyebrow: "Settings", title: "A routine that fits you.",
+                            subtitle: "Changes save automatically. Practice has its own session options.")
+                Picker("Settings category", selection: $category) {
+                    ForEach(SettingsCategory.allCases) { item in
+                        Text(item.rawValue).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            .frame(maxWidth: 600, alignment: .leading)
+            .padding(Theme.Space.s6)
+            .frame(maxWidth: .infinity)
+            .background(Theme.background)
+        }
         .toggleStyle(.switch)
         .onAppear { swipeAccess = TrackpadSwipeGuard.accessibilityTrusted }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in

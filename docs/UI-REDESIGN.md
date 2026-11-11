@@ -16,9 +16,9 @@ and marketing Worker are outside this change.
 | Races | Creating and joining compete visually; the waiting state offers little guidance. | Destination-oriented introduction, stronger Create action, explicit Join section and race-settings label, actionable waiting copy, accessible invite/progress controls, and a clearer result header. |
 | Stats | Empty sections describe missing data without giving a next step. | Overview heading, stronger primary metrics, a first-session empty state with a Practice action, and accurate sync copy. |
 | Account and friends | Generic sign-in heading; account-free capabilities are overstated; icon actions lack labels. | State-specific sign-in/create-account headings, accurate account benefits, clearer friend instructions, labeled actions, and an actionable leaderboard empty state. |
-| Settings | Scheduling, quiz content, appearance, and deletion share one long form. | Three categories: Quizzes, App & appearance, Your data. Existing native controls, immediate saving, and destructive confirmations remain. |
+| Settings | Scheduling, quiz content, appearance, and deletion share one long form. | Three persistent categories: Quizzes, App & appearance, Your data. Existing native controls, immediate saving, and destructive confirmations remain. |
 | Custom sets | “Type” does not explain that it searches; empty search feedback is terse. | “Search countries,” clearer search/empty-state copy, a labeled clear action, and reduced-motion-aware transitions. |
-| Accessibility | Custom click surfaces are not consistently native buttons. | Native Button semantics around first-click targets, disabled-state propagation, explicit selected states and progress labels, hidden background content behind quiz dialogs, and broader Reduce Motion support. |
+| Accessibility | Custom click surfaces are not consistently native buttons. | Native Button semantics around first-click targets, disabled-state propagation, explicit selected states and progress labels, hidden background content behind quiz dialogs, larger labeled zoom controls, and broader Reduce Motion support. |
 
 ## Validation
 
@@ -34,13 +34,14 @@ and answer feedback. It does not start the app delegate, screen locks, schedule 
 or update checks. It substitutes an inert keychain implementation and uses isolated
 model stores. The workflow uploads the PNGs as `native-ui-previews`.
 
-CI also exposed two existing verification problems fixed here: mixed Double/CGFloat
+CI also exposed existing verification problems fixed here: mixed Double/CGFloat
 arithmetic in a map-feedback animation, and portable checks missing the custom-set
 storage dependency. Storage has been moved unchanged to a Foundation-only file so
 those checks can compile without SwiftUI. The stale unlock-stats assertion now checks the
 existing question-based continent breakdown and the explanatory note for legacy records.
 Account checks likewise verify the existing migration from legacy speedrun keys to
-subject/method/place keys, including deduplication.
+subject/method/place keys, including deduplication. The zoom math check excludes its
+SwiftUI controls on macOS as well as on Linux.
 
 ## Manual release checks
 

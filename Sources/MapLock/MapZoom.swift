@@ -5,7 +5,7 @@ import CoreGraphics
 #if canImport(AppKit)
 import AppKit
 #endif
-#if canImport(SwiftUI)
+#if canImport(SwiftUI) && !MAPLOCK_LOGIC_CHECKS
 import SwiftUI
 #endif
 
@@ -110,7 +110,7 @@ struct MapZoomState: Equatable {
     }
 }
 
-#if canImport(SwiftUI)
+#if canImport(SwiftUI) && !MAPLOCK_LOGIC_CHECKS
 extension GraphicsContext {
     /// Zoom around the view center + offset. Draw land in this space; use stroke `/ zoom.scale`.
     mutating func beginMapZoom(_ zoom: MapZoomState, size: CGSize) {
@@ -127,41 +127,43 @@ struct MapZoomControls: View {
 
     var body: some View {
         VStack(spacing: 1) {
-            zoomButton("plus", enabled: zoom.scale < MapZoomState.maxScale - 0.01) {
+            zoomButton("plus", label: "Zoom in", enabled: zoom.scale < MapZoomState.maxScale - 0.01) {
                 zoom.zoomIn(anchor: CGPoint(x: size.width / 2, y: size.height / 2), in: size)
             }
             Divider().frame(width: 18)
-            zoomButton("minus", enabled: zoom.scale > MapZoomState.minScale + 0.01) {
+            zoomButton("minus", label: "Zoom out", enabled: zoom.scale > MapZoomState.minScale + 0.01) {
                 zoom.zoomOut(anchor: CGPoint(x: size.width / 2, y: size.height / 2), in: size)
             }
             Divider().frame(width: 18)
-            zoomButton("arrow.counterclockwise", enabled: zoom.isZoomed) {
+            zoomButton("arrow.counterclockwise", label: "Reset zoom", enabled: zoom.isZoomed) {
                 zoom.reset()
             }
             .help("Reset zoom")
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 4)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+                .strokeBorder(Theme.hairline2, lineWidth: 1)
         )
     }
 
-    private func zoomButton(_ systemName: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+    private func zoomButton(_ systemName: String, label: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         HitButton(enabled: enabled, action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 12, weight: .semibold))
-                .frame(width: 24, height: 22)
+                .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
         }
         .opacity(enabled ? 1 : 0.35)
+        .accessibilityLabel(label)
+        .help(label)
     }
 }
 #endif
 
-#if canImport(AppKit) && canImport(SwiftUI)
+#if canImport(AppKit) && canImport(SwiftUI) && !MAPLOCK_LOGIC_CHECKS
 /// AppKit interaction layer: pinch/scroll zoom, drag pan when zoomed, click + hover for answers.
 struct MapInteractionOverlay: NSViewRepresentable {
     var size: CGSize

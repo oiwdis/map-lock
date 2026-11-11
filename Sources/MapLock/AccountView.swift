@@ -1112,6 +1112,7 @@ private struct AccountField<Content: View>: View {
                 .font(Theme.font(Theme.Size.xs, .semibold))
                 .foregroundStyle(Theme.text3)
             content
+                .controlSize(.large)
         }
     }
 }
@@ -1145,6 +1146,7 @@ private struct PasswordField: View {
                         .frame(width: 28, height: 28)
                 }
                 .help(shown ? "Hide password" : "Show password")
+                .accessibilityLabel(shown ? "Hide password" : "Show password")
             }
         }
     }
