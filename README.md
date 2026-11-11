@@ -50,13 +50,15 @@ When you first open it, Map Lock offers to move itself to your Applications fold
 Click the Map Lock icon in the Dock to open the home window. There you can:
 
 - **Quiz me now**: start a short unlock-style quiz any time.
-- The home window uses a macOS **sidebar**: **Practice**, **Stats**, and **Settings**.
-- **Practice**: pick a continent or the whole world, choose a length (10 / 20 / 50 / All), then
-  **Start practice**. Opens in a normal window sized to your screen. No lock.
+- The home window uses a macOS **sidebar**: **Practice**, **Race**, **Stats**, **Account**, and **Settings**.
+- **Practice**: choose a destination, subject and answer method, then your pace (10 / 20 / 50 / All,
+  or Speedrun). The session summary and **Start practice** stay visible as you scroll. Press **⌘Return**
+  to start. Practice opens in a normal window and never locks your screen.
 - **Stats**: best score, best time, streak, and most-missed countries (this Mac only).
-- **Settings**: unlock / wake / schedule, question count, require 100%, ask-about (countries /
-  capitals / flags), typing or click mode, appearance, regions, open at login.
-- **Quiz me now** is in the toolbar (and still in the menu bar).
+- **Settings** groups controls into **Quizzes**, **App & appearance**, and **Your data**. Changes save
+  automatically. Quizzes contains unlock/wake schedules, question count, subject, answer method, and regions;
+  App & appearance contains theme, sounds, notifications, and login options; Your data contains stats reset.
+- **Unlock quiz** in the toolbar starts a screen-locking quiz using your unlock settings. The menu bar still calls this **Quiz me now**.
 - See your day streak and how far you are through the current round.
 - **Quiz type**: **Name the country**, **Click the country**, or **Mix**.
 - **Ask about**: **Countries** (default), **Capitals**, or **Flags** (emoji flags, offline). Capitals and
@@ -131,6 +133,9 @@ Map Lock, and click Force Quit. Log out, restart and shut down still work as nor
 
 - To update: download the newest `MapLock.zip` and replace the app in Applications.
 - To remove: turn off Open at login, Force Quit Map Lock, then drag Map Lock from Applications to the Trash.
+
+The [UI redesign notes](docs/UI-REDESIGN.md) describe the native design choices, automated checks,
+and manual release checks.
 
 ## Build from source
 

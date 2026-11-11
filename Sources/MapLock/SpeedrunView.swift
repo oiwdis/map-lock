@@ -209,6 +209,11 @@ private struct SpeedrunFinishedView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Text("SPEEDRUN COMPLETE")
+                .font(Theme.font(Theme.Size.xs, .semibold))
+                .tracking(1.4)
+                .foregroundStyle(Theme.accent)
+                .padding(.bottom, Theme.Space.s3)
             Text(session.total == 0 ? "Nothing to ask" : session.finalTimeText)
                 .font(.system(size: 52, weight: .bold, design: .rounded))
                 .kerning(-1)

@@ -460,7 +460,7 @@ private struct QuestionView: View {
     private var feedbackRow: some View {
         HStack(spacing: Theme.Space.s4) {
             if session.phase == .answered {
-                Text(session.feedback)
+                Label(session.feedback, systemImage: session.lastWasRight ? "checkmark.circle.fill" : "arrow.uturn.backward.circle")
                     .font(Theme.font(Theme.Size.md, .semibold))
                     .foregroundStyle(session.lastWasRight ? Theme.good : Theme.bad)
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))

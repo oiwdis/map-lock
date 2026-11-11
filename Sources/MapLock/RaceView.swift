@@ -442,6 +442,11 @@ struct RaceView: View {
                     .font(Theme.font(Theme.Size.lg, .semibold))
                     .foregroundStyle(Theme.text)
             }
+            Text("Share this code or send an invite link. The race starts when your friend joins.")
+                .font(Theme.font(Theme.Size.sm))
+                .foregroundStyle(Theme.text2)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             Button(action: copyCode) {
                 Text(session.ticket.code)
                     .font(.system(size: 40, weight: .bold, design: .monospaced))
@@ -469,6 +474,7 @@ struct RaceView: View {
                 }
                 .buttonStyle(.plain)
                 .help(linkCopied ? "Copied" : "Copy link")
+                .accessibilityLabel(linkCopied ? "Invite link copied" : "Copy invite link")
             }
             .padding(.leading, Theme.Space.s3)
             .padding(.trailing, Theme.Space.s1)
@@ -629,6 +635,8 @@ struct RaceView: View {
             }
             ProgressView(value: Double(session.opponentFound), total: Double(max(session.opponentTotal, 1)))
                 .tint(Theme.accent)
+                .accessibilityLabel("\(session.opponentName)’s progress")
+                .accessibilityValue("\(session.opponentFound) of \(session.opponentTotal) countries")
         }
     }
 
@@ -706,6 +714,12 @@ private struct RaceResultView: View {
                     .allowsHitTesting(false)
             }
             VStack(spacing: Theme.Space.s4) {
+                Image(systemName: won ? "trophy.fill" : "flag.checkered")
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 64, height: 64)
+                    .background(Circle().fill(Theme.accent.opacity(0.10)))
+                    .accessibilityHidden(true)
                 Text(headline)
                     .font(Theme.font(Theme.Size.xl, .bold))
                     .foregroundStyle(Theme.text)
