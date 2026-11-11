@@ -1347,6 +1347,7 @@ private struct SettingsPane: View {
     var onResetStats: () -> Void = {}
     @State private var editingCustom = false
     @State private var confirmReset = false
+    @State private var swipeAccess = TrackpadSwipeGuard.accessibilityTrusted
 
     var body: some View {
         Form {
@@ -1478,6 +1479,15 @@ private struct SettingsPane: View {
                 Text("Space, Mission Control, and App Exposé swipes pause during a lock quiz, then go back to how you had them.")
                     .font(Theme.font(Theme.Size.xs))
                     .foregroundStyle(Theme.text3)
+                if model.blockTrackpadSwipes && !swipeAccess {
+                    Text("Allow Map Lock in Accessibility so it can stop the swipe on this Mac. The setting change alone does not.")
+                        .font(Theme.font(Theme.Size.xs))
+                        .foregroundStyle(Theme.text3)
+                    SettingsRowButton(title: "Allow Accessibility Access…") {
+                        TrackpadSwipeGuard.promptAccessibility()
+                        swipeAccess = TrackpadSwipeGuard.accessibilityTrusted
+                    }
+                }
                 Toggle("Open at login", isOn: $model.openAtLogin)
                     .disabled(!model.canUseLoginItem)
                 if let message = model.loginMessage {
@@ -1495,6 +1505,10 @@ private struct SettingsPane: View {
         }
         .formStyle(.grouped)
         .toggleStyle(.switch)
+        .onAppear { swipeAccess = TrackpadSwipeGuard.accessibilityTrusted }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            swipeAccess = TrackpadSwipeGuard.accessibilityTrusted
+        }
         .confirmationDialog(
             "Reset stats?",
             isPresented: $confirmReset,

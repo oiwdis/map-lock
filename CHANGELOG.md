@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.16
+
+- Trackpad swipes that change Space are blocked while a lock quiz is up, including on macOS 26. Map Lock asks for Accessibility access so it can stop the swipe. The previous trackpad setting still comes back when the quiz closes.
+
 ## 1.3.15
 
 - While a lock quiz is up, trackpad swipes that change Space or open Mission Control and App Exposé are turned off. The previous setting is saved first and put back when the quiz closes, or the next time Map Lock opens if it quit during the quiz. The switch is in Settings.

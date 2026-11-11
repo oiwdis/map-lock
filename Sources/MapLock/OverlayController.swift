@@ -87,6 +87,7 @@ final class OverlayController: NSObject {
         savedOptions = NSApp.presentationOptions
         startEscapeMonitor()
         bringToFront(activateApp: true)
+        TrackpadSwipeGuard.noteLockedSpace()
         scheduleLateRejoin()
     }
 
@@ -284,7 +285,9 @@ final class OverlayController: NSObject {
     }
 
     /// A Space swipe, including into a fullscreen app. Rebuild so the shield is born on that Space.
+    /// A swipe the event tap missed is sent back to the Space the lock was shown on first.
     @objc private func spaceChanged(_ note: Notification) {
+        if TrackpadSwipeGuard.holdSpaceIfNeeded() { return }
         reinforce(relayoutScreens: true, activateApp: true)
     }
 
