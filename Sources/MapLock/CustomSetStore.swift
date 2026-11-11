@@ -53,4 +53,3 @@ enum CustomSets {
         return count == 1 ? "Custom (1 country)" : "Custom (\(count) countries)"
     }
 }
-
