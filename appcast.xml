@@ -6,6 +6,15 @@
     <description>Map Lock updates.</description>
     <language>en</language>
     <item>
+      <title>Version 1.3.13</title>
+      <pubDate>Wed, 11 Nov 2026 17:16:00 +0000</pubDate>
+      <sparkle:version>1.3.13</sparkle:version>
+      <sparkle:shortVersionString>1.3.13</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description>The lock now shows on top of fullscreen apps after wake.</description>
+      <enclosure url="https://github.com/oiwdis/map-lock/releases/download/v1.3.13/MapLock.zip" sparkle:edSignature="/EE5WJqEuL460TZEUdwnJqkKtsMtlVExA4JudOR4awcojYNP2eMeHNPXUphjktUnDjx8HIkzNoTD9Tjyf0ejAg==" length="3912115" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.3.12</title>
       <pubDate>Wed, 11 Nov 2026 17:06:00 +0000</pubDate>
       <sparkle:version>1.3.12</sparkle:version>
