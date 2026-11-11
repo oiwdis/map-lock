@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.10
+
+- Finishing the lock quiz closes the full-screen cover. It no longer stays on the desktop as a blank window.
+
 ## 1.3.9
 
 - Finishing the unlock quiz and choosing Back to desktop leaves the desktop. A dismissed lock cannot come back as an empty white screen.

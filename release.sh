@@ -1,6 +1,6 @@
 #!/bin/bash
 # Makes a signed, notarized dist/MapLock.zip that friends can open with no warnings.
-# Run it on your Mac:  ./release.sh            (or  VERSION=1.3.9 ./release.sh)
+# Run it on your Mac:  ./release.sh            (or  VERSION=1.3.10 ./release.sh)
 # One-time setup first: see RELEASING.md.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -10,7 +10,7 @@ APP_NAME="Map Lock"
 APP="$ROOT/build/$APP_NAME.app"
 DIST="$ROOT/dist"
 PROFILE="${NOTARY_PROFILE:-maplock-notary}"
-export VERSION="${VERSION:-1.3.9}"
+export VERSION="${VERSION:-1.3.10}"
 # sign_update lives here. On Elliot's Mac that is /Users/elliotma/SparkleTools/bin.
 SPARKLE_BIN="${SPARKLE_BIN:-$HOME/SparkleTools/bin}"
 
